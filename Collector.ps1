@@ -1,11 +1,15 @@
 #Requires -Version 5.1
 # DFIR Volatile Collector
-# Version: 1.1
+# Version: 1.2
 # CHANGES:
 #   1.0 - Initial implementation: pslist + network TCP + DNS cache
 #         PS 2.0 through 5.1 target support via dual WMI/CIM paths
 #         WinRM-only connectivity, read-only, no external calls
 #   1.1 - Fix SHA256 computation: use UTF8 string bytes (no BOM/newline ambiguity)
+#   1.2 - Prompt for credentials when connecting to remote target with no -Credential supplied
+#         Fix remote capability probe: use WinRM only (no DCOM/RPC), port 5985 explicit
+#         Reduce retry wait to 5s for faster failure detection
+#         Auto-add target to WinRM TrustedHosts for non-domain connections
 
 [CmdletBinding()]
 param(
@@ -26,9 +30,9 @@ Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 #region --- Constants ---
-$COLLECTOR_VERSION = "1.1"
-$MAX_RETRY         = 5
-$RETRY_WAIT_SEC    = 30
+$COLLECTOR_VERSION = "1.2"
+$MAX_RETRY         = 3
+$RETRY_WAIT_SEC    = 5
 $OP_TIMEOUT_SEC    = 30
 #endregion
 
@@ -169,33 +173,38 @@ function Get-TargetCaps {
                 try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache  -OperationTimeoutSec $OP_TIMEOUT_SEC -ErrorAction Stop | Select-Object -First 1 | Out-Null; $c.HasDNSClient = $true } catch {}
             }
         } else {
-            # Remote: WMI first (works from PS 5.1 analyst regardless of target version)
-            $wmiArgs = @{ ComputerName = $Target; ErrorAction = 'Stop' }
-            if ($Cred) { $wmiArgs.Credential = $Cred }
-            $os = Get-WmiObject Win32_OperatingSystem @wmiArgs
-            $c.OSVersion = $os.Version; $c.OSBuild = $os.BuildNumber; $c.OSCaption = $os.Caption
-            $tz = Get-WmiObject Win32_TimeZone @wmiArgs; $c.TimezoneOffsetMinutes = $tz.Bias
-
-            # PSVersion + capability flags via WinRM PSSession
+            # Remote: use WinRM only (no DCOM/RPC) — all probing via PSSession
             $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
-            $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop' }
+            $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop'; Port = 5985 }
             if ($Cred) { $spArgs.Credential = $Cred }
             $sess = New-PSSession @spArgs
             try {
                 $r = Invoke-Command -Session $sess -ScriptBlock {
-                    $v     = $PSVersionTable.PSVersion.Major
-                    $hCim  = $v -ge 3
-                    $hNet  = $false; $hDns = $false
+                    $v   = $PSVersionTable.PSVersion.Major
+                    $os  = Get-WmiObject Win32_OperatingSystem
+                    $tz  = Get-WmiObject Win32_TimeZone
+                    $hCim = $v -ge 3
+                    $hNet = $false; $hDns = $false
                     if ($hCim) {
                         try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -ErrorAction Stop | Select-Object -First 1 | Out-Null; $hNet = $true } catch {}
                         try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache  -ErrorAction Stop | Select-Object -First 1 | Out-Null; $hDns = $true } catch {}
                     }
                     $inst = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'InstallationType' -ErrorAction SilentlyContinue
-                    $isc  = ($inst -and $inst.InstallationType -eq 'Server Core')
-                    New-Object PSObject -Property @{ PSVersion=$v; HasCIM=$hCim; HasNetTCPIP=$hNet; HasDNSClient=$hDns; IsServerCore=$isc }
+                    New-Object PSObject -Property @{
+                        PSVersion=$v; OSVersion=$os.Version; OSBuild=$os.BuildNumber; OSCaption=$os.Caption
+                        TZBias=$tz.Bias; HasCIM=$hCim; HasNetTCPIP=$hNet; HasDNSClient=$hDns
+                        IsServerCore=($inst -and $inst.InstallationType -eq 'Server Core')
+                    }
                 }
-                $c.PSVersion = $r.PSVersion; $c.HasCIM = $r.HasCIM
-                $c.HasNetTCPIP = $r.HasNetTCPIP; $c.HasDNSClient = $r.HasDNSClient; $c.IsServerCore = $r.IsServerCore
+                $c.PSVersion             = $r.PSVersion
+                $c.OSVersion             = $r.OSVersion
+                $c.OSBuild               = $r.OSBuild
+                $c.OSCaption             = $r.OSCaption
+                $c.TimezoneOffsetMinutes = $r.TZBias
+                $c.HasCIM                = $r.HasCIM
+                $c.HasNetTCPIP           = $r.HasNetTCPIP
+                $c.HasDNSClient          = $r.HasDNSClient
+                $c.IsServerCore          = $r.IsServerCore
             } finally { Remove-PSSession $sess -ErrorAction SilentlyContinue }
         }
     } catch { $c.Error = $_.Exception.Message }
@@ -630,12 +639,32 @@ foreach ($target in $Targets) {
 
     Write-Log 'INFO' "Collection start | target=$target"
 
+    # For remote targets, prompt for credentials if none provided
+    $isLocalTarget = ($target -eq 'localhost' -or $target -eq '127.0.0.1' -or $target -ieq $env:COMPUTERNAME)
+    $effectiveCred = $Credential
+    if (-not $isLocalTarget -and -not $effectiveCred) {
+        Write-Host "Enter credentials for $target (leave blank to attempt current user):" -ForegroundColor Cyan
+        try { $effectiveCred = Get-Credential -Message "Credentials for $target" -ErrorAction Stop } catch { $effectiveCred = $null }
+    }
+
+    # Ensure target is in WinRM TrustedHosts (required for non-domain WinRM connections)
+    if (-not $isLocalTarget) {
+        try {
+            $current = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
+            if ($current -ne '*' -and $current -notmatch [regex]::Escape($target)) {
+                $newList = if ($current) { "$current,$target" } else { $target }
+                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
+                Write-Log 'INFO' "Added $target to WinRM TrustedHosts"
+            }
+        } catch { Write-Log 'WARN' "Could not update TrustedHosts: $($_.Exception.Message)" }
+    }
+
     # Capability probe with retry
     $caps     = $null
     $connected = $false
     for ($attempt = 1; $attempt -le $MAX_RETRY; $attempt++) {
         try {
-            $caps = Get-TargetCaps -Target $target -Cred $Credential
+            $caps = Get-TargetCaps -Target $target -Cred $effectiveCred
             if ($caps.Error) { throw $caps.Error }
             $connected = $true
             Write-Log 'INFO' "Capability probe OK | PS=$($caps.PSVersion) | CIM=$($caps.HasCIM) | NetCIM=$($caps.HasNetTCPIP) | DnsCIM=$($caps.HasDNSClient)"
@@ -653,17 +682,17 @@ foreach ($target in $Targets) {
 
     # Collect artifacts
     Write-Log 'INFO' "Collecting processes"
-    $pResult  = Get-ProcessData -Target $target -Cred $Credential -Caps $caps
+    $pResult  = Get-ProcessData -Target $target -Cred $effectiveCred -Caps $caps
     $collErr += $pResult.errors
     Write-Log 'INFO' "Processes complete | count=$($pResult.data.Count)"
 
     Write-Log 'INFO' "Collecting network TCP"
-    $nResult  = Get-NetworkData -Target $target -Cred $Credential -Caps $caps
+    $nResult  = Get-NetworkData -Target $target -Cred $effectiveCred -Caps $caps
     $collErr += $nResult.errors
     Write-Log 'INFO' "Network complete | count=$($nResult.data.Count) | source=$($nResult.source)"
 
     Write-Log 'INFO' "Collecting DNS cache"
-    $dResult  = Get-DnsData -Target $target -Cred $Credential -Caps $caps
+    $dResult  = Get-DnsData -Target $target -Cred $effectiveCred -Caps $caps
     $collErr += $dResult.errors
     Write-Log 'INFO' "DNS complete | count=$($dResult.data.Count) | source=$($dResult.source)"
 
