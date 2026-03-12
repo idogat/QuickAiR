@@ -642,6 +642,7 @@ function renderProcesses() {
       <div id="proc-vs"></div>
     </div>`;
 
+  state.vsInstances['proc'] = null;
   buildProcHeader(COLS);
   applyProcFilters();
 }
@@ -856,6 +857,7 @@ function renderNetwork() {
       </tr></thead><tbody id="ip-summary-body"></tbody></table>
     </div>`;
 
+  state.vsInstances['net'] = null;
   buildNetHeader(COLS);
   applyNetFilters();
 }
@@ -1079,6 +1081,7 @@ function renderDns() {
       <div id="dns-vs"></div>
     </div>`;
 
+  state.vsInstances['dns'] = null;
   buildDnsHeader(COLS);
   applyDnsFilters();
 }

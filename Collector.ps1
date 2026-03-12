@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # DFIR Volatile Collector
-# Version: 1.2
+# Version: 1.3
 # CHANGES:
 #   1.0 - Initial implementation: pslist + network TCP + DNS cache
 #         PS 2.0 through 5.1 target support via dual WMI/CIM paths
@@ -10,6 +10,8 @@
 #         Fix remote capability probe: use WinRM only (no DCOM/RPC), port 5985 explicit
 #         Reduce retry wait to 5s for faster failure detection
 #         Auto-add target to WinRM TrustedHosts for non-domain connections
+#   1.3 - Fix output path resolving to system32 when run as Administrator without -OutputPath
+#         OutputPath now always resolves relative to script location, not CWD
 
 [CmdletBinding()]
 param(
@@ -20,7 +22,7 @@ param(
     [System.Management.Automation.PSCredential]$Credential,
 
     [Parameter(Mandatory=$false)]
-    [string]$OutputPath = ".\DFIROutput\",
+    [string]$OutputPath = "",
 
     [Parameter(Mandatory=$false)]
     [switch]$Quiet
@@ -29,8 +31,15 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
+#region --- Resolve OutputPath to absolute ---
+if (-not $OutputPath) {
+    $OutputPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "DFIROutput"
+}
+$OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+#endregion
+
 #region --- Constants ---
-$COLLECTOR_VERSION = "1.2"
+$COLLECTOR_VERSION = "1.3"
 $MAX_RETRY         = 3
 $RETRY_WAIT_SEC    = 5
 $OP_TIMEOUT_SEC    = 30
