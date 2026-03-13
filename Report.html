@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DFIR Volatile Analyzer</title>
+<title>Quicker</title>
 <style>
 :root {
   --bg:      #0d1117;
@@ -92,8 +92,19 @@ input::placeholder{color:var(--muted)}
 .expand-tbl tr:hover td{background:var(--row-hov)}
 
 /* FLEET */
-#fleet-table .tbl-header{grid-template-columns:180px 200px 60px 120px 80px 100px 100px 80px 160px}
-#fleet-table .vrow{grid-template-columns:180px 200px 60px 120px 80px 100px 100px 80px 160px}
+#fleet-table .tbl-header{grid-template-columns:180px 200px 60px 110px 80px 100px 100px 80px 60px 120px}
+#fleet-table .vrow{grid-template-columns:180px 200px 60px 110px 80px 100px 100px 80px 60px 120px}
+
+/* MANIFEST PANEL */
+#manifest-panel .mp-wrap{border:1px solid var(--border);border-radius:4px;overflow:hidden}
+#manifest-panel .mp-title{padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);display:flex;align-items:center;justify-content:space-between}
+#manifest-panel .mp-title span{color:var(--accent)}
+#manifest-panel .mp-body{padding:10px 16px;font-size:12px}
+#manifest-panel .mp-grid{display:grid;grid-template-columns:220px 1fr;gap:4px 12px}
+#manifest-panel .mp-grid .k{color:var(--muted)}
+#manifest-panel .mp-grid .v{word-break:break-all}
+#manifest-panel .mp-errors{margin-top:8px}
+#manifest-panel .mp-err-item{padding:3px 8px;background:#2d1f1f;border:1px solid var(--red);border-radius:3px;margin-bottom:4px;font-size:11px;color:var(--red)}
 
 /* REMOTE IP SUMMARY */
 #ip-summary{margin-top:12px;border:1px solid var(--border);border-radius:4px;overflow:hidden}
@@ -154,7 +165,7 @@ input::placeholder{color:var(--muted)}
 <body>
 <div id="drop-zone">Drop JSON files here</div>
 <div id="placeholder" class="show">
-  <h2>DFIR Volatile Analyzer</h2>
+  <h2>Quicker &mdash; DFIR Volatile Analyzer</h2>
   <p>Loading file picker&hellip;</p>
 </div>
 
@@ -166,7 +177,7 @@ input::placeholder{color:var(--muted)}
 <div id="gsearch-panel"></div>
 
 <div id="topbar">
-  <h1>DFIR Volatile Analyzer</h1>
+  <h1>Quicker</h1>
   <span class="sep">|</span>
   <button id="loadBtn" onclick="triggerLoad()">&#128193; Load JSON</button>
   <input type="file" id="fileInput" multiple accept=".json" style="display:none" onchange="handleFiles(this.files)">
@@ -194,6 +205,9 @@ input::placeholder{color:var(--muted)}
 <div id="panel-dns"       class="tab-panel"></div>
 
 <script>
+
+// ── VERSION ───────────────────────────────────────────────────────────────────
+const ANALYZER_VERSION = "1.4";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -529,26 +543,32 @@ function renderFleet() {
     return;
   }
   if (hosts.length === 1) {
-    const m = state.hosts[hosts[0]].manifest || {};
+    const h0 = hosts[0];
+    const m  = state.hosts[h0].manifest || {};
+    const errCount = (m.collection_errors||[]).length;
+    const errBadge = errCount > 0 ? ` <span style="color:var(--amber)">${errCount} errors</span>` : ' <span style="color:var(--green)">0 errors</span>';
     panel.innerHTML = `<div class="solo-notice">
-      Single host loaded: <strong>${esc(hosts[0])}</strong> &nbsp;|&nbsp;
+      Single host loaded: <strong>${esc(h0)}</strong> &nbsp;|&nbsp;
       ${esc(m.target_os_caption||'')} &nbsp;|&nbsp; PS ${esc(m.target_ps_version||'?')} &nbsp;|&nbsp;
-      ${esc(m.collection_time_utc||'')}
+      ${esc(m.collection_time_utc||'')} &nbsp;|&nbsp;${errBadge}
       <br><br>Switch to <a onclick="switchTab('processes')">PROCESSES</a>, <a onclick="switchTab('network')">NETWORK</a>, or <a onclick="switchTab('dns')">DNS</a> to investigate.
-    </div>`;
+    </div>
+    <div id="manifest-panel"></div>`;
+    renderManifestPanel(h0);
     return;
   }
 
-  const COLS = '180px 200px 60px 120px 80px 100px 100px 80px 160px';
+  const COLS = '180px 200px 60px 110px 80px 100px 100px 80px 60px 120px';
   const headers = [
     { key:'hostname',           label:'Hostname'         },
     { key:'target_os_caption',  label:'OS'               },
     { key:'target_ps_version',  label:'PS'               },
-    { key:'network_source',     label:'Method'           },
+    { key:'network_source',     label:'Net Method'       },
     { key:'proc_count',         label:'Processes'        },
     { key:'active_count',       label:'Active Conns'     },
     { key:'unique_ips',         label:'Remote IPs'       },
     { key:'dns_count',          label:'DNS'              },
+    { key:'errors_count',       label:'Errors'           },
     { key:'collection_time_utc',label:'Collected (UTC)'  },
   ];
 
@@ -558,6 +578,7 @@ function renderFleet() {
       const m  = d.manifest || {};
       const ac = (d.network_tcp||[]).filter(c=>c.State==='ESTABLISHED').length;
       const ips = new Set((d.network_tcp||[]).filter(c=>c.RemoteAddress&&c.RemoteAddress!=='0.0.0.0').map(c=>c.RemoteAddress));
+      const collection_errors = m.collection_errors || [];
       return {
         hostname:            h,
         target_os_caption:   m.target_os_caption  || '',
@@ -567,6 +588,7 @@ function renderFleet() {
         active_count:        ac,
         unique_ips:          ips.size,
         dns_count:           (d.dns_cache||[]).length,
+        errors_count:        collection_errors.length,
         collection_time_utc: m.collection_time_utc || '',
       };
     });
@@ -589,7 +611,8 @@ function renderFleet() {
     <div id="fleet-table" class="tbl-wrap">
       <div class="tbl-header" style="grid-template-columns:${COLS}" id="fleet-header"></div>
       <div id="fleet-vs"></div>
-    </div>`;
+    </div>
+    <div id="manifest-panel" style="margin-top:12px"></div>`;
 
   el('fleet-header').innerHTML = headerHTML();
 
@@ -597,19 +620,56 @@ function renderFleet() {
   state.vsInstances['fleet'] = createVS('fleet-vs', COLS, rows,
     (row) => `
       <div class="td">${esc(row.hostname)}</div>
-      <div class="td dim">${esc(trunc(row.target_os_caption,28))}</div>
+      <div class="td dim">${esc(trunc(row.target_os_caption,24))}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
       <div class="td dim">${esc(row.network_source)}</div>
       <div class="td">${row.proc_count}</div>
       <div class="td green">${row.active_count}</div>
       <div class="td">${row.unique_ips}</div>
       <div class="td">${row.dns_count}</div>
+      <div class="td ${row.errors_count > 0 ? 'amber' : 'dim'}">${row.errors_count}</div>
       <div class="td dim">${esc(row.collection_time_utc)}</div>`,
     (i, row) => {
       switchHost(row.hostname);
-      switchTab('processes');
+      renderManifestPanel(row.hostname);
     }
   );
+}
+
+function renderManifestPanel(hostname) {
+  const mp = el('manifest-panel');
+  if (!mp) return;
+  const d = state.hosts[hostname];
+  if (!d) { mp.innerHTML = ''; return; }
+  const m = d.manifest || {};
+  const collection_errors = m.collection_errors || [];
+  const errHTML = collection_errors.length === 0
+    ? '<span style="color:var(--green)">None</span>'
+    : collection_errors.map(e => `<div class="mp-err-item">[${esc(e.artifact||'?')}] ${esc(e.message||'')}</div>`).join('');
+
+  mp.innerHTML = `<div class="mp-wrap">
+    <div class="mp-title">
+      <span>Manifest &mdash; ${esc(hostname)}</span>
+      <span style="color:var(--muted);font-size:10px">analyzer_version: ${esc(ANALYZER_VERSION)}</span>
+    </div>
+    <div class="mp-body">
+      <div class="mp-grid">
+        <span class="k">collector_version</span>       <span class="v">${esc(m.collector_version||'')}</span>
+        <span class="k">analyzer_version</span>        <span class="v">${esc(ANALYZER_VERSION)}</span>
+        <span class="k">target_ps_version</span>       <span class="v">${esc(m.target_ps_version||'')}</span>
+        <span class="k">target_os_version</span>       <span class="v">${esc(m.target_os_version||'')} (${esc(m.target_os_caption||'')})</span>
+        <span class="k">target_timezone_offset_minutes</span><span class="v">${m.target_timezone_offset_minutes != null ? m.target_timezone_offset_minutes : ''}</span>
+        <span class="k">network_source</span>          <span class="v">${esc(m.network_source||'')}</span>
+        <span class="k">dns_source</span>              <span class="v">${esc(m.dns_source||'')}</span>
+        <span class="k">collection_time_utc</span>     <span class="v">${esc(m.collection_time_utc||'')}</span>
+        <span class="k">sha256</span>                  <span class="v" style="font-size:10px;color:var(--muted)">${esc(m.sha256||'')}</span>
+      </div>
+      <div class="mp-errors" style="margin-top:8px">
+        <span class="k">collection_errors (${collection_errors.length})</span>
+        <div style="margin-top:4px">${errHTML}</div>
+      </div>
+    </div>
+  </div>`;
 }
 
 function fleetSortBy(col) {
@@ -712,12 +772,17 @@ function applyProcFilters() {
 }
 
 function renderProcRow(p, i) {
-  const connCls = p._connCount > 0 ? 'link' : 'dim';
+  const connCls  = p._connCount > 0 ? 'link' : 'dim';
+  const isFallback = p.source === 'dotnet_fallback';
+  const fbBadge  = isFallback
+    ? ' <span title="source: dotnet_fallback" style="color:var(--amber);font-size:9px;vertical-align:middle">[fb]</span>'
+    : '';
+  const nameCls  = isFallback ? 'td amber' : 'td';
   return `
     <div class="td mono">${p.ProcessId}</div>
     <div class="td dim">${p.ParentProcessId}</div>
     <div class="td dim">${esc(trunc(p._parentName,16))}</div>
-    <div class="td">${esc(trunc(p.Name,22))}</div>
+    <div class="${nameCls}">${esc(trunc(p.Name,20))}${fbBadge}</div>
     <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
     <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
     <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>`;

@@ -1,6 +1,7 @@
 #Requires -Version 5.1
-# DFIR Volatile Collector
-# Version: 1.4
+# Name: Quicker Collector
+# Description: Quicker -- DFIR Volatile Artifact Collector
+# Version: 1.5
 # CHANGES:
 #   1.0 - Initial implementation: pslist + network TCP + DNS cache
 #         PS 2.0 through 5.1 target support via dual WMI/CIM paths
@@ -17,6 +18,8 @@
 #         Fix silent process drops on access denied: include process with partial data
 #         Fix WMI result truncation: EnumerationOptions.ReturnImmediately/Rewindable
 #         Increase CIM operation timeout to 60s
+#   1.5 - Rebrand to Quicker
+#         Fix ReverseDns: store IP as fallback when no PTR record exists (never null for public IPs)
 
 [CmdletBinding()]
 param(
@@ -44,7 +47,7 @@ $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 #endregion
 
 #region --- Constants ---
-$COLLECTOR_VERSION = "1.4"
+$COLLECTOR_VERSION = "1.5"
 $MAX_RETRY         = 3
 $RETRY_WAIT_SEC    = 5
 $OP_TIMEOUT_SEC    = 60
@@ -53,7 +56,7 @@ $OP_TIMEOUT_SEC    = 60
 #region --- Admin Check ---
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "Please restart Claude Code as Administrator (right-click -> Run as administrator) and re-run." -ForegroundColor Red
+    Write-Host "Quicker requires Administrator. Please restart as Administrator (right-click -> Run as administrator) and re-run." -ForegroundColor Red
     exit 1
 }
 #endregion
@@ -78,7 +81,7 @@ function Write-Log {
     }
 }
 
-Write-Log 'INFO' "DFIR Volatile Collector v$COLLECTOR_VERSION starting"
+Write-Log 'INFO' "Quicker Collector v$COLLECTOR_VERSION starting"
 Write-Log 'INFO' "Analyst: $env:COMPUTERNAME, PS $($PSVersionTable.PSVersion), OS: $((Get-WmiObject Win32_OperatingSystem).Caption)"
 Write-Log 'INFO' "OutputPath: $OutputPath"
 #endregion
@@ -795,7 +798,10 @@ function Add-DnsEnrichment {
         try {
             $h = [System.Net.Dns]::GetHostEntry($ip)
             $revMap[$ip] = $h.HostName
-        } catch { $revMap[$ip] = $null }
+        } catch {
+            # No PTR record or lookup failed — store IP itself so ReverseDns is never null
+            $revMap[$ip] = $ip
+        }
     }
 
     $out = @()

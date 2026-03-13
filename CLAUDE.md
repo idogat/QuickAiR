@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-PowerShell DFIR toolkit for volatile artifact collection. Two deliverables:
-- `Collector.ps1` — collects volatile artifacts from a target Windows system
-- `Report.html` — self-contained HTML report generated from collected data
+Quicker — PowerShell DFIR volatile artifact collector. Three deliverables:
+- `Collector.ps1` — Quicker Collector: collects volatile artifacts from a target Windows system
+- `Report.html` — Quicker: self-contained HTML analyzer for collected data
+- `TestSuite.ps1` — Quicker Test Suite: 11 automated validation checks
 
 ## Output Paths
 
