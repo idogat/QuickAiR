@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # DFIR Volatile Collector
-# Version: 1.3
+# Version: 1.4
 # CHANGES:
 #   1.0 - Initial implementation: pslist + network TCP + DNS cache
 #         PS 2.0 through 5.1 target support via dual WMI/CIM paths
@@ -12,6 +12,11 @@
 #         Auto-add target to WinRM TrustedHosts for non-domain connections
 #   1.3 - Fix output path resolving to system32 when run as Administrator without -OutputPath
 #         OutputPath now always resolves relative to script location, not CWD
+#   1.4 - Fix output folder/file always uses hostname not IP (DNS resolution with IP fallback)
+#         Fix missing processes: .NET cross-check catches processes absent from WMI/CIM
+#         Fix silent process drops on access denied: include process with partial data
+#         Fix WMI result truncation: EnumerationOptions.ReturnImmediately/Rewindable
+#         Increase CIM operation timeout to 60s
 
 [CmdletBinding()]
 param(
@@ -39,10 +44,10 @@ $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 #endregion
 
 #region --- Constants ---
-$COLLECTOR_VERSION = "1.3"
+$COLLECTOR_VERSION = "1.4"
 $MAX_RETRY         = 3
 $RETRY_WAIT_SEC    = 5
-$OP_TIMEOUT_SEC    = 30
+$OP_TIMEOUT_SEC    = 60
 #endregion
 
 #region --- Admin Check ---
@@ -121,6 +126,23 @@ function Test-PrivateIP {
 }
 #endregion
 
+#region --- Resolve Hostname ---
+function Resolve-TargetHostname {
+    param([string]$Target)
+    if ($Target -eq 'localhost' -or $Target -eq '127.0.0.1') { return $env:COMPUTERNAME }
+    if ($Target -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+        try {
+            $h = [System.Net.Dns]::GetHostEntry($Target)
+            return $h.HostName
+        } catch {
+            Write-Log 'WARN' "DNS resolution failed for $Target, using IP as fallback: $($_.Exception.Message)"
+            return $Target
+        }
+    }
+    return $Target
+}
+#endregion
+
 #region --- TCP State Map ---
 function ConvertFrom-TcpStateInt {
     param([int]$n)
@@ -182,7 +204,7 @@ function Get-TargetCaps {
                 try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache  -OperationTimeoutSec $OP_TIMEOUT_SEC -ErrorAction Stop | Select-Object -First 1 | Out-Null; $c.HasDNSClient = $true } catch {}
             }
         } else {
-            # Remote: use WinRM only (no DCOM/RPC) — all probing via PSSession
+            # Remote: use WinRM only (no DCOM/RPC) - all probing via PSSession
             $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop'; Port = 5985 }
             if ($Cred) { $spArgs.Credential = $Cred }
@@ -224,93 +246,237 @@ function Get-TargetCaps {
 
 #region --- Process Collection ---
 # PS 2.0-compatible scriptblock for remote WMI path
+# Uses ManagementObjectSearcher with EnumerationOptions to prevent result truncation
 $PROC_SB_WMI = {
     $out = @()
-    $procs = Get-WmiObject Win32_Process
+    $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
+    $searcher.Options.ReturnImmediately = $false
+    $searcher.Options.Rewindable = $false
+    $procs = $searcher.Get()
     foreach ($p in $procs) {
-        $out += New-Object PSObject -Property @{
-            ProcessId       = [int]$p.ProcessId
-            ParentProcessId = [int]$p.ParentProcessId
-            Name            = $p.Name
-            CommandLine     = $p.CommandLine
-            ExecutablePath  = $p.ExecutablePath
-            CreationDate    = $p.CreationDate
-            WorkingSetSize  = [long]$p.WorkingSetSize
-            VirtualSize     = [long]$p.VirtualSize
-            SessionId       = [int]$p.SessionId
-            HandleCount     = [int]$p.HandleCount
+        $pid_ = $null; $ppid = $null; $name_ = $null; $cmdLine = $null; $exePath = $null; $cdate = $null; $ws = [long]0; $vs = [long]0; $sid = $null; $hc = $null
+        try { $pid_   = [int]$p.ProcessId }       catch {}
+        try { $ppid   = [int]$p.ParentProcessId } catch {}
+        try { $name_  = $p.Name }                 catch {}
+        try { $cmdLine = $p.CommandLine }          catch {}
+        try { $exePath = $p.ExecutablePath }       catch {}
+        try { $cdate  = $p.CreationDate }          catch {}
+        try { $ws     = [long]$p.WorkingSetSize }  catch {}
+        try { $vs     = [long]$p.VirtualSize }     catch {}
+        try { $sid    = [int]$p.SessionId }        catch {}
+        try { $hc     = [int]$p.HandleCount }      catch {}
+        if ($pid_ -ne $null) {
+            $out += New-Object PSObject -Property @{
+                ProcessId       = $pid_
+                ParentProcessId = $ppid
+                Name            = $name_
+                CommandLine     = $cmdLine
+                ExecutablePath  = $exePath
+                CreationDate    = $cdate
+                WorkingSetSize  = $ws
+                VirtualSize     = $vs
+                SessionId       = $sid
+                HandleCount     = $hc
+                source          = 'wmi'
+            }
         }
     }
-    $out
+    # .NET cross-check
+    $dotnet = @()
+    try {
+        $dnProcs = [System.Diagnostics.Process]::GetProcesses()
+        $wmiPids = @{}; foreach ($x in $out) { $wmiPids[$x.ProcessId] = $true }
+        foreach ($dp in $dnProcs) {
+            if (-not $wmiPids.ContainsKey([int]$dp.Id)) {
+                $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
+                try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
+                try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
+                $dotnet += New-Object PSObject -Property @{
+                    ProcessId = [int]$dp.Id; ParentProcessId = $null
+                    Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
+                    CreationDate = $startT; WorkingSetSize = $ws2; VirtualSize = $vs2
+                    SessionId = $null; HandleCount = $null; source = 'dotnet_fallback'
+                }
+            }
+        }
+    } catch {}
+    $out += $dotnet
+    New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count }
 }
 
 # CIM scriptblock for remote PS 3+ path
 $PROC_SB_CIM = {
     $out = @()
-    $procs = Get-CimInstance Win32_Process
-    foreach ($p in $procs) {
-        $out += New-Object PSObject -Property @{
-            ProcessId       = [int]$p.ProcessId
-            ParentProcessId = [int]$p.ParentProcessId
-            Name            = $p.Name
-            CommandLine     = $p.CommandLine
-            ExecutablePath  = $p.ExecutablePath
-            CreationDateUtc = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
-            CreationDate    = if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { $null }
-            WorkingSetSize  = [long]$p.WorkingSetSize
-            VirtualSize     = [long]$p.VirtualSize
-            SessionId       = [int]$p.SessionId
-            HandleCount     = [int]$p.HandleCount
+    $raw = Get-CimInstance Win32_Process -OperationTimeoutSec 60
+    foreach ($p in $raw) {
+        $pid_ = $null; $ppid = $null; $name_ = $null
+        try { $pid_  = [int]$p.ProcessId }       catch {}
+        try { $ppid  = [int]$p.ParentProcessId } catch {}
+        try { $name_ = $p.Name }                 catch {}
+        if ($pid_ -eq $null) { continue }
+        $entry = New-Object PSObject -Property @{
+            ProcessId = $pid_; ParentProcessId = $ppid; Name = $name_
+            CommandLine = $null; ExecutablePath = $null
+            CreationDateUtc = $null; CreationDate = $null
+            WorkingSetSize = [long]0; VirtualSize = [long]0
+            SessionId = $null; HandleCount = $null; source = 'cim'
         }
+        try { $entry.CommandLine     = $p.CommandLine } catch {}
+        try { $entry.ExecutablePath  = $p.ExecutablePath } catch {}
+        try { $entry.CreationDateUtc = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch {}
+        try { $entry.CreationDate    = if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { $null } } catch {}
+        try { $entry.WorkingSetSize  = [long]$p.WorkingSetSize } catch {}
+        try { $entry.VirtualSize     = [long]$p.VirtualSize }    catch {}
+        try { $entry.SessionId       = [int]$p.SessionId }       catch {}
+        try { $entry.HandleCount     = [int]$p.HandleCount }     catch {}
+        $out += $entry
     }
-    $out
+    # .NET cross-check
+    $dotnet = @()
+    try {
+        $dnProcs = [System.Diagnostics.Process]::GetProcesses()
+        $cimPids = @{}; foreach ($x in $out) { $cimPids[$x.ProcessId] = $true }
+        foreach ($dp in $dnProcs) {
+            if (-not $cimPids.ContainsKey([int]$dp.Id)) {
+                $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
+                try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
+                try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
+                $dotnet += New-Object PSObject -Property @{
+                    ProcessId = [int]$dp.Id; ParentProcessId = $null
+                    Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
+                    CreationDateUtc = $startT; CreationDate = $null
+                    WorkingSetSize = $ws2; VirtualSize = $vs2
+                    SessionId = $null; HandleCount = $null; source = 'dotnet_fallback'
+                }
+            }
+        }
+    } catch {}
+    $out += $dotnet
+    New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count }
 }
 
 function Get-ProcessData {
     param([string]$Target, [System.Management.Automation.PSCredential]$Cred, [hashtable]$Caps)
 
-    $errors  = @()
-    $procs   = @()
-    $isLocal = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or $Target -ieq $env:COMPUTERNAME)
+    $errors       = @()
+    $procs        = @()
+    $fallbackNote = $null
+    $isLocal      = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or $Target -ieq $env:COMPUTERNAME)
 
     try {
         if ($isLocal) {
             if ($Caps.PSVersion -ge 3) {
+                # CIM path - per-process try/catch to never silently drop
                 $raw = Get-CimInstance Win32_Process -OperationTimeoutSec $OP_TIMEOUT_SEC
                 foreach ($p in $raw) {
-                    $procs += @{
-                        ProcessId        = [int]$p.ProcessId
-                        ParentProcessId  = [int]$p.ParentProcessId
-                        Name             = $p.Name
-                        CommandLine      = $p.CommandLine
-                        ExecutablePath   = $p.ExecutablePath
-                        CreationDateUTC  = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
-                        CreationDateLocal= if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { $null }
-                        WorkingSetSize   = [long]$p.WorkingSetSize
-                        VirtualSize      = [long]$p.VirtualSize
-                        SessionId        = [int]$p.SessionId
-                        HandleCount      = [int]$p.HandleCount
+                    $pid_ = $null; $ppid = $null; $name_ = $null
+                    try { $pid_  = [int]$p.ProcessId }       catch {}
+                    try { $ppid  = [int]$p.ParentProcessId } catch {}
+                    try { $name_ = $p.Name }                 catch {}
+                    if ($pid_ -eq $null) { continue }
+                    $entry = @{
+                        ProcessId        = $pid_
+                        ParentProcessId  = $ppid
+                        Name             = $name_
+                        CommandLine      = $null
+                        ExecutablePath   = $null
+                        CreationDateUTC  = $null
+                        CreationDateLocal = $null
+                        WorkingSetSize   = [long]0
+                        VirtualSize      = [long]0
+                        SessionId        = $null
+                        HandleCount      = $null
+                        source           = 'cim'
                     }
+                    try { $entry.CommandLine      = $p.CommandLine } catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; message=$_.Exception.Message } }
+                    try { $entry.ExecutablePath   = $p.ExecutablePath } catch {}
+                    try { $entry.CreationDateUTC  = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch {}
+                    try { $entry.CreationDateLocal = if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { $null } } catch {}
+                    try { $entry.WorkingSetSize   = [long]$p.WorkingSetSize } catch {}
+                    try { $entry.VirtualSize      = [long]$p.VirtualSize }   catch {}
+                    try { $entry.SessionId        = [int]$p.SessionId }      catch {}
+                    try { $entry.HandleCount      = [int]$p.HandleCount }    catch {}
+                    $procs += $entry
                 }
             } else {
-                $raw = Get-WmiObject Win32_Process
+                # WMI path with EnumerationOptions to prevent truncation
+                $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
+                $searcher.Options.ReturnImmediately = $false
+                $searcher.Options.Rewindable = $false
+                $raw = $searcher.Get()
                 foreach ($p in $raw) {
-                    $utc = ConvertTo-UtcIso -Value $p.CreationDate -FallbackOffsetMin $Caps.TimezoneOffsetMinutes
+                    $pid_ = $null; $ppid = $null; $name_ = $null
+                    try { $pid_  = [int]$p.ProcessId }       catch {}
+                    try { $ppid  = [int]$p.ParentProcessId } catch {}
+                    try { $name_ = $p.Name }                 catch {}
+                    if ($pid_ -eq $null) { continue }
+                    $utc = $null; $cd = $null; $cmdLine = $null; $exePath = $null; $ws = [long]0; $vs = [long]0; $sid = $null; $hc = $null
+                    try { $cd      = $p.CreationDate; $utc = ConvertTo-UtcIso -Value $cd -FallbackOffsetMin $Caps.TimezoneOffsetMinutes } catch {}
+                    try { $cmdLine = $p.CommandLine }         catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; message=$_.Exception.Message } }
+                    try { $exePath = $p.ExecutablePath }      catch {}
+                    try { $ws      = [long]$p.WorkingSetSize } catch {}
+                    try { $vs      = [long]$p.VirtualSize }   catch {}
+                    try { $sid     = [int]$p.SessionId }      catch {}
+                    try { $hc      = [int]$p.HandleCount }    catch {}
                     $procs += @{
-                        ProcessId        = [int]$p.ProcessId
-                        ParentProcessId  = [int]$p.ParentProcessId
-                        Name             = $p.Name
-                        CommandLine      = $p.CommandLine
-                        ExecutablePath   = $p.ExecutablePath
+                        ProcessId        = $pid_
+                        ParentProcessId  = $ppid
+                        Name             = $name_
+                        CommandLine      = $cmdLine
+                        ExecutablePath   = $exePath
                         CreationDateUTC  = $utc
-                        CreationDateLocal= $p.CreationDate
-                        WorkingSetSize   = [long]$p.WorkingSetSize
-                        VirtualSize      = [long]$p.VirtualSize
-                        SessionId        = [int]$p.SessionId
-                        HandleCount      = [int]$p.HandleCount
+                        CreationDateLocal = $cd
+                        WorkingSetSize   = $ws
+                        VirtualSize      = $vs
+                        SessionId        = $sid
+                        HandleCount      = $hc
+                        source           = 'wmi'
                     }
                 }
             }
+
+            # .NET cross-check: catch any processes missing from WMI/CIM
+            try {
+                $dnProcs      = [System.Diagnostics.Process]::GetProcesses()
+                $collectedPIDs = @{}
+                foreach ($x in $procs) { $collectedPIDs[[int]$x.ProcessId] = $true }
+                $fallbackCount = 0
+                foreach ($dp in $dnProcs) {
+                    if (-not $collectedPIDs.ContainsKey([int]$dp.Id)) {
+                        $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                        try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                        try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
+                        try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
+                        try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
+                        $procs += @{
+                            ProcessId        = [int]$dp.Id
+                            ParentProcessId  = $null
+                            Name             = $dp.ProcessName
+                            CommandLine      = $null
+                            ExecutablePath   = $exeFn
+                            CreationDateUTC  = $startT
+                            CreationDateLocal = $null
+                            WorkingSetSize   = $ws2
+                            VirtualSize      = $vs2
+                            SessionId        = $null
+                            HandleCount      = $null
+                            source           = 'dotnet_fallback'
+                        }
+                        $fallbackCount++
+                        Write-Log 'WARN' "PID=$($dp.Id) Name=$($dp.ProcessName) absent from WMI/CIM - added via .NET fallback"
+                    }
+                }
+                if ($fallbackCount -gt 0) {
+                    $fallbackNote = "$fallbackCount process(es) added via .NET fallback (absent from WMI/CIM)"
+                }
+            } catch {
+                Write-Log 'WARN' ".NET cross-check failed: $($_.Exception.Message)"
+            }
+
         } else {
             $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
             $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop' }
@@ -318,24 +484,35 @@ function Get-ProcessData {
             $sess = New-PSSession @spArgs
             try {
                 $sb  = if ($Caps.PSVersion -ge 3) { $PROC_SB_CIM } else { $PROC_SB_WMI }
-                $raw = Invoke-Command -Session $sess -ScriptBlock $sb
+                $r   = Invoke-Command -Session $sess -ScriptBlock $sb
+                $raw = $r.Procs
+                if ($r.FallbackCount -gt 0) {
+                    $fallbackNote = "$($r.FallbackCount) process(es) added via .NET fallback on remote (absent from WMI/CIM)"
+                    Write-Log 'WARN' "Remote: $fallbackNote"
+                }
                 foreach ($p in $raw) {
-                    $utcVal  = if ($p.CreationDateUtc)  { $p.CreationDateUtc }
-                               elseif ($p.CreationDate) { ConvertTo-UtcIso -Value $p.CreationDate -FallbackOffsetMin $Caps.TimezoneOffsetMinutes }
-                               else                     { $null }
-                    $locVal  = if ($p.CreationDate) { $p.CreationDate } else { $null }
+                    $utcVal = if ($p.CreationDateUtc)  { $p.CreationDateUtc }
+                              elseif ($p.CreationDate) { ConvertTo-UtcIso -Value $p.CreationDate -FallbackOffsetMin $Caps.TimezoneOffsetMinutes }
+                              else                     { $null }
+                    $locVal = if ($p.CreationDate -and -not $p.CreationDateUtc) { $p.CreationDate } else { $null }
+                    $pid_   = $null; try { $pid_ = [int]$p.ProcessId } catch {}
+                    if ($pid_ -eq $null) { continue }
+                    $ppid2 = $null; try { if ($p.ParentProcessId -ne $null) { $ppid2 = [int]$p.ParentProcessId } } catch {}
+                    $ws2   = [long]0; try { $ws2 = [long]$p.WorkingSetSize } catch {}
+                    $vs2   = [long]0; try { $vs2 = [long]$p.VirtualSize }    catch {}
                     $procs += @{
-                        ProcessId        = [int]$p.ProcessId
-                        ParentProcessId  = [int]$p.ParentProcessId
+                        ProcessId        = $pid_
+                        ParentProcessId  = $ppid2
                         Name             = $p.Name
                         CommandLine      = $p.CommandLine
                         ExecutablePath   = $p.ExecutablePath
                         CreationDateUTC  = $utcVal
-                        CreationDateLocal= $locVal
-                        WorkingSetSize   = [long]$p.WorkingSetSize
-                        VirtualSize      = [long]$p.VirtualSize
-                        SessionId        = [int]$p.SessionId
-                        HandleCount      = [int]$p.HandleCount
+                        CreationDateLocal = $locVal
+                        WorkingSetSize   = $ws2
+                        VirtualSize      = $vs2
+                        SessionId        = $p.SessionId
+                        HandleCount      = $p.HandleCount
+                        source           = $p.source
                     }
                 }
             } finally { Remove-PSSession $sess -ErrorAction SilentlyContinue }
@@ -345,7 +522,7 @@ function Get-ProcessData {
         Write-Log 'ERROR' "Process collection failed: $($_.Exception.Message)"
     }
 
-    return @{ data = $procs; errors = $errors }
+    return @{ data = $procs; errors = $errors; sourceNote = $fallbackNote }
 }
 #endregion
 
@@ -708,8 +885,9 @@ foreach ($target in $Targets) {
     Write-Log 'INFO' "Performing DNS enrichment"
     $enrichedNet = Add-DnsEnrichment -Connections $nResult.data -DnsCache $dResult.data
 
-    # Determine hostname for file naming
-    $outHost = if ($target -eq 'localhost' -or $target -eq '127.0.0.1') { $env:COMPUTERNAME } else { $target }
+    # Determine hostname for file naming - always use hostname, never raw IP
+    $outHost = Resolve-TargetHostname -Target $target
+    Write-Log 'INFO' "Output hostname: $outHost"
     $ts      = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
     $hostDir = Join-Path $OutputPath $outHost
     if (-not (Test-Path $hostDir)) { New-Item -ItemType Directory -Path $hostDir -Force | Out-Null }
@@ -731,6 +909,7 @@ foreach ($target in $Targets) {
         target_timezone_offset_minutes = $caps.TimezoneOffsetMinutes
         network_source                 = $nResult.source
         dns_source                     = $dResult.source
+        process_source_note            = $pResult.sourceNote
         sha256                         = $null
         collection_errors              = $collErr
     }
@@ -742,7 +921,7 @@ foreach ($target in $Targets) {
         dns_cache   = $dResult.data
     }
 
-    # Write JSON — phase 1: sha256=null (compute hash of this)
+    # Write JSON - phase 1: sha256=null (compute hash of this)
     $json = $output | ConvertTo-Json -Depth 10 -Compress:$false
     # Compute SHA256 from the UTF8 string bytes (no BOM, no trailing newline ambiguity)
     $sha256bytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
@@ -774,3 +953,4 @@ foreach ($target in $Targets) {
 $totalSec = [int]((Get-Date) - $runStart).TotalSeconds
 Write-Log 'INFO' "All targets complete | elapsed=${totalSec}s"
 #endregion
+
