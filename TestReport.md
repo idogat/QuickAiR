@@ -79,3 +79,15 @@ Test results for Quicker Collector v1.5 and Test Suite v1.0.
 | PS 5.1 | CIM Win32_Process | CIM MSFT_NetTCPConnection | CIM MSFT_DNSClientCache | TESTED |
 | PS 3–4 | CIM Win32_Process | netstat_fallback | ipconfig_fallback | TESTED (PS 4) |
 | PS 2.0 | WMI Win32_Process | cmd netstat (netstat_legacy) | cmd ipconfig (ipconfig_legacy) | TESTED |
+
+---
+
+## Multi-NIC Verification (v1.6)
+
+All three targets have 2 NICs. Verified adapter enumeration, InterfaceAlias assignment, and T12.
+
+| Host | IP | OS | PS | NIC 1 | NIC 2 | T12 |
+|------|----|----|----|-------|-------|-----|
+| WIN-J2G2IRL3K8L | 192.168.1.236 | Server 2008 R2 | 2 | Local Area Connection (192.168.1.236) | Local Area Connection 2 (10.0.3.15) | PASS |
+| WIN-497ODI0A5CH | 192.168.1.100 | Server 2012 R2 | 4 | Ethernet (192.168.1.100) | Ethernet 2 (10.0.3.15) | PASS |
+| 192.168.1.250 | 192.168.1.250 | Server 2022 | 5 | Ethernet (192.168.1.250) | Ethernet 2 (10.0.3.15) | PASS |

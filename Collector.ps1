@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 # Name: Quicker Collector
 # Description: Quicker -- DFIR Volatile Artifact Collector
-# Version: 1.5
+# Version: 1.6
 # CHANGES:
 #   1.0 - Initial implementation: pslist + network TCP + DNS cache
 #         PS 2.0 through 5.1 target support via dual WMI/CIM paths
@@ -20,6 +20,11 @@
 #         Increase CIM operation timeout to 60s
 #   1.5 - Rebrand to Quicker
 #         Fix ReverseDns: store IP as fallback when no PTR record exists (never null for public IPs)
+#   1.6 - Multi-NIC support: enumerate all adapters on target (WMI/CIM)
+#         manifest.network_adapters stores full adapter list
+#         InterfaceAlias assigned per-connection by matching LocalAddress to adapter IPs
+#         ALL_INTERFACES for 0.0.0.0/:: bindings, LOOPBACK for 127.0.0.1/::1
+#         UNKNOWN + WARN logged when LocalAddress does not match any adapter IP
 
 [CmdletBinding()]
 param(
@@ -47,7 +52,7 @@ $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 #endregion
 
 #region --- Constants ---
-$COLLECTOR_VERSION = "1.5"
+$COLLECTOR_VERSION = "1.6"
 $MAX_RETRY         = 3
 $RETRY_WAIT_SEC    = 5
 $OP_TIMEOUT_SEC    = 60
@@ -557,6 +562,116 @@ function ConvertFrom-NetstatOutput {
 }
 #endregion
 
+#region --- Adapter Enumeration ---
+# PS 2.0-compatible WMI scriptblock
+$ADAPTER_SB_WMI = {
+    $out = @()
+    $ncidMap = @{}
+    try {
+        $netAdapters = Get-WmiObject Win32_NetworkAdapter
+        foreach ($a in $netAdapters) {
+            if ($a.InterfaceIndex -ne $null -and $a.NetConnectionID) {
+                $ncidMap[[int]$a.InterfaceIndex] = $a.NetConnectionID
+            }
+        }
+    } catch {}
+    $cfgs = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled=true"
+    foreach ($cfg in $cfgs) {
+        $ips = @()
+        if ($cfg.IPAddress) { foreach ($ip in $cfg.IPAddress) { if ($ip) { $ips += $ip } } }
+        $gw  = $null
+        if ($cfg.DefaultIPGateway) { $gw = @($cfg.DefaultIPGateway)[0] }
+        $dns = @()
+        if ($cfg.DNSServerSearchOrder) { foreach ($d in $cfg.DNSServerSearchOrder) { if ($d) { $dns += $d } } }
+        $alias = if ($ncidMap.ContainsKey([int]$cfg.InterfaceIndex)) { $ncidMap[[int]$cfg.InterfaceIndex] } else { $cfg.Description }
+        $out += New-Object PSObject -Property @{
+            AdapterName    = $cfg.Description
+            InterfaceAlias = $alias
+            IPAddresses    = $ips
+            MACAddress     = $cfg.MACAddress
+            DefaultGateway = $gw
+            DNSServers     = $dns
+            DHCPEnabled    = [bool]$cfg.DHCPEnabled
+        }
+    }
+    $out
+}
+
+# PS 3+ CIM scriptblock
+$ADAPTER_SB_CIM = {
+    $out = @()
+    $ncidMap = @{}
+    try {
+        $netAdapters = Get-CimInstance Win32_NetworkAdapter
+        foreach ($a in $netAdapters) {
+            if ($a.InterfaceIndex -ne $null -and $a.NetConnectionID) {
+                $ncidMap[[int]$a.InterfaceIndex] = $a.NetConnectionID
+            }
+        }
+    } catch {}
+    $cfgs = Get-CimInstance Win32_NetworkAdapterConfiguration -Filter "IPEnabled=true"
+    foreach ($cfg in $cfgs) {
+        $ips = @()
+        if ($cfg.IPAddress) { $ips = @($cfg.IPAddress | Where-Object { $_ }) }
+        $gw  = $null
+        if ($cfg.DefaultIPGateway) { $gw = @($cfg.DefaultIPGateway)[0] }
+        $dns = @()
+        if ($cfg.DNSServerSearchOrder) { $dns = @($cfg.DNSServerSearchOrder | Where-Object { $_ }) }
+        $alias = if ($ncidMap.ContainsKey([int]$cfg.InterfaceIndex)) { $ncidMap[[int]$cfg.InterfaceIndex] } else { $cfg.Description }
+        $out += New-Object PSObject -Property @{
+            AdapterName    = $cfg.Description
+            InterfaceAlias = $alias
+            IPAddresses    = $ips
+            MACAddress     = $cfg.MACAddress
+            DefaultGateway = $gw
+            DNSServers     = $dns
+            DHCPEnabled    = [bool]$cfg.DHCPEnabled
+        }
+    }
+    $out
+}
+
+function Get-AdapterData {
+    param([string]$Target, [System.Management.Automation.PSCredential]$Cred, [hashtable]$Caps)
+
+    $errors   = @()
+    $adapters = @()
+    $isLocal  = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or $Target -ieq $env:COMPUTERNAME)
+
+    try {
+        $sb = if ($Caps.PSVersion -ge 3) { $ADAPTER_SB_CIM } else { $ADAPTER_SB_WMI }
+        if ($isLocal) {
+            $raw = & $sb
+        } else {
+            $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+            $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop' }
+            if ($Cred) { $spArgs.Credential = $Cred }
+            $sess = New-PSSession @spArgs
+            try   { $raw = Invoke-Command -Session $sess -ScriptBlock $sb }
+            finally { Remove-PSSession $sess -ErrorAction SilentlyContinue }
+        }
+        foreach ($a in @($raw)) {
+            $ips = @(); if ($a.IPAddresses) { foreach ($ip in @($a.IPAddresses)) { if ($ip) { $ips += $ip.ToString() } } }
+            $dns = @(); if ($a.DNSServers)  { foreach ($d  in @($a.DNSServers))  { if ($d)  { $dns += $d.ToString()  } } }
+            $adapters += @{
+                AdapterName    = $a.AdapterName
+                InterfaceAlias = $a.InterfaceAlias
+                IPAddresses    = $ips
+                MACAddress     = $a.MACAddress
+                DefaultGateway = $a.DefaultGateway
+                DNSServers     = $dns
+                DHCPEnabled    = $a.DHCPEnabled
+            }
+        }
+    } catch {
+        $errors += @{ artifact = 'network_adapters'; message = $_.Exception.Message }
+        Write-Log 'ERROR' "Adapter enumeration failed: $($_.Exception.Message)"
+    }
+
+    return @{ data = $adapters; errors = $errors }
+}
+#endregion
+
 #region --- Network TCP Collection ---
 # PS 2.0-compatible scriptblock
 $NET_SB_LEGACY = {
@@ -780,6 +895,50 @@ function Get-DnsData {
 }
 #endregion
 
+#region --- InterfaceAlias Resolution ---
+function Resolve-InterfaceAlias {
+    param([array]$Connections, [array]$Adapters)
+
+    # Build IP → adapter alias map (strip IPv6 zone IDs for matching)
+    $ipToAlias = @{}
+    foreach ($adapter in $Adapters) {
+        $alias = if ($adapter.InterfaceAlias) { $adapter.InterfaceAlias } else { $adapter.AdapterName }
+        foreach ($ip in @($adapter.IPAddresses)) {
+            if ($ip) {
+                $ipKey = ($ip.ToString()) -replace '%.*$', ''
+                if (-not $ipToAlias.ContainsKey($ipKey)) { $ipToAlias[$ipKey] = $alias }
+            }
+        }
+    }
+
+    $unknownCount = 0
+    $out = @()
+    foreach ($c in $Connections) {
+        $la = if ($c.LocalAddress) { ($c.LocalAddress.ToString()) -replace '%.*$', '' } else { '' }
+
+        $alias = if (-not $la -or $la -eq '0.0.0.0' -or $la -eq '::') {
+            'ALL_INTERFACES'
+        } elseif ($la -eq '127.0.0.1' -or $la -eq '::1') {
+            'LOOPBACK'
+        } elseif ($ipToAlias.ContainsKey($la)) {
+            $ipToAlias[$la]
+        } else {
+            $unknownCount++
+            'UNKNOWN'
+        }
+
+        $e = $c.Clone()
+        $e.InterfaceAlias = $alias
+        $out += $e
+    }
+
+    if ($unknownCount -gt 0) {
+        Write-Log 'WARN' "InterfaceAlias: $unknownCount connection(s) unmatched to any adapter IP -> UNKNOWN"
+    }
+    return $out
+}
+#endregion
+
 #region --- DNS Enrichment ---
 function Add-DnsEnrichment {
     param([array]$Connections, [array]$DnsCache)
@@ -888,11 +1047,31 @@ foreach ($target in $Targets) {
     $collErr += $dResult.errors
     Write-Log 'INFO' "DNS complete | count=$($dResult.data.Count) | source=$($dResult.source)"
 
+    Write-Log 'INFO' "Enumerating network adapters"
+    $aResult  = Get-AdapterData -Target $target -Cred $effectiveCred -Caps $caps
+    $collErr += $aResult.errors
+    Write-Log 'INFO' "Adapters complete | count=$($aResult.data.Count)"
+
+    Write-Log 'INFO' "Resolving interface aliases"
+    $resolvedNet = Resolve-InterfaceAlias -Connections $nResult.data -Adapters $aResult.data
+
     Write-Log 'INFO' "Performing DNS enrichment"
-    $enrichedNet = Add-DnsEnrichment -Connections $nResult.data -DnsCache $dResult.data
+    $enrichedNet = Add-DnsEnrichment -Connections $resolvedNet -DnsCache $dResult.data
 
     # Determine hostname for file naming - always use hostname, never raw IP
     $outHost = Resolve-TargetHostname -Target $target
+
+    # Print adapter summary
+    if (-not $Quiet -and $aResult.data.Count -gt 0) {
+        $nicCount = $aResult.data.Count
+        Write-Host ""
+        Write-Host "  Found $nicCount NIC$(if ($nicCount -ne 1) {'s'}) on ${outHost}:" -ForegroundColor Cyan
+        for ($ni = 0; $ni -lt $aResult.data.Count; $ni++) {
+            $adp     = $aResult.data[$ni]
+            $firstIP = if (@($adp.IPAddresses).Count -gt 0) { @($adp.IPAddresses)[0] } else { 'no IP' }
+            Write-Host "    NIC $($ni+1): $($adp.InterfaceAlias) - $firstIP" -ForegroundColor Cyan
+        }
+    }
     Write-Log 'INFO' "Output hostname: $outHost"
     $ts      = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
     $hostDir = Join-Path $OutputPath $outHost
@@ -915,6 +1094,7 @@ foreach ($target in $Targets) {
         target_timezone_offset_minutes = $caps.TimezoneOffsetMinutes
         network_source                 = $nResult.source
         dns_source                     = $dResult.source
+        network_adapters               = $aResult.data
         process_source_note            = $pResult.sourceNote
         sha256                         = $null
         collection_errors              = $collErr

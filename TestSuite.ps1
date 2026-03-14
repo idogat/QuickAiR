@@ -520,6 +520,53 @@ if ($t11Missing.Count -eq 0) {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# T12 — Multi-NIC interface assignment
+# ═══════════════════════════════════════════════════════════════════════════════
+$adapterArr = @($manifest.network_adapters)
+
+if ($adapterArr.Count -lt 2) {
+    Add-Result "T12" $true "Multi-NIC interface assignment (SKIP - $($adapterArr.Count) adapter(s), multi-NIC test requires >= 2)" @() $true
+} else {
+    $t12Fails = @()
+
+    # All connections must have non-null, non-empty InterfaceAlias
+    foreach ($c in $netTcp) {
+        if ($c.InterfaceAlias -eq $null) {
+            $t12Fails += "NULL InterfaceAlias: LocalAddr=$($c.LocalAddress):$($c.LocalPort)"
+        } elseif ($c.InterfaceAlias -eq '') {
+            $t12Fails += "EMPTY InterfaceAlias: LocalAddr=$($c.LocalAddress):$($c.LocalPort)"
+        }
+    }
+
+    # ALL_INTERFACES must only appear on 0.0.0.0 or :: bindings
+    foreach ($c in $netTcp) {
+        if ($c.InterfaceAlias -eq 'ALL_INTERFACES') {
+            $la = $c.LocalAddress
+            if ($la -ne $null -and $la -ne '' -and $la -ne '0.0.0.0' -and $la -ne '::') {
+                $t12Fails += "ALL_INTERFACES on non-wildcard address: LocalAddr=${la}:$($c.LocalPort)"
+            }
+        }
+    }
+
+    # LOOPBACK must only appear on 127.0.0.1 or ::1 bindings
+    foreach ($c in $netTcp) {
+        if ($c.InterfaceAlias -eq 'LOOPBACK') {
+            $la = $c.LocalAddress
+            if ($la -ne '127.0.0.1' -and $la -ne '::1') {
+                $t12Fails += "LOOPBACK on non-loopback address: LocalAddr=${la}:$($c.LocalPort)"
+            }
+        }
+    }
+
+    $nicCount = $adapterArr.Count
+    if ($t12Fails.Count -eq 0) {
+        Add-Result "T12" $true "Multi-NIC interface assignment ($nicCount NICs, all connections assigned correctly)"
+    } else {
+        Add-Result "T12" $false "Multi-NIC interface assignment ($($t12Fails.Count) violations on $nicCount NICs)" $t12Fails
+    }
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # DC-specific sanity checks (only when -DcMode)
 # ═══════════════════════════════════════════════════════════════════════════════
 if ($DcMode) {
