@@ -1,73 +1,159 @@
 # Quicker
 
-Quicker is a DFIR volatile artifact collector — a PowerShell toolkit for collecting volatile forensic artifacts (process list, TCP network connections, DNS cache) from local or remote Windows machines via WinRM. Output is a single JSON file per host, rendered through a self-contained offline HTML investigation GUI.
+> DFIR volatile artifact collector for Windows environments
 
-GitHub: https://github.com/idogat/quicker
+Quicker collects process list, active network connections, and DNS cache from local or remote Windows machines via WinRM. Output is a single JSON file per host, visualized in an offline single-file HTML investigation GUI.
+
+---
+
+## Features
+
+- Collects: processes, TCP connections, DNS cache
+- Single JSON output per host
+- Offline HTML GUI with multi-host fleet view
+- Process → network → DNS cross-correlation
+- PowerShell 2.0 through 5.1 target support
+- No external dependencies, no internet required
+- Domain and workgroup environments
+
+---
 
 ## Requirements
 
-- **Analyst machine**: Windows, PowerShell 5.1, WinRM access to targets
-- **Target machines**: Windows with WinRM enabled; PS 2.0 through 5.1 supported
+**Analyst machine:**
+- PowerShell 5.1
+- Run as Administrator
+- WinRM access to targets
+
+**Target machines:**
+- WinRM enabled
+- PowerShell 2.0 minimum
+
+---
+
+## Quick Start
+
+```powershell
+# Collect from localhost
+.\Collector.ps1 -Targets localhost
+
+# Collect from remote host
+.\Collector.ps1 -Targets 192.168.1.10 -Credential (Get-Credential)
+
+# Collect from multiple hosts
+.\Collector.ps1 -Targets 192.168.1.10,192.168.1.11,192.168.1.12 `
+  -Credential (Get-Credential) -OutputPath C:\Cases\Case001\
+
+# Open GUI
+# Open Report.html in browser
+# Click Load JSON or drag and drop host JSON files
+```
+
+---
 
 ## Usage
 
-### Localhost
-`powershell
-.\Collector.ps1 -Targets localhost
-`
+**Parameters:**
 
-### Single remote host
-`powershell
-.\Collector.ps1 -Targets 192.168.1.10 -Credential (Get-Credential)
-`
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `-Targets` | Yes | One or more hostnames or IPs |
+| `-Credential` | No | PSCredential. Not required for localhost |
+| `-OutputPath` | No | Output folder. Default: `.\DFIROutput\` |
+| `-Quiet` | No | Suppress console output |
+| `-Help` | No | Show help and exit |
 
-### Multiple hosts
-`powershell
-.\Collector.ps1 -Targets 192.168.1.10,192.168.1.11 -Credential (Get-Credential) -OutputPath C:\Cases\Case001\
-`
+---
 
-### Open GUI
-Open Report.html in a browser, click **Load JSON**, select one or more <hostname>_<timestamp>.json files.
+## Output
+
+One JSON file per host:
+
+```
+<OutputPath>\<hostname>\<hostname>_<timestamp>.json
+```
+
+JSON structure:
+
+| Key | Contents |
+|-----|----------|
+| `manifest` | Collection metadata, versions, errors |
+| `processes` | Full process list with parent-child links |
+| `network_tcp` | TCP connections with process correlation |
+| `dns_cache` | DNS cache with connection cross-reference |
+
+---
+
+## GUI — Report.html
+
+Open in any modern browser. Fully offline. No server needed.
+
+**Tabs:**
+
+| Tab | Description |
+|-----|-------------|
+| Fleet | All loaded hosts summary, switch active host |
+| Processes | Full process list with network pivot |
+| Network | All TCP connections with process pivot |
+| DNS | DNS cache with connection correlation |
+
+**Features:**
+- Load multiple host JSONs simultaneously
+- Drag and drop JSON files onto page
+- Global search across all tabs
+- Cross-reference: process → connections → DNS
+- Virtual scroll — handles large datasets
+
+---
 
 ## Collection Tiers
 
-| Target PS Version | Process Source | Network Source     | DNS Source          |
-|-------------------|----------------|--------------------|---------------------|
-| 5.1               | CIM            | CIM (MSFT_Net)     | CIM (MSFT_DNS)      |
-| 3.0 - 4.0         | CIM            | netstat fallback   | ipconfig fallback   |
-| 2.0               | WMI            | cmd netstat        | cmd ipconfig        |
+| PS Version | Process Source | Network Source | DNS Source |
+|------------|----------------|----------------|------------|
+| PS 5.1 | CIM | CIM (MSFT_Net\*) | CIM (MSFT_DNS\*) |
+| PS 3–4 | CIM | netstat fallback | ipconfig fallback |
+| PS 2.0 | WMI | cmd netstat | cmd ipconfig |
 
-## JSON Structure
+---
 
-Each output file is a single JSON with four top-level keys:
+## Supported Targets
 
-- **manifest** - collection metadata: hostname, timestamps, collector version, OS/PS version, collection method used, SHA256 integrity hash, any collection errors
-- **processes** - Win32_Process fields: PID, PPID, name, command line, path, creation time (UTC + local), memory, session, handles
-- **network_tcp** - TCP connections with local/remote address, port, state, owning process, interface alias, DNS match, reverse DNS, private IP flag
-- **dns_cache** - DNS client cache entries: hostname, resolved IP, record type, TTL
+- Windows 10 / 11
+- Windows Server 2008 R2
+- Windows Server 2012 R2
+- Windows Server 2016 / 2019 / 2022
+- Domain and workgroup environments
+- Domain Controllers
 
-## SHA256 Integrity
+---
 
-manifest.sha256 is the SHA256 of the JSON content with the sha256 field set to null. This allows tamper detection without circular dependency.
+## Limitations
 
-## Datetime Normalization
+- PS 2.0 and PS 3–4 collection paths are best-effort (tested on PS 5.1 only)
+- Process list is a point-in-time snapshot
+- Short-lived processes may not be captured
+- EOL systems (2008 R2, 2012 R2) — connect carefully, these are unpatched systems
 
-All *UTC fields are stored as UTC ISO 8601 (yyyy-MM-ddTHH:mm:ssZ). WMI DMTF format (20240115143022.000000+060) is parsed using the embedded UTC offset; the original value is preserved in *Local fields.
+---
 
-## Multi-NIC Handling
+## Testing
 
-Connections on 0.0.0.0 or :: are assigned InterfaceAlias = ALL_INTERFACES. For CIM-based collection, the interface alias comes directly from MSFT_NetTCPConnection.
+Run the included test suite against any collected JSON:
 
-## DNS Correlation
+```powershell
+.\TestSuite.ps1 -JsonPath <path to host JSON>
+```
 
-After collection, each TCP connection's RemoteAddress is matched against dns_cache[].Data. Matches are stored in DnsMatch. Reverse DNS (ReverseDns) is resolved using the analyst machine's DNS, not an external resolver.
+11 automated checks covering:
+- Process completeness, field integrity
+- Network completeness, process assignment
+- DNS completeness, correlation accuracy
+- Manifest integrity, HTML field coverage
 
-## Known Limitations
+---
 
-- **Process list is a point-in-time snapshot.** Short-lived processes that start and exit between collection start and the WMI/CIM query will not appear. This is expected behavior. Long-running processes are reliably captured; a secondary .NET cross-check catches any processes absent from the WMI/CIM result set.
-- PS 2.0 and PS 3.0-4.0 code paths are implemented but tested only on PS 5.1 (best-effort)
-- Windows Server 2008 R2 / 2012 R2 EOL warning: these systems may lack MSFT_ CIM classes; collector falls back to netstat/ipconfig automatically
+## Author
 
-## Collection Log
+DFIR analyst tool — built for incident response workflows.
 
-A collection.log is written to the OutputPath with INFO/WARN/ERROR entries. Sensitive data (PIDs in context, process names, connection details, credentials) is never written to the log.
+https://github.com/idogat/quicker
