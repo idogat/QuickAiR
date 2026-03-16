@@ -63,18 +63,27 @@ function renderFleet() {
         collection_time_utc: m.collection_time_utc || '',
       };
     });
-    rows.sort((a,b) => {
-      const av = a[fleetSort.col]; const bv = b[fleetSort.col];
-      if (typeof av === 'number') return (av - bv) * fleetSort.dir;
-      return String(av).localeCompare(String(bv)) * fleetSort.dir;
-    });
+    if (sortState.tab === 'fleet' && sortState.column && sortState.dir !== 'none') {
+      const numericFleetCols = new Set(['nic_count','proc_count','active_count','unique_ips','dns_count','errors_count']);
+      rows = applySortToRows(rows, sortState.column, numericFleetCols.has(sortState.column));
+    } else {
+      rows.sort((a,b) => {
+        const av = a[fleetSort.col]; const bv = b[fleetSort.col];
+        if (typeof av === 'number') return (av - bv) * fleetSort.dir;
+        return String(av).localeCompare(String(bv)) * fleetSort.dir;
+      });
+    }
     return rows;
   }
 
   function headerHTML() {
     return headers.map(h => {
-      const cls = fleetSort.col === h.key ? (fleetSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-      return `<div class="${cls}" onclick="fleetSortBy('${h.key}')">${esc(h.label)}</div>`;
+      const numeric = /count$|_count$|ps_version$/.test(h.key);
+      const arrow = (sortState.tab === 'fleet' && sortState.column === h.key)
+        ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+      const arrowCls = (sortState.tab === 'fleet' && sortState.column === h.key && sortState.dir !== 'none')
+        ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+      return `<div class="th sortable-th" onclick="sortTable('fleet','${h.key}',${numeric})">${esc(h.label)} <span id="sort-fleet-${h.key}"${arrowCls}>${arrow}</span></div>`;
     }).join('');
   }
 
@@ -86,6 +95,7 @@ function renderFleet() {
     <div id="manifest-panel" style="margin-top:12px"></div>`;
 
   el('fleet-header').innerHTML = headerHTML();
+  setTimeout(() => addResizeHandles('fleet-header', 'fleet'), 0);
 
   const rows = buildRows();
   state.vsInstances['fleet'] = createVS('fleet-vs', COLS, rows,

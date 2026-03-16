@@ -1,5 +1,5 @@
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
-let procFilters = { search: '', hasConns: false, noPath: false };
+let procFilters = { search: '' };
 let procSort    = { col: 'ProcessId', dir: 1 };
 let procData    = [];
 
@@ -22,8 +22,6 @@ function renderProcesses() {
     <div class="filter-bar">
       <input type="text" id="proc-search" placeholder="Search name, PID, path, cmdline&hellip;" style="width:280px"
              oninput="procFilters.search=this.value;applyProcFilters()">
-      <label><input type="checkbox" onchange="procFilters.hasConns=this.checked;applyProcFilters()"> Has connections</label>
-      <label><input type="checkbox" onchange="procFilters.noPath=this.checked;applyProcFilters()"> No executable path</label>
       <span id="proc-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
     </div>
     <div class="tbl-wrap">
@@ -39,31 +37,30 @@ function renderProcesses() {
 const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
 
 function buildProcHeader(COLS) {
-  const sortable = ['ProcessId','Name','CreationDateUTC'];
   const headers = [
-    { key:'ProcessId',       label:'PID',     sortable:true  },
-    { key:'ParentProcessId', label:'PPID',    sortable:false },
-    { key:'_parentName',     label:'Parent',  sortable:false },
-    { key:'Name',            label:'Name',    sortable:true  },
-    { key:'ExecutablePath',  label:'Path',    sortable:false },
-    { key:'CommandLine',     label:'CmdLine', sortable:false },
-    { key:'_connCount',      label:'Conns',   sortable:false },
-    { key:'_signed',         label:'Sig',     sortable:false },
-    { key:'_signerCompany',  label:'Signer',  sortable:false },
-    { key:'_sha256Short',    label:'SHA256',  sortable:false },
+    { key:'ProcessId',       label:'PID'    },
+    { key:'ParentProcessId', label:'PPID'   },
+    { key:'_parentName',     label:'Parent' },
+    { key:'Name',            label:'Name'   },
+    { key:'ExecutablePath',  label:'Path'   },
+    { key:'CommandLine',     label:'CmdLine'},
+    { key:'_connCount',      label:'Conns'  },
+    { key:'_signed',         label:'Sig'    },
+    { key:'_signerCompany',  label:'Signer' },
+    { key:'_sha256Short',    label:'SHA256' },
   ];
   const h = el('proc-header');
   if (!h) return;
+  restoreColWidths('processes', 'proc-header');
   h.innerHTML = headers.map(hd => {
-    if (hd.sortable) {
-      const arrow = (sortState.tab === 'processes' && sortState.column === hd.key)
-        ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
-      const arrowCls = (sortState.tab === 'processes' && sortState.column === hd.key && sortState.dir !== 'none') ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
-      return `<div class="th sortable-th" onclick="sortTable('processes','${hd.key}',${hd.key==='ProcessId'?'true':'false'})">${esc(hd.label)} <span id="sort-processes-${hd.key}"${arrowCls}>${arrow}</span></div>`;
-    }
-    const cls = procSort.col === hd.key ? (procSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-    return `<div class="${cls}" onclick="procSortBy('${hd.key}')">${esc(hd.label)}</div>`;
+    const numeric = /Id$|PID$|PPID$|Count$|Session$|Handle$/.test(hd.key);
+    const arrow = (sortState.tab === 'processes' && sortState.column === hd.key)
+      ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+    const arrowCls = (sortState.tab === 'processes' && sortState.column === hd.key && sortState.dir !== 'none')
+      ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+    return `<div class="th sortable-th" onclick="sortTable('processes','${hd.key}',${numeric})">${esc(hd.label)} <span id="sort-processes-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
+  setTimeout(() => addResizeHandles('proc-header', 'processes'), 0);
 }
 
 function applyProcFilters() {
@@ -96,9 +93,6 @@ function applyProcFilters() {
     str(p.Name).toLowerCase().includes(lq) || str(p.ProcessId).includes(lq) ||
     str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq)
   );
-  if (procFilters.hasConns) rows = rows.filter(p => p._connCount > 0);
-  if (procFilters.noPath)   rows = rows.filter(p => !p.ExecutablePath);
-
   // Apply sortTable if active for this tab
   if (sortState.tab === 'processes' && sortState.column && sortState.dir !== 'none') {
     rows = applySortToRows(rows, sortState.column, sortState.column === 'ProcessId');
@@ -226,11 +220,6 @@ function onProcRowClick(i, p, rowEl) {
   }
 }
 
-function procSortBy(col) {
-  if (procSort.col === col) procSort.dir *= -1; else { procSort.col = col; procSort.dir = 1; }
-  buildProcHeader('60px 60px 120px 160px 300px 1fr 80px');
-  applyProcFilters();
-}
 
 function highlightProcessPid(pid) {
   const idx = procData.findIndex(p => p.ProcessId == pid);
@@ -239,7 +228,7 @@ function highlightProcessPid(pid) {
   if (vs) vs.scrollToIndex(idx);
 }
 
-function gotoProcessPid(pid) { switchTab('processes'); setTimeout(() => highlightProcessPid(pid), 100); }
+function gotoProcessPid(pid) { navigateToRow('processes', 'ProcessId', pid); }
 function gotoNetworkPid(pid) { switchTab('network'); setTimeout(() => highlightNetworkPid(pid), 100); }
 function gotoNetworkIp(ip)   { switchTab('network'); setTimeout(() => highlightNetworkIp(ip), 100); }
 

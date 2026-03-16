@@ -7,18 +7,10 @@
   document.head.appendChild(s);
 })();
 
-let dllFilters = { search: '', privateOnly: false, nonSystem: false, hasFileHash: false };
+let dllFilters = { search: '' };
 let dllSort    = { col: 'ProcessName', dir: 1 };
 let dllData    = [];
 
-const DLL_SYS32  = 'C:\\Windows\\System32\\';
-const DLL_SYSWOW = 'C:\\Windows\\SysWOW64\\';
-
-function isDllSystem(path) {
-  if (!path) return false;
-  const p = path.toUpperCase();
-  return p.startsWith(DLL_SYS32.toUpperCase()) || p.startsWith(DLL_SYSWOW.toUpperCase());
-}
 
 function renderDlls() {
   const panel = el('panel-dlls');
@@ -36,9 +28,6 @@ function renderDlls() {
     <div class="filter-bar" id="dlls-filter-bar">
       <input type="text" id="dlls-search" placeholder="Process, DLL name, path, company&hellip;" style="width:280px"
              oninput="dllFilters.search=this.value;applyDllFilters()">
-      <label><input type="checkbox" id="dlls-private"   onchange="dllFilters.privateOnly=this.checked;applyDllFilters()"> Private only</label>
-      <label><input type="checkbox" id="dlls-nonsystem" onchange="dllFilters.nonSystem=this.checked;applyDllFilters()"> Non-system only</label>
-      <label><input type="checkbox" id="dlls-sha256"    onchange="dllFilters.hasFileHash=this.checked;applyDllFilters()"> Has FileHash</label>
       <span id="dlls-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
     </div>
     <div class="tbl-wrap">
@@ -74,6 +63,7 @@ function buildDllHeader(COLS) {
       ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
     return `<div class="th sortable-th" onclick="sortTable('dlls','${hd.key}',${hd.numeric})">${esc(hd.label)} <span id="sort-dlls-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
+  setTimeout(() => addResizeHandles('dlls-header', 'dlls'), 0);
 }
 
 function applyDllFilters() {
@@ -92,10 +82,6 @@ function applyDllFilters() {
     str(e.Company).includes(lq)     ||
     str(e.ProcessId).includes(lq)
   );
-  if (dllFilters.privateOnly) rows = rows.filter(e => e.IsPrivatePath === true);
-  if (dllFilters.nonSystem)   rows = rows.filter(e => !isDllSystem(e.ModulePath));
-  if (dllFilters.hasFileHash) rows = rows.filter(e => e.FileHash != null && e.FileHash !== '');
-
   if (sortState.tab === 'dlls' && sortState.column && sortState.dir !== 'none') {
     const numericDllCols = new Set(['ProcessId']);
     rows = applySortToRows(rows, sortState.column, numericDllCols.has(sortState.column));
@@ -212,7 +198,4 @@ function dllSortBy(col) {
   applyDllFilters();
 }
 
-function dllGotoProcess(pid) {
-  switchTab('processes');
-  setTimeout(() => highlightProcessPid(pid), 100);
-}
+function dllGotoProcess(pid) { navigateToRow('processes', 'ProcessId', pid); }

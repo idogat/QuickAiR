@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.1";
+const ANALYZER_VERSION = "2.2";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -82,37 +82,82 @@ function applySortToRows(rows, colKey, numeric) {
 }
 
 // ── RESIZABLE COLUMNS ─────────────────────────────────────────────────────────
-function initResizable(tableId) {
-  const table = document.getElementById(tableId);
-  if (!table) return;
-  const ths = table.querySelectorAll('th');
+// Works on div-based virtual scroll headers (tbl-header containing .th divs)
+function addResizeHandles(headerId, tabName) {
+  const header = document.getElementById(headerId);
+  if (!header) return;
+  const ths = header.querySelectorAll('.th');
   ths.forEach((th, colIndex) => {
     // Restore saved width
-    const saved = sessionStorage.getItem('colW_' + tableId + '_' + colIndex);
-    if (saved) th.style.width = saved + 'px';
-    // Add handle
-    let handle = th.querySelector('.resize-handle');
-    if (!handle) {
-      handle = document.createElement('div');
-      handle.className = 'resize-handle';
-      th.appendChild(handle);
+    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + colIndex);
+    if (saved) {
+      th.style.width = saved + 'px';
+      th.style.minWidth = saved + 'px';
     }
-    let startX, startW;
+    // Remove existing handle to avoid duplicates on re-render
+    const existing = th.querySelector('.col-resize-handle');
+    if (existing) existing.remove();
+    const handle = document.createElement('div');
+    handle.className = 'col-resize-handle';
+    th.appendChild(handle);
+
     handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
       e.stopPropagation();
-      startX = e.pageX; startW = th.offsetWidth;
+      const startX = e.clientX;
+      const startWidth = th.offsetWidth;
+      handle.classList.add('dragging');
+
       function onMove(ev) {
-        const newW = Math.max(40, startW + ev.pageX - startX);
-        th.style.width = newW + 'px';
-        sessionStorage.setItem('colW_' + tableId + '_' + colIndex, newW);
+        const delta = ev.clientX - startX;
+        const newWidth = Math.max(40, startWidth + delta);
+        th.style.width = newWidth + 'px';
+        th.style.minWidth = newWidth + 'px';
+        // Update tds in same column across all vrows
+        applyColWidthToRows(tabName, colIndex, newWidth);
       }
       function onUp() {
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('dragging');
+        const finalWidth = th.offsetWidth;
+        sessionStorage.setItem('colWidth_' + tabName + '_' + colIndex, finalWidth);
       }
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
+  });
+}
+
+function applyColWidthToRows(tabName, colIndex, width) {
+  // Map tabName to vs container id
+  const vsId = { processes:'proc-vs', network:'net-vs', dns:'dns-vs', dlls:'dlls-vs', fleet:'fleet-vs' }[tabName];
+  if (!vsId) return;
+  const vs = document.getElementById(vsId);
+  if (!vs) return;
+  vs.querySelectorAll('.vrow').forEach(row => {
+    if (row.cells) { // regular table rows
+      if (row.cells[colIndex]) { row.cells[colIndex].style.width = width + 'px'; }
+    } else { // div-based rows
+      const cells = row.children;
+      if (cells[colIndex]) {
+        cells[colIndex].style.width = width + 'px';
+        cells[colIndex].style.minWidth = width + 'px';
+      }
+    }
+  });
+}
+
+function restoreColWidths(tabName, headerId) {
+  const header = document.getElementById(headerId);
+  if (!header) return;
+  const ths = header.querySelectorAll('.th');
+  ths.forEach((th, colIndex) => {
+    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + colIndex);
+    if (saved) {
+      th.style.width = saved + 'px';
+      th.style.minWidth = saved + 'px';
+    }
   });
 }
 
@@ -456,6 +501,46 @@ function gotoNetwork(ip) {
   closeGSearch();
   switchTab('network');
   setTimeout(() => highlightNetworkIp(ip), 100);
+}
+
+// ── NAVIGATION WITH ROW HIGHLIGHT ─────────────────────────────────────────────
+function navigateToRow(tab, matchField, matchValue) {
+  switchTab(tab);
+  setTimeout(function() {
+    // Map tab to data array and vs key
+    const tabMap = {
+      processes: { data: procData,    vsKey: 'proc'  },
+      network:   { data: netData,     vsKey: 'net'   },
+      dns:       { data: dnsData,     vsKey: 'dns'   },
+      dlls:      { data: dllData,     vsKey: 'dlls'  },
+    };
+    const entry = tabMap[tab];
+    if (!entry) return;
+    const idx = entry.data.findIndex(function(r) { return String(r[matchField]) === String(matchValue); });
+    const vs = state.vsInstances[entry.vsKey];
+    if (!vs) return;
+    if (idx >= 0) {
+      const visibleHeight = vs.viewport.clientHeight;
+      vs.viewport.scrollTop = Math.max(0, idx * ROW_H - visibleHeight / 2);
+      setTimeout(function() {
+        vs.render();
+        setTimeout(function() {
+          // Find the row element
+          const vsEl = vs.viewport.querySelector('.vscroll-inner');
+          if (!vsEl) return;
+          const rowEl = vsEl.querySelector('[data-idx="' + idx + '"]');
+          if (!rowEl) return;
+          // Clear any existing highlight
+          vsEl.querySelectorAll('.row-highlight').forEach(function(el) {
+            el.classList.remove('row-highlight','fade');
+          });
+          rowEl.classList.add('row-highlight');
+          setTimeout(function() { rowEl.classList.add('fade'); }, 500);
+          setTimeout(function() { rowEl.classList.remove('row-highlight','fade'); }, 2500);
+        }, 50);
+      }, 50);
+    }
+  }, 100);
 }
 
 // Placeholder will be hidden once files load; auto-trigger picker on init

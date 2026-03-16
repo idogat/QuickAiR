@@ -1,5 +1,5 @@
 // ── NETWORK TAB ───────────────────────────────────────────────────────────────
-let netFilters = { search: '', excludePrivate: false, state: '', iface: '' };
+let netFilters = { search: '', state: '', iface: '' };
 let netSort    = { col: 'State', dir: 1 };
 let netData    = [];
 
@@ -21,7 +21,6 @@ function renderNetwork() {
     <div class="filter-bar">
       <input type="text" id="net-search" placeholder="IP, port, process, DNS, interface&hellip;" style="width:280px"
              oninput="netFilters.search=this.value;applyNetFilters()">
-      <label><input type="checkbox" onchange="netFilters.excludePrivate=this.checked;applyNetFilters()"> Exclude private IPs</label>
       <select onchange="netFilters.state=this.value;applyNetFilters()">${stateOpts}</select>
       <select onchange="netFilters.iface=this.value;applyNetFilters()">${ifaceOpts}</select>
       <span id="net-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
@@ -65,6 +64,7 @@ function buildNetHeader(COLS) {
       ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
     return `<div class="th sortable-th" onclick="sortTable('network','${hd.key}',${hd.numeric})">${esc(hd.label)} <span id="sort-network-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
+  setTimeout(() => addResizeHandles('net-header', 'network'), 0);
 }
 
 function applyNetFilters() {
@@ -86,7 +86,6 @@ function applyNetFilters() {
     str(c.ReverseDns).includes(lq)    || str(c.InterfaceAlias).includes(lq) ||
     str(c._procName).includes(lq)     || str(c.OwningProcess).includes(lq)
   );
-  if (netFilters.excludePrivate) rows = rows.filter(c => !c.IsPrivateIP);
   if (netFilters.state) rows = rows.filter(c => c.State === netFilters.state);
   if (netFilters.iface) rows = rows.filter(c => c.InterfaceAlias === netFilters.iface);
 

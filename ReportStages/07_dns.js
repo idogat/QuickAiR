@@ -1,5 +1,5 @@
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
-let dnsFilters = { search: '', matchedOnly: false };
+let dnsFilters = { search: '' };
 let dnsSort    = { col: 'Entry', dir: 1 };
 let dnsData    = [];
 
@@ -21,7 +21,6 @@ function renderDns() {
     <div class="filter-bar">
       <input type="text" id="dns-search" placeholder="Search hostname, IP, type&hellip;" style="width:260px"
              oninput="dnsFilters.search=this.value;applyDnsFilters()">
-      <label><input type="checkbox" onchange="dnsFilters.matchedOnly=this.checked;applyDnsFilters()"> Matched only</label>
       <span id="dns-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
     </div>
     <div class="tbl-wrap">
@@ -46,9 +45,14 @@ function buildDnsHeader(COLS) {
   const h = el('dns-header');
   if (!h) return;
   h.innerHTML = headers.map(hd => {
-    const cls = dnsSort.col === hd.key ? (dnsSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-    return `<div class="${cls}" onclick="dnsSortBy('${hd.key}')">${esc(hd.label)}</div>`;
+    const numeric = /TTL$|Pid$/.test(hd.key);
+    const arrow = (sortState.tab === 'dns' && sortState.column === hd.key)
+      ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+    const arrowCls = (sortState.tab === 'dns' && sortState.column === hd.key && sortState.dir !== 'none')
+      ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+    return `<div class="th sortable-th" onclick="sortTable('dns','${hd.key}',${numeric})">${esc(hd.label)} <span id="sort-dns-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
+  setTimeout(() => addResizeHandles('dns-header', 'dns'), 0);
 }
 
 function applyDnsFilters() {
@@ -76,13 +80,16 @@ function applyDnsFilters() {
     str(e.Entry).includes(lq) || str(e.Data).includes(lq) ||
     str(e.Type).includes(lq)  || str(e._matchedProcess).includes(lq)
   );
-  if (dnsFilters.matchedOnly) rows = rows.filter(e => e._isMatched);
-
-  rows.sort((a,b) => {
-    const av = a[dnsSort.col]; const bv = b[dnsSort.col];
-    if (typeof av === 'number') return (av-bv)*dnsSort.dir;
-    return String(av||'').localeCompare(String(bv||''))*dnsSort.dir;
-  });
+  if (sortState.tab === 'dns' && sortState.column && sortState.dir !== 'none') {
+    const numericDnsCols = new Set(['TTL','_matchedPid']);
+    rows = applySortToRows(rows, sortState.column, numericDnsCols.has(sortState.column));
+  } else {
+    rows.sort((a,b) => {
+      const av = a[dnsSort.col]; const bv = b[dnsSort.col];
+      if (typeof av === 'number') return (av-bv)*dnsSort.dir;
+      return String(av||'').localeCompare(String(bv||''))*dnsSort.dir;
+    });
+  }
   dnsData = rows;
 
   const cnt = el('dns-count');

@@ -159,5 +159,14 @@ input::placeholder{color:var(--muted)}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* COLUMN RESIZE */
+.tbl-header .th{position:relative;user-select:none}
+.col-resize-handle{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;z-index:10}
+.col-resize-handle:hover,.col-resize-handle.dragging{background:var(--accent)}
+
+/* ROW HIGHLIGHT (cross-reference navigation) */
+.row-highlight{background:rgba(88,166,255,0.15)!important;border-left:3px solid var(--accent)!important;transition:background 2s ease,border-left 2s ease}
+.row-highlight.fade{background:transparent!important;border-left:3px solid transparent!important}
 </style>
 </head>
