@@ -1,0 +1,42 @@
+#Requires -Version 5.1
+# Modules\Core\DateTime.psm1
+# UTC/ISO 8601 datetime normalization
+
+Set-StrictMode -Off
+$ErrorActionPreference = 'Continue'
+
+# ConvertTo-UtcIso: Convert WMI DMTF string or [datetime] to UTC ISO 8601 string
+# WMI DMTF format: "20240115143022.000000+060" (offset in minutes east of UTC)
+function ConvertTo-UtcIso {
+    param([object]$Value, [int]$FallbackOffsetMin = 0)
+    if ($null -eq $Value -or $Value -eq '') { return $null }
+
+    # Already a [DateTime]
+    if ($Value -is [datetime]) {
+        if ($Value.Kind -eq [DateTimeKind]::Utc) {
+            return $Value.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        }
+        return $Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    }
+
+    $s = $Value.ToString().Trim()
+
+    # DMTF format
+    if ($s -match '^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})\.\d+([+-]\d+)$') {
+        try {
+            $yr = [int]$Matches[1]; $mo = [int]$Matches[2]; $dy = [int]$Matches[3]
+            $hr = [int]$Matches[4]; $mi = [int]$Matches[5]; $sc = [int]$Matches[6]
+            $off = [int]$Matches[7]
+            $local = [datetime]::new($yr, $mo, $dy, $hr, $mi, $sc)
+            return $local.AddMinutes(-$off).ToString('yyyy-MM-ddTHH:mm:ssZ')
+        } catch { return $null }
+    }
+
+    # Generic parse fallback
+    try {
+        $dt = [datetime]::Parse($s)
+        return $dt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    } catch { return $null }
+}
+
+Export-ModuleMember -Function ConvertTo-UtcIso

@@ -207,7 +207,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "1.5";
+const ANALYZER_VERSION = "1.6";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -248,6 +248,11 @@ function loadJsonFile(file, onDone) {
     try {
       const data = JSON.parse(e.target.result);
       const host = (data.manifest && data.manifest.hostname) ? data.manifest.hostname : file.name.replace(/\.json$/i,'');
+      // Normalize new JSON keys (v2.0) with backwards compat for old format
+      data.processes   = data.Processes   || data.processes   || [];
+      data.network_tcp = (data.Network && data.Network.tcp) || data.network_tcp || [];
+      data.dns_cache   = (data.Network && data.Network.dns) || data.dns_cache   || [];
+      // Expose Network_source from manifest for fleet/manifest panel
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
@@ -334,7 +339,7 @@ function updateMeta() {
     (m.collection_time_utc || '') + '  |  ' +
     (m.target_os_caption || m.target_os_version || '') + '  |  ' +
     'PS ' + (m.target_ps_version || '?') + '  |  ' +
-    (m.network_source || '') + '/' + (m.dns_source || '');
+    (m.Network_source ? (m.Network_source.network || '') : (m.network_source || '')) + '/' + (m.Network_source ? (m.Network_source.dns || '') : (m.dns_source || ''));
 }
 
 // ── TAB ROUTER ────────────────────────────────────────────────────────────────
@@ -606,7 +611,7 @@ function renderFleet() {
         target_ps_version:   m.target_ps_version  || '',
         nic_count:           adapters.length,
         _adapter_names:      adapters.map(a => a.InterfaceAlias || a.AdapterName || '').filter(Boolean),
-        network_source:      m.network_source      || '',
+        network_source:      m.Network_source ? (m.Network_source.network || JSON.stringify(m.Network_source)) : (m.network_source || ''),
         proc_count:          (d.processes||[]).length,
         active_count:        ac,
         unique_ips:          ips.size,
@@ -713,8 +718,8 @@ function renderManifestPanel(hostname) {
         <span class="k">target_ps_version</span>       <span class="v">${esc(m.target_ps_version||'')}</span>
         <span class="k">target_os_version</span>       <span class="v">${esc(m.target_os_version||'')} (${esc(m.target_os_caption||'')})</span>
         <span class="k">target_timezone_offset_minutes</span><span class="v">${m.target_timezone_offset_minutes != null ? m.target_timezone_offset_minutes : ''}</span>
-        <span class="k">network_source</span>          <span class="v">${esc(m.network_source||'')}</span>
-        <span class="k">dns_source</span>              <span class="v">${esc(m.dns_source||'')}</span>
+        <span class="k">Network_source</span>          <span class="v">${esc(m.Network_source ? (m.Network_source.network || JSON.stringify(m.Network_source)) : (m.network_source || ''))}</span>
+        <span class="k">dns_source</span>              <span class="v">${esc(m.Network_source ? (m.Network_source.dns || '') : (m.dns_source || ''))}</span>
         <span class="k">collection_time_utc</span>     <span class="v">${esc(m.collection_time_utc||'')}</span>
         <span class="k">sha256</span>                  <span class="v" style="font-size:10px;color:var(--muted)">${esc(m.sha256||'')}</span>
       </div>
