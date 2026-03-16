@@ -1,41 +1,51 @@
-# CLAUDE.md
+# Quicker — DFIR Volatile Artifact Collector
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Architecture
+Plugin-based modular PowerShell collector.
 
-## Project
+Collector.ps1          — thin orchestrator only
+Report.html            — offline single-file GUI
+TestSuite.ps1          — auto-discovers Tests\T*.ps1
+Modules\
+  Core\
+    Connection.psm1    — WinRM session, auth, retry
+    Output.psm1        — JSON write, SHA256, manifest
+    DateTime.psm1      — UTC normalization
+  Collectors\
+    Processes.psm1     — process list
+    Network.psm1       — TCP connections + DNS cache
+Tests\
+  T01_Processes.ps1
+  T02_Network.ps1
+  ...
 
-Quicker — PowerShell DFIR volatile artifact collector. Three deliverables:
-- `Collector.ps1` — Quicker Collector: collects volatile artifacts from a target Windows system
-- `Report.html` — Quicker: self-contained HTML analyzer for collected data
-- `TestSuite.ps1` — Quicker Test Suite: 11 automated validation checks
+## Collector Module Contract
+Every Modules\Collectors\*.psm1 must implement:
+  function Invoke-Collector {
+    param($Session, $TargetPSVersion, $TargetCapabilities)
+    return @{ data=@(); source=""; errors=@() }
+  }
+Orchestrator auto-discovers and runs all modules.
+Return key in JSON = module filename without extension.
 
-## Output Paths
-
-| Purpose | Path |
-|---|---|
-| Final deliverables | `C:\DFIRLab\FinalOutput\` |
-| Working/intermediate files | `C:\DFIRLab\Scripts\` |
-| Agent log | `C:\DFIRLab\agent.log` |
-
-## Hard Rules (non-negotiable)
-
-- Never prompt for user input — all decisions made autonomously
+## Rules
+- Never prompt user — all decisions autonomous
 - Never write to Windows Event Log
-- Never make external network calls — fully air-gap safe
-- Collection is strictly read-only — never modify target system state
-- Always enforce Administrator context; abort with user-facing instructions if not elevated
-- All datetimes in UTC ISO 8601
+- Never make external network calls
+- Read-only collection — never modify target state
+- Run as Administrator (abort with instructions if not)
+- All datetimes UTC ISO 8601
+- PS 2.0 compatible on target-side code paths
+- No external dependencies, no downloads
 
-## Code Style
+## Output
+One JSON per host:
+  <OutputPath>\<hostname>\<hostname>_<timestamp>.json
+  Keys: manifest + one key per collector module
 
-**PowerShell (`Collector.ps1`):**
-- Must be compatible with PS 2.0 on target machines
-- Analyst machine is PS 5.1 (can use PS 5.1 features in any tooling that runs only on analyst side)
+## Targets
+localhost, 192.168.1.250, 192.168.1.100 (DC), 192.168.1.236 (2008R2)
+All have 2 NICs except localhost.
 
-**HTML (`Report.html`):**
-- Vanilla JS only — no frameworks, no CDN links, no external resources
-- Must be fully self-contained (single file, works offline)
-
-**JSON (intermediate data):**
-- One file per host
-- Schema: `manifest` + `processes` + `network` + `DNS`
+## Repo
+https://github.com/idogat/quicker
