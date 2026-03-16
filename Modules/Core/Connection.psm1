@@ -1,6 +1,21 @@
 #Requires -Version 5.1
-# Modules\Core\Connection.psm1
-# WinRM session management, capability probing, hostname/IP utilities
+# ╔══════════════════════════════════════╗
+# ║  Quicker — Connection.psm1          ║
+# ║  WinRM sessions, capability probe,  ║
+# ║  hostname resolution, auth utils    ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : Test-PrivateIP         ║
+# ║              Resolve-TargetHostname ║
+# ║              ConvertFrom-TcpStateInt║
+# ║              Get-TargetCaps         ║
+# ║              New-RemoteSession      ║
+# ║  Inputs    : -Target -Cred          ║
+# ║  Output    : caps hashtable;        ║
+# ║              PSSession              ║
+# ║  Depends   : none                   ║
+# ║  PS compat : 5.1 (analyst machine)  ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'

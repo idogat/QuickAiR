@@ -1,5 +1,17 @@
 #Requires -Version 5.1
-# Quicker Test Suite v2.0 - runner only, auto-discovers Tests\T*.ps1
+# ╔══════════════════════════════════════╗
+# ║  Quicker — TestSuite.ps1            ║
+# ║  Test runner. Auto-discovers and    ║
+# ║  runs Tests\T*.ps1. Prints summary. ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : n/a (entry point)      ║
+# ║  Inputs    : -JsonPath -HtmlPath    ║
+# ║              -T3Threshold -DcMode   ║
+# ║  Output    : console pass/fail      ║
+# ║  Depends   : Tests\T*.ps1           ║
+# ║  PS compat : 5.1                    ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 <#
 .SYNOPSIS
     Quicker Test Suite - validates collected JSON output and Report.html

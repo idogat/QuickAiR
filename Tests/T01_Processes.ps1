@@ -1,5 +1,14 @@
 #Requires -Version 5.1
-# Tests\T01_Processes.ps1 - Process tests (T1, T2)
+# ╔══════════════════════════════════════╗
+# ║  Quicker — T01_Processes.ps1        ║
+# ║  T1 process completeness,           ║
+# ║  T2 process field validation        ║
+# ╠══════════════════════════════════════╣
+# ║  Inputs    : -JsonPath -HtmlPath    ║
+# ║  Output    : @{ Passed=@();         ║
+# ║               Failed=@(); Info=@() }║
+# ║  PS compat : 5.1                    ║
+# ╚══════════════════════════════════════╝
 [CmdletBinding()]
 param(
     [string]$JsonPath = "",

@@ -1,5 +1,14 @@
 #Requires -Version 5.1
-# Tests\T03_Manifest.ps1 - Manifest tests (T8, T9)
+# ╔══════════════════════════════════════╗
+# ║  Quicker — T03_Manifest.ps1         ║
+# ║  T8 manifest integrity + SHA256,    ║
+# ║  T9 collection error log audit      ║
+# ╠══════════════════════════════════════╣
+# ║  Inputs    : -JsonPath -HtmlPath    ║
+# ║  Output    : @{ Passed=@();         ║
+# ║               Failed=@(); Info=@() }║
+# ║  PS compat : 5.1                    ║
+# ╚══════════════════════════════════════╝
 [CmdletBinding()]
 param(
     [string]$JsonPath = "",

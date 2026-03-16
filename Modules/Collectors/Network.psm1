@@ -1,6 +1,21 @@
 #Requires -Version 5.1
-# Modules\Collectors\Network.psm1
-# Network TCP connections, DNS cache, and adapter enumeration plugin
+# ╔══════════════════════════════════════╗
+# ║  Quicker — Network.psm1             ║
+# ║  TCP connections (3 tiers), DNS     ║
+# ║  cache (3 tiers), multi-NIC mapping ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : Invoke-Collector       ║
+# ║  Inputs    : -Session               ║
+# ║              -TargetPSVersion       ║
+# ║              -TargetCapabilities    ║
+# ║  Output    : @{ data=@{tcp=[];      ║
+# ║               dns=[];adapters=[]};  ║
+# ║               source=@{network=;   ║
+# ║               dns=}; errors=[] }   ║
+# ║  Depends   : Core\DateTime.psm1     ║
+# ║  PS compat : 2.0+ (target-side)     ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'

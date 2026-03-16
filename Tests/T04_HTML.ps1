@@ -1,5 +1,14 @@
 #Requires -Version 5.1
-# Tests\T04_HTML.ps1 - HTML tests (T10, T11)
+# ╔══════════════════════════════════════╗
+# ║  Quicker — T04_HTML.ps1             ║
+# ║  T10 HTML sanity (size, no CDN),    ║
+# ║  T11 HTML field coverage check      ║
+# ╠══════════════════════════════════════╣
+# ║  Inputs    : -JsonPath -HtmlPath    ║
+# ║  Output    : @{ Passed=@();         ║
+# ║               Failed=@(); Info=@() }║
+# ║  PS compat : 5.1                    ║
+# ╚══════════════════════════════════════╝
 [CmdletBinding()]
 param(
     [string]$JsonPath = "",

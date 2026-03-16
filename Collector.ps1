@@ -1,34 +1,17 @@
 #Requires -Version 5.1
-# Name: Quicker Collector
-# Description: Quicker -- DFIR Volatile Artifact Collector
-# Version: 2.0
-# CHANGES:
-#   1.0 - Initial implementation: pslist + network TCP + DNS cache
-#         PS 2.0 through 5.1 target support via dual WMI/CIM paths
-#         WinRM-only connectivity, read-only, no external calls
-#   1.1 - Fix SHA256 computation: use UTF8 string bytes (no BOM/newline ambiguity)
-#   1.2 - Prompt for credentials when connecting to remote target with no -Credential supplied
-#         Fix remote capability probe: use WinRM only (no DCOM/RPC), port 5985 explicit
-#         Reduce retry wait to 5s for faster failure detection
-#         Auto-add target to WinRM TrustedHosts for non-domain connections
-#   1.3 - Fix output path resolving to system32 when run as Administrator without -OutputPath
-#         OutputPath now always resolves relative to script location, not CWD
-#   1.4 - Fix output folder/file always uses hostname not IP (DNS resolution with IP fallback)
-#         Fix missing processes: .NET cross-check catches processes absent from WMI/CIM
-#         Fix silent process drops on access denied: include process with partial data
-#         Fix WMI result truncation: EnumerationOptions.ReturnImmediately/Rewindable
-#         Increase CIM operation timeout to 60s
-#   1.5 - Rebrand to Quicker
-#         Fix ReverseDns: store IP as fallback when no PTR record exists (never null for public IPs)
-#   1.6 - Multi-NIC support: enumerate all adapters on target (WMI/CIM)
-#         manifest.network_adapters stores full adapter list
-#         InterfaceAlias assigned per-connection by matching LocalAddress to adapter IPs
-#         ALL_INTERFACES for 0.0.0.0/:: bindings, LOOPBACK for 127.0.0.1/::1
-#         UNKNOWN + WARN logged when LocalAddress does not match any adapter IP
-#   2.0 - Plugin-based architecture refactor
-#         Collector.ps1 is now a thin orchestrator
-#         Core modules: DateTime, Connection, Output
-#         Collector modules: Processes, Network (auto-discovered)
+# ╔══════════════════════════════════════╗
+# ║  Quicker — Collector.ps1            ║
+# ║  Thin orchestrator. Auto-discovers  ║
+# ║  and runs Collectors\*.psm1 plugins ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : n/a (entry point)      ║
+# ║  Inputs    : -Targets -Credential   ║
+# ║              -OutputPath -Quiet     ║
+# ║  Output    : <hostname>_<ts>.json   ║
+# ║  Depends   : Core\* Collectors\*   ║
+# ║  PS compat : 5.1 (analyst machine)  ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
 param(

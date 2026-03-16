@@ -1,6 +1,16 @@
 #Requires -Version 5.1
-# Modules\Core\DateTime.psm1
-# UTC/ISO 8601 datetime normalization
+# ╔══════════════════════════════════════╗
+# ║  Quicker — DateTime.psm1            ║
+# ║  UTC normalization, DMTF to ISO 8601║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : ConvertTo-UtcIso       ║
+# ║  Inputs    : $Value (str/datetime)  ║
+# ║              $FallbackOffsetMin     ║
+# ║  Output    : UTC ISO 8601 string    ║
+# ║  Depends   : none                   ║
+# ║  PS compat : 2.0+                   ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'

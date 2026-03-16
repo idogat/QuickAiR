@@ -1,6 +1,22 @@
 #Requires -Version 5.1
-# Modules\Core\Output.psm1
-# Logging, JSON output, SHA256, manifest building
+# ╔══════════════════════════════════════╗
+# ║  Quicker — Output.psm1              ║
+# ║  Logging, JSON write, SHA256,       ║
+# ║  manifest building                  ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : Initialize-Log         ║
+# ║              Write-Log              ║
+# ║              Get-FileSha256         ║
+# ║              Write-JsonOutput       ║
+# ║              Build-Manifest         ║
+# ║  Inputs    : path, data, hostname,  ║
+# ║              caps, sources          ║
+# ║  Output    : @{Path; Hash} (JSON)   ║
+# ║              manifest ordered hash  ║
+# ║  Depends   : none                   ║
+# ║  PS compat : 5.1 (analyst machine)  ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'

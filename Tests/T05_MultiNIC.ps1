@@ -1,5 +1,14 @@
 #Requires -Version 5.1
-# Tests\T05_MultiNIC.ps1 - Multi-NIC interface assignment test (T12)
+# ╔══════════════════════════════════════╗
+# ║  Quicker — T05_MultiNIC.ps1         ║
+# ║  T12 multi-NIC interface assignment ║
+# ║  verification                       ║
+# ╠══════════════════════════════════════╣
+# ║  Inputs    : -JsonPath -HtmlPath    ║
+# ║  Output    : @{ Passed=@();         ║
+# ║               Failed=@(); Info=@() }║
+# ║  PS compat : 5.1                    ║
+# ╚══════════════════════════════════════╝
 [CmdletBinding()]
 param(
     [string]$JsonPath = "",

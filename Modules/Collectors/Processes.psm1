@@ -1,6 +1,20 @@
 #Requires -Version 5.1
-# Modules\Collectors\Processes.psm1
-# Process collection plugin
+# ╔══════════════════════════════════════╗
+# ║  Quicker — Processes.psm1           ║
+# ║  Process list via CIM (PS3+) or WMI ║
+# ║  (PS2). Includes .NET fallback.     ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : Invoke-Collector       ║
+# ║  Inputs    : -Session               ║
+# ║              -TargetPSVersion       ║
+# ║              -TargetCapabilities    ║
+# ║  Output    : @{ data=processes[];   ║
+# ║               source=string;        ║
+# ║               errors=[] }           ║
+# ║  Depends   : Core\DateTime.psm1     ║
+# ║  PS compat : 2.0+ (target-side)     ║
+# ║  Version   : 2.0                    ║
+# ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'

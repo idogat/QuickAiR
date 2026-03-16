@@ -1,51 +1,53 @@
 # Quicker — DFIR Volatile Artifact Collector
+https://github.com/idogat/quicker
 
-## Architecture
-Plugin-based modular PowerShell collector.
-
-Collector.ps1          — thin orchestrator only
+## Structure
+Collector.ps1          — orchestrator, entry point
 Report.html            — offline single-file GUI
-TestSuite.ps1          — auto-discovers Tests\T*.ps1
-Modules\
-  Core\
-    Connection.psm1    — WinRM session, auth, retry
-    Output.psm1        — JSON write, SHA256, manifest
-    DateTime.psm1      — UTC normalization
-  Collectors\
-    Processes.psm1     — process list
-    Network.psm1       — TCP connections + DNS cache
-Tests\
-  T01_Processes.ps1
-  T02_Network.ps1
-  ...
+TestSuite.ps1          — test runner (auto-discovers Tests\)
+Modules\Core\          — Connection, DateTime, Output
+Modules\Collectors\    — Processes, Network (+ future plugins)
+Tests\                 — T01-T05 per-module test files
 
-## Collector Module Contract
-Every Modules\Collectors\*.psm1 must implement:
-  function Invoke-Collector {
-    param($Session, $TargetPSVersion, $TargetCapabilities)
-    return @{ data=@(); source=""; errors=@() }
-  }
-Orchestrator auto-discovers and runs all modules.
-Return key in JSON = module filename without extension.
+## Adding A New Collector Plugin
+Drop *.psm1 into Modules\Collectors\
+Implement Invoke-Collector — see any existing module header.
+Auto-discovered at runtime. No changes to Collector.ps1.
+JSON output key = module filename without extension.
+Add matching test file to Tests\T<n>_<name>.ps1
+
+## Test Lab Targets (dev/test only — not prod)
+localhost              — PS 5.1, no credential
+192.168.1.250          — domain, 2 NICs
+192.168.1.100          — domain DC, 2 NICs
+192.168.1.236          — workgroup, Server 2008 R2,
+                         PS 2.0, 2 NICs
+
+## Production Targets
+Unknown at development time.
+Collector must handle any Windows target dynamically:
+  - Any PS version 2.0 through 5.1
+  - Domain or workgroup
+  - Any number of NICs
+  - Any OS from Server 2008 R2 to Server 2022 / Win11
+  - Credentials always provided at runtime
+  - Never hardcode any IP, hostname, or credential
+  - All behavior detected via capability probe at runtime
 
 ## Rules
-- Never prompt user — all decisions autonomous
+- Never prompt user — autonomous always
 - Never write to Windows Event Log
-- Never make external network calls
-- Read-only collection — never modify target state
-- Run as Administrator (abort with instructions if not)
+- No external network calls ever
+- Read-only collection
+- Run as Administrator
 - All datetimes UTC ISO 8601
-- PS 2.0 compatible on target-side code paths
-- No external dependencies, no downloads
+- PS 2.0 compatible on target-side paths
+- No downloads, no external dependencies
 
-## Output
-One JSON per host:
-  <OutputPath>\<hostname>\<hostname>_<timestamp>.json
-  Keys: manifest + one key per collector module
-
-## Targets
-localhost, 192.168.1.250, 192.168.1.100 (DC), 192.168.1.236 (2008R2)
-All have 2 NICs except localhost.
-
-## Repo
-https://github.com/idogat/quicker
+## Efficiency Rules
+- Read file headers before reading full file
+- Use str_replace for edits, never full rewrites
+- Write files >200 lines in stages, concatenate after
+- Read only files relevant to current task
+- Update file header version after every change
+- Update CLAUDE.md if architecture changes

@@ -1,5 +1,15 @@
 #Requires -Version 5.1
-# Tests\T02_Network.ps1 - Network tests (T3, T4, T5, T6, T7)
+# ╔══════════════════════════════════════╗
+# ║  Quicker — T02_Network.ps1          ║
+# ║  T3 network completeness, T4 proc   ║
+# ║  assign, T5 DNS, T6 correl, T7 rDNS ║
+# ╠══════════════════════════════════════╣
+# ║  Inputs    : -JsonPath -HtmlPath    ║
+# ║              -T3Threshold           ║
+# ║  Output    : @{ Passed=@();         ║
+# ║               Failed=@(); Info=@() }║
+# ║  PS compat : 5.1                    ║
+# ╚══════════════════════════════════════╝
 [CmdletBinding()]
 param(
     [string]$JsonPath     = "",
