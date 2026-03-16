@@ -51,3 +51,8 @@ Collector must handle any Windows target dynamically:
 - Read only files relevant to current task
 - Update file header version after every change
 - Update CLAUDE.md if architecture changes
+
+## Plugin Failure Behavior
+If Invoke-Collector throws: catch in orchestrator,
+add to manifest.collection_errors, log WARN, continue.
+Never let one plugin crash abort the whole collection.

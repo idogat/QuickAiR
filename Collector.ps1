@@ -159,7 +159,7 @@ foreach ($target in $Targets) {
             Write-Log 'INFO' "Collector $($c.BaseName) complete"
         } catch {
             $collErr += @{ artifact = $c.BaseName; message = $_.Exception.Message }
-            Write-Log 'ERROR' "Collector $($c.BaseName) failed: $($_.Exception.Message)"
+            Write-Log 'WARN' "Collector $($c.BaseName) failed: $($_.Exception.Message)"
         }
     }
 
