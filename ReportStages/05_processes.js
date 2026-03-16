@@ -95,8 +95,9 @@ function applyProcFilters() {
     str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq)
   );
   // Apply sortTable if active for this tab
+  const numericProcCols = new Set(['ProcessId','ParentProcessId','_connCount','DLLCount','SessionId','HandleCount']);
   if (sortState.tab === 'processes' && sortState.column && sortState.dir !== 'none') {
-    rows = applySortToRows(rows, sortState.column, sortState.column === 'ProcessId');
+    rows = applySortToRows(rows, sortState.column, numericProcCols.has(sortState.column));
   } else {
     rows.sort((a,b) => {
       const av = a[procSort.col]; const bv = b[procSort.col];
@@ -129,14 +130,14 @@ function renderProcRow(p, i) {
   return `
     <div class="td mono">${p.ProcessId}</div>
     <div class="td dim">${p.ParentProcessId}</div>
-    <div class="td dim">${esc(trunc(p._parentName,16))}</div>
-    <div class="${nameCls}">${esc(trunc(p.Name,20))}${fbBadge}</div>
-    <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
-    <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
+    <div class="td dim">${esc(p._parentName)}</div>
+    <div class="${nameCls}">${esc(p.Name)}${fbBadge}</div>
+    <div class="td dim">${esc(p.ExecutablePath||'')}</div>
+    <div class="td dim">${esc(p.CommandLine||'')}</div>
     <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
     <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
-    <div class="td dim">${esc(trunc(p._signerCompany||'',16))}</div>
+    <div class="td dim">${esc(p._signerCompany||'')}</div>
     <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
 }
 

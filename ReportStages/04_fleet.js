@@ -104,7 +104,7 @@ function renderFleet() {
       const nicColor = row.nic_count >= 2 ? 'accent' : 'dim';
       return `
       <div class="td">${esc(row.hostname)}</div>
-      <div class="td dim">${esc(trunc(row.target_os_caption,24))}</div>
+      <div class="td dim">${esc(row.target_os_caption||'')}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
       <div class="td ${nicColor}" title="${esc(nicTip)}">${row.nic_count || ''}</div>
       <div class="td dim">${esc(row.network_source)}</div>

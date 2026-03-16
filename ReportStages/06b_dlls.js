@@ -114,19 +114,18 @@ function renderDllRow(e, i) {
   const privCls = e.IsPrivatePath ? 'amber' : 'dim';
   const sig     = e.Signature || null;
   const signerCo = e._signerCo || (sig ? (sig.SignerCompany || '') : '');
-  const pathTrunc = e.ModulePath ? trunc(e.ModulePath, 32) : (e.reason ? '[' + esc(e.reason) + ']' : '');
-  const nameTrunc = trunc(e.ModuleName || '', 22);
+  const pathStr = e.ModulePath ? esc(e.ModulePath) : (e.reason ? '[' + esc(e.reason) + ']' : '');
   return `
-    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(trunc(e.ProcessName||'',18))}</div>
+    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')}</div>
     <div class="td dim">${e.ProcessId != null ? e.ProcessId : ''}</div>
-    <div class="td mono">${esc(nameTrunc)}</div>
-    <div class="td dim mono" title="${esc(e.ModulePath||'')}">${esc(pathTrunc)}</div>
-    <div class="td dim">${esc(trunc(e.FileVersion||'',12))}</div>
-    <div class="td dim">${esc(trunc(e.Company||'',18))}</div>
+    <div class="td mono">${esc(e.ModuleName||'')}</div>
+    <div class="td dim mono" title="${esc(e.ModulePath||'')}">${pathStr}</div>
+    <div class="td dim">${esc(e.FileVersion||'')}</div>
+    <div class="td dim">${esc(e.Company||'')}</div>
     <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
     <div class="td">${renderSignedIcon(sig)}</div>
-    <div class="td dim">${esc(trunc(signerCo,16))}</div>`;
+    <div class="td dim">${esc(signerCo)}</div>`;
 }
 
 function onDllRowClick(i, e, rowEl) {

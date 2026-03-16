@@ -220,7 +220,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.5";
+const ANALYZER_VERSION = "2.6";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -284,10 +284,14 @@ function applySortToRows(rows, colKey, numeric) {
   const dir = sortState.dir === 'asc' ? 1 : -1;
   return rows.slice().sort((a, b) => {
     const av = a[colKey]; const bv = b[colKey];
+    if (numeric) {
+      const an = parseFloat(av ?? -1);
+      const bn = parseFloat(bv ?? -1);
+      return (an - bn) * dir;
+    }
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
-    if (numeric) return (Number(av) - Number(bv)) * dir;
     return String(av).localeCompare(String(bv)) * dir;
   });
 }
@@ -424,7 +428,7 @@ function loadJsonFile(file, onDone) {
         });
       }
       data.processes.forEach(p => {
-        p.DLLCount = hasDlls ? (dllCountMap[p.ProcessId] || 0) : null;
+        p.DLLCount = hasDlls ? parseInt(dllCountMap[p.ProcessId] || 0, 10) : null;
       });
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
@@ -932,7 +936,7 @@ function renderFleet() {
       const nicColor = row.nic_count >= 2 ? 'accent' : 'dim';
       return `
       <div class="td">${esc(row.hostname)}</div>
-      <div class="td dim">${esc(trunc(row.target_os_caption,24))}</div>
+      <div class="td dim">${esc(row.target_os_caption||'')}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
       <div class="td ${nicColor}" title="${esc(nicTip)}">${row.nic_count || ''}</div>
       <div class="td dim">${esc(row.network_source)}</div>
@@ -1116,8 +1120,9 @@ function applyProcFilters() {
     str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq)
   );
   // Apply sortTable if active for this tab
+  const numericProcCols = new Set(['ProcessId','ParentProcessId','_connCount','DLLCount','SessionId','HandleCount']);
   if (sortState.tab === 'processes' && sortState.column && sortState.dir !== 'none') {
-    rows = applySortToRows(rows, sortState.column, sortState.column === 'ProcessId');
+    rows = applySortToRows(rows, sortState.column, numericProcCols.has(sortState.column));
   } else {
     rows.sort((a,b) => {
       const av = a[procSort.col]; const bv = b[procSort.col];
@@ -1150,14 +1155,14 @@ function renderProcRow(p, i) {
   return `
     <div class="td mono">${p.ProcessId}</div>
     <div class="td dim">${p.ParentProcessId}</div>
-    <div class="td dim">${esc(trunc(p._parentName,16))}</div>
-    <div class="${nameCls}">${esc(trunc(p.Name,20))}${fbBadge}</div>
-    <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
-    <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
+    <div class="td dim">${esc(p._parentName)}</div>
+    <div class="${nameCls}">${esc(p.Name)}${fbBadge}</div>
+    <div class="td dim">${esc(p.ExecutablePath||'')}</div>
+    <div class="td dim">${esc(p.CommandLine||'')}</div>
     <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
     <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
-    <div class="td dim">${esc(trunc(p._signerCompany||'',16))}</div>
+    <div class="td dim">${esc(p._signerCompany||'')}</div>
     <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
 }
 
@@ -1387,15 +1392,15 @@ function renderNetRow(c, i) {
   const ifAlias   = c.InterfaceAlias || '';
   const ifColor   = ifaceColor(ifAlias, getAdapterAliases());
   return `
-    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(trunc(c._procName,18))}</div>
+    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(c._procName)}</div>
     <div class="td dim">${c.OwningProcess}</div>
     <div class="td mono dim">${esc(c.LocalAddress)}</div>
     <div class="td dim">${c.LocalPort}</div>
     <div class="td mono">${esc(c.RemoteAddress)}</div>
     <div class="td">${c.RemotePort}</div>
-    <div class="td accent">${esc(trunc(c.DnsMatch||'',22))}</div>
-    <div class="td dim">${esc(trunc(c.ReverseDns||'',22))}</div>
-    <div class="td"><span style="color:${ifColor};font-weight:bold">${esc(trunc(ifAlias,18))}</span></div>
+    <div class="td accent">${esc(c.DnsMatch||'')}</div>
+    <div class="td dim">${esc(c.ReverseDns||'')}</div>
+    <div class="td"><span style="color:${ifColor};font-weight:bold">${esc(ifAlias)}</span></div>
     <div class="td ${stCls}">${esc(c.State)}</div>
     <div class="td dim">${c.IsPrivateIP?'yes':''}</div>`;
 }
@@ -1614,19 +1619,18 @@ function renderDllRow(e, i) {
   const privCls = e.IsPrivatePath ? 'amber' : 'dim';
   const sig     = e.Signature || null;
   const signerCo = e._signerCo || (sig ? (sig.SignerCompany || '') : '');
-  const pathTrunc = e.ModulePath ? trunc(e.ModulePath, 32) : (e.reason ? '[' + esc(e.reason) + ']' : '');
-  const nameTrunc = trunc(e.ModuleName || '', 22);
+  const pathStr = e.ModulePath ? esc(e.ModulePath) : (e.reason ? '[' + esc(e.reason) + ']' : '');
   return `
-    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(trunc(e.ProcessName||'',18))}</div>
+    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')}</div>
     <div class="td dim">${e.ProcessId != null ? e.ProcessId : ''}</div>
-    <div class="td mono">${esc(nameTrunc)}</div>
-    <div class="td dim mono" title="${esc(e.ModulePath||'')}">${esc(pathTrunc)}</div>
-    <div class="td dim">${esc(trunc(e.FileVersion||'',12))}</div>
-    <div class="td dim">${esc(trunc(e.Company||'',18))}</div>
+    <div class="td mono">${esc(e.ModuleName||'')}</div>
+    <div class="td dim mono" title="${esc(e.ModulePath||'')}">${pathStr}</div>
+    <div class="td dim">${esc(e.FileVersion||'')}</div>
+    <div class="td dim">${esc(e.Company||'')}</div>
     <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
     <div class="td">${renderSignedIcon(sig)}</div>
-    <div class="td dim">${esc(trunc(signerCo,16))}</div>`;
+    <div class="td dim">${esc(signerCo)}</div>`;
 }
 
 function onDllRowClick(i, e, rowEl) {

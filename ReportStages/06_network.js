@@ -121,15 +121,15 @@ function renderNetRow(c, i) {
   const ifAlias   = c.InterfaceAlias || '';
   const ifColor   = ifaceColor(ifAlias, getAdapterAliases());
   return `
-    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(trunc(c._procName,18))}</div>
+    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(c._procName)}</div>
     <div class="td dim">${c.OwningProcess}</div>
     <div class="td mono dim">${esc(c.LocalAddress)}</div>
     <div class="td dim">${c.LocalPort}</div>
     <div class="td mono">${esc(c.RemoteAddress)}</div>
     <div class="td">${c.RemotePort}</div>
-    <div class="td accent">${esc(trunc(c.DnsMatch||'',22))}</div>
-    <div class="td dim">${esc(trunc(c.ReverseDns||'',22))}</div>
-    <div class="td"><span style="color:${ifColor};font-weight:bold">${esc(trunc(ifAlias,18))}</span></div>
+    <div class="td accent">${esc(c.DnsMatch||'')}</div>
+    <div class="td dim">${esc(c.ReverseDns||'')}</div>
+    <div class="td"><span style="color:${ifColor};font-weight:bold">${esc(ifAlias)}</span></div>
     <div class="td ${stCls}">${esc(c.State)}</div>
     <div class="td dim">${c.IsPrivateIP?'yes':''}</div>`;
 }

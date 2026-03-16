@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.5";
+const ANALYZER_VERSION = "2.6";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -64,10 +64,14 @@ function applySortToRows(rows, colKey, numeric) {
   const dir = sortState.dir === 'asc' ? 1 : -1;
   return rows.slice().sort((a, b) => {
     const av = a[colKey]; const bv = b[colKey];
+    if (numeric) {
+      const an = parseFloat(av ?? -1);
+      const bn = parseFloat(bv ?? -1);
+      return (an - bn) * dir;
+    }
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
-    if (numeric) return (Number(av) - Number(bv)) * dir;
     return String(av).localeCompare(String(bv)) * dir;
   });
 }
@@ -204,7 +208,7 @@ function loadJsonFile(file, onDone) {
         });
       }
       data.processes.forEach(p => {
-        p.DLLCount = hasDlls ? (dllCountMap[p.ProcessId] || 0) : null;
+        p.DLLCount = hasDlls ? parseInt(dllCountMap[p.ProcessId] || 0, 10) : null;
       });
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
