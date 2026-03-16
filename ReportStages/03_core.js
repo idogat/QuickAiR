@@ -87,7 +87,16 @@ function refreshAll() {
   rebuildHostSelector();
   updateBadges();
   updateMeta();
+  updateTabVisibility();
   renderActiveTab();
+}
+
+function updateTabVisibility() {
+  const d = activeData();
+  const dllsBtn = el('tab-dlls');
+  if (dllsBtn) {
+    dllsBtn.style.display = (d && d.DLLs && d.DLLs.length > 0) ? '' : 'none';
+  }
 }
 
 function rebuildHostSelector() {
@@ -107,6 +116,7 @@ function switchHost(h) {
   state.expandedRows = {};
   updateBadges();
   updateMeta();
+  updateTabVisibility();
   renderActiveTab();
 }
 
@@ -152,6 +162,7 @@ function renderActiveTab() {
     case 'processes': renderProcesses(); break;
     case 'network':   renderNetwork();   break;
     case 'dns':       renderDns();       break;
+    case 'dlls':      renderDlls();      break;
   }
 }
 

@@ -348,3 +348,51 @@
 2026-03-16T11:39:02Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260316113902.json | SHA256: E6C703CABA009FEBD1655A9DAA8665AEF69CFE705F09B9322296A06CDC0FF9D0
 2026-03-16T11:39:02Z INFO Target complete | elapsed=1s | processes=162 | connections=85 | dns=7 | errors=1
 2026-03-16T11:39:02Z INFO All targets complete | elapsed=1s
+2026-03-16T11:53:41Z INFO Quicker Collector v2.0 starting
+2026-03-16T11:53:41Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-16T11:53:41Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-16T11:53:42Z INFO Starting collection. Targets: 1
+2026-03-16T11:53:42Z INFO Collection start | target=localhost
+2026-03-16T11:53:42Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-16T11:53:42Z INFO Running collector: DLLs
+2026-03-16T12:00:19Z INFO Collector DLLs complete
+2026-03-16T12:00:20Z INFO Running collector: Network
+2026-03-16T12:00:29Z INFO Collector Network complete
+2026-03-16T12:00:29Z INFO Running collector: Processes
+2026-03-16T12:00:29Z INFO Collector Processes complete
+2026-03-16T12:00:29Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-16T12:00:29Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260316120029.json | SHA256: 46B9921ED319FE702CFA43E25AE45ECE60D5FB2B02FEC3AF02301F1FE8A9FCEA
+2026-03-16T12:00:29Z INFO Target complete | elapsed=408s | processes=174 | connections=56 | dns=8 | errors=0
+2026-03-16T12:00:29Z INFO All targets complete | elapsed=408s
+2026-03-16T12:11:24Z INFO Quicker Collector v2.0 starting
+2026-03-16T12:11:25Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-16T12:11:25Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-16T12:11:25Z INFO Starting collection. Targets: 1
+2026-03-16T12:11:25Z INFO Collection start | target=localhost
+2026-03-16T12:11:25Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-16T12:11:25Z INFO Running collector: DLLs
+2026-03-16T12:15:36Z INFO Collector DLLs complete
+2026-03-16T12:15:36Z INFO Running collector: Network
+2026-03-16T12:15:48Z INFO Collector Network complete
+2026-03-16T12:15:48Z INFO Running collector: Processes
+2026-03-16T12:15:48Z INFO Collector Processes complete
+2026-03-16T12:15:48Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-16T12:15:48Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260316121548.json | SHA256: 1A51D9D6FB23A7650973CF958D93D798B302FB45B00A3A944A7AEF2D23E7287D
+2026-03-16T12:15:48Z INFO Target complete | elapsed=264s | processes=174 | connections=46 | dns=9 | errors=0
+2026-03-16T12:15:48Z INFO All targets complete | elapsed=264s
+2026-03-16T12:17:37Z INFO Quicker Collector v2.0 starting
+2026-03-16T12:17:37Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-16T12:17:37Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-16T12:17:37Z INFO Starting collection. Targets: 1
+2026-03-16T12:17:37Z INFO Collection start | target=localhost
+2026-03-16T12:17:38Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-16T12:17:38Z INFO Running collector: DLLs
+2026-03-16T12:23:51Z INFO Collector DLLs complete
+2026-03-16T12:23:51Z INFO Running collector: Network
+2026-03-16T12:23:56Z INFO Collector Network complete
+2026-03-16T12:23:56Z INFO Running collector: Processes
+2026-03-16T12:23:56Z INFO Collector Processes complete
+2026-03-16T12:23:56Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-16T12:23:57Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260316122356.json | SHA256: D369A73C388022B60F6805359E2CB0962F0E9DFECC9042FB119EC9BEFA7F5997
+2026-03-16T12:23:57Z INFO Target complete | elapsed=379s | processes=173 | connections=44 | dns=8 | errors=0
+2026-03-16T12:23:57Z INFO All targets complete | elapsed=379s
