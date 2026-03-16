@@ -1616,7 +1616,7 @@ function applyDllFilters() {
 }
 
 function renderDllRow(e, i) {
-  const sha     = e.FileHash ? (e.FileHash.slice(0, 16) + '...') : (e.SHA256Error ? e.SHA256Error : '');
+  const sha     = e.FileHash || (e.SHA256Error ? e.SHA256Error : '');
   const shaTitle = e.FileHash || e.SHA256Error || '';
   const shaCls  = !e.FileHash && e.SHA256Error ? 'td amber' : 'td mono dim';
   const privCls = e.IsPrivatePath ? 'amber' : 'dim';
