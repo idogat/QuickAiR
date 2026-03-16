@@ -220,7 +220,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.4";
+const ANALYZER_VERSION = "2.5";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -239,15 +239,6 @@ const state = {
     .sort-arrow { color: var(--muted); font-size: 0.8em; }
     .sort-arrow.asc { color: var(--accent); }
     .sort-arrow.desc { color: var(--accent); }
-    .resize-handle {
-      position: absolute; right: 0; top: 0;
-      width: 5px; height: 100%;
-      cursor: col-resize;
-      background: transparent;
-      z-index: 1;
-    }
-    .resize-handle:hover { background: var(--border); }
-    th { position: relative; }
   `;
   document.head.appendChild(s);
 })();
@@ -302,116 +293,91 @@ function applySortToRows(rows, colKey, numeric) {
 }
 
 // ── RESIZABLE COLUMNS ─────────────────────────────────────────────────────────
-// Works on div-based virtual scroll headers (tbl-header containing .th divs)
+// colWidths[tabName] = [w0, w1, ...] in pixels — source of truth for grid-template-columns
+const colWidths = {};
+
+// VS container IDs per tabName
+const VS_IDS = { processes:'proc-vs', network:'net-vs', dns:'dns-vs', dlls:'dlls-vs', fleet:'fleet-vs' };
+const HDR_IDS = { processes:'proc-header', network:'net-header', dns:'dns-header', dlls:'dlls-header', fleet:'fleet-header' };
+
+// Apply current colWidths[tabName] as grid-template-columns to header + all visible vrows
+function _applyGridTemplate(tabName) {
+  const widths = colWidths[tabName];
+  if (!widths || !widths.length) return;
+  const template = widths.map(function(w) { return w + 'px'; }).join(' ');
+  const hdr = document.getElementById(HDR_IDS[tabName]);
+  if (hdr) hdr.style.gridTemplateColumns = template;
+  const vsEl = document.getElementById(VS_IDS[tabName]);
+  if (vsEl) vsEl.querySelectorAll('.vrow').forEach(function(row) {
+    row.style.gridTemplateColumns = template;
+  });
+}
+
 function addResizeHandles(headerId, tabName) {
   const header = document.getElementById(headerId);
   if (!header) return;
   const ths = header.querySelectorAll('.th');
-  ths.forEach((th, colIndex) => {
-    // Restore saved width
-    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + colIndex);
-    if (saved) {
-      th.style.width = saved + 'px';
-      th.style.minWidth = saved + 'px';
-    }
+  if (!ths.length) return;
+
+  // Initialize pixel widths: sessionStorage first, then offsetWidth
+  const widths = Array.from(ths).map(function(th, i) {
+    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + i);
+    return saved ? parseInt(saved, 10) : th.offsetWidth;
+  });
+  colWidths[tabName] = widths;
+
+  // Apply initial grid template (converts any 1fr to measured px)
+  _applyGridTemplate(tabName);
+
+  ths.forEach(function(th, colIndex) {
     // Remove existing handle to avoid duplicates on re-render
-    const existing = th.querySelector('.col-resize-handle');
+    var existing = th.querySelector('.col-resize-handle');
     if (existing) existing.remove();
-    const handle = document.createElement('div');
+    var handle = document.createElement('div');
     handle.className = 'col-resize-handle';
     th.appendChild(handle);
 
-    // BUG 2: track whether a drag occurred to suppress the post-mouseup click
-    let resizeDragging = false;
-    let resizeDragOccurred = false;
-
     handle.addEventListener('mousedown', function(e) {
       e.preventDefault();
-      e.stopPropagation();  // prevents sort trigger on th mousedown
-      resizeDragging = true;
-      resizeDragOccurred = false;
-      const startX = e.clientX;
-      const startWidth = th.offsetWidth;
+      e.stopPropagation();
       handle.classList.add('dragging');
+      var startX = e.clientX;
+      var startW = widths[colIndex];
 
       function onMove(ev) {
-        resizeDragOccurred = true;  // BUG 2: mark drag as occurred
-        const delta = ev.clientX - startX;
-        const newWidth = Math.max(40, startWidth + delta);
-        // BUG 1: apply to header cell
-        th.style.width = newWidth + 'px';
-        th.style.minWidth = newWidth + 'px';
-        // BUG 1: apply to ALL body cells in same column on every mousemove
-        applyColWidthToRows(tabName, colIndex, newWidth);
-        // BUG 1: save to sessionStorage on every move so scroll reapply works
-        sessionStorage.setItem('colWidth_' + tabName + '_' + colIndex, newWidth);
+        var newW = Math.max(40, startW + (ev.clientX - startX));
+        widths[colIndex] = newW;
+        sessionStorage.setItem('colWidth_' + tabName + '_' + colIndex, newW);
+        _applyGridTemplate(tabName);
       }
       function onUp() {
-        resizeDragging = false;
+        handle.classList.remove('dragging');
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
-        handle.classList.remove('dragging');
       }
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
 
-    // BUG 2: suppress the click event that fires after mouseup when drag occurred
+    // Always stop click from bubbling to th — prevents sort on handle click
     handle.addEventListener('click', function(e) {
-      if (resizeDragOccurred) {
-        resizeDragOccurred = false;
-        e.stopPropagation();
-      }
+      e.stopPropagation();
     });
   });
 }
 
-function applyColWidthToRows(tabName, colIndex, width) {
-  // Map tabName to vs container id
-  const vsId = { processes:'proc-vs', network:'net-vs', dns:'dns-vs', dlls:'dlls-vs', fleet:'fleet-vs' }[tabName];
-  if (!vsId) return;
-  const vs = document.getElementById(vsId);
-  if (!vs) return;
-  vs.querySelectorAll('.vrow').forEach(row => {
-    if (row.cells) { // regular table rows
-      if (row.cells[colIndex]) { row.cells[colIndex].style.width = width + 'px'; }
-    } else { // div-based rows
-      const cells = row.children;
-      if (cells[colIndex]) {
-        cells[colIndex].style.width = width + 'px';
-        cells[colIndex].style.minWidth = width + 'px';
-      }
-    }
-  });
-}
+// no-op: addResizeHandles now handles restoration from sessionStorage
+function restoreColWidths(tabName, headerId) {}
 
-function restoreColWidths(tabName, headerId) {
-  const header = document.getElementById(headerId);
-  if (!header) return;
-  const ths = header.querySelectorAll('.th');
-  ths.forEach((th, colIndex) => {
-    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + colIndex);
-    if (saved) {
-      th.style.width = saved + 'px';
-      th.style.minWidth = saved + 'px';
-    }
-  });
-}
-
-// BUG 3: re-apply saved column widths to all visible vrows after virtual scroll render
+// Re-apply grid-template-columns to all vrows after virtual scroll render
 function reapplyColWidthsFromStorage(tabName, vsEl) {
   if (!tabName || !vsEl) return;
-  for (let i = 0; i < 20; i++) {
-    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + i);
-    if (!saved) continue;
-    vsEl.querySelectorAll('.vrow').forEach(function(row) {
-      const cells = row.children;
-      if (cells[i]) {
-        cells[i].style.width = saved + 'px';
-        cells[i].style.minWidth = saved + 'px';
-      }
-    });
-  }
+  var widths = colWidths[tabName];
+  if (!widths || !widths.length) return;
+  var template = widths.map(function(w) { return w + 'px'; }).join(' ');
+  vsEl.querySelectorAll('.vrow').forEach(function(row) {
+    row.style.gridTemplateColumns = template;
+  });
 }
 
 // ── FILE LOADER ───────────────────────────────────────────────────────────────
