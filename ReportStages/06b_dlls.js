@@ -130,37 +130,36 @@ function renderDllRow(e, i) {
 }
 
 function onDllRowClick(i, e, rowEl) {
-  // Apply private row color to the vrow element itself
   if (e.IsPrivatePath) rowEl.classList.add('row-private');
 
-  const vsWrap = el('dlls-vs');
-  const prev   = state.expandedRows['dlls'];
-  const prevEl = vsWrap ? vsWrap.querySelector('.expand-row') : null;
-  if (prevEl) prevEl.remove();
-  if (prev === i) { state.expandedRows['dlls'] = null; return; }
+  const vs   = state.vsInstances['dlls'];
+  const prev = state.expandedRows['dlls'];
+  if (prev === i) {
+    state.expandedRows['dlls'] = null;
+    if (vs) vs.collapse();
+    return;
+  }
   state.expandedRows['dlls'] = i;
 
   const d = activeData();
-
-  // Other DLLs from same process
-  const sameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e).slice(0, 30);
-  const sameProcHTML = sameProc.length ? `
-    <h4 style="margin-top:8px">Other DLLs loaded by this process (${sameProc.length}${sameProc.length===30?' shown, more may exist':''})</h4>
-    <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th><th>Signed</th></tr>` +
-    sameProc.map(x=>`<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td><td>${x.Signature?(x.Signature.IsSigned===true?'yes':x.Signature.IsSigned===false?'no':''):''}</td></tr>`).join('') +
+  const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e);
+  const shown = allSameProc.slice(0, 30);
+  const more  = allSameProc.length - shown.length;
+  const sameProcHTML = shown.length ? `
+    <h4 style="margin-top:8px">Other DLLs loaded by this process (${shown.length}${more > 0 ? ', ' + more + ' more exist' : ''})</h4>
+    <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th></tr>` +
+    shown.map(x => `<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const privBadge = e.IsPrivatePath
     ? `<span style="background:rgba(255,180,0,0.3);padding:1px 6px;border-radius:3px;color:var(--amber)">PRIVATE PATH</span>`
     : `<span style="color:var(--muted)">no</span>`;
   const sig2 = e.Signature || null;
-  const signBadge = renderSignedIcon(sig2);
   const shaDisplay = e.FileHash
     ? `<span class="mono">${esc(e.FileHash)}</span>`
     : (e.SHA256Error ? `<span style="color:var(--amber)">${esc(e.SHA256Error)}</span>` : '—');
 
   const expand = document.createElement('div');
-  expand.className = 'expand-row';
   expand.innerHTML = `
     <div class="kv-grid">
       <span class="k">Process</span>      <span class="v"><a onclick="dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')} [${e.ProcessId}]</a></span>
@@ -170,7 +169,7 @@ function onDllRowClick(i, e, rowEl) {
       <span class="k">Company</span>      <span class="v">${esc(e.Company||'—')}</span>
       <span class="k">SHA256</span>       <span class="v">${shaDisplay}</span>
       <span class="k">Private Path</span> <span class="v">${privBadge}</span>
-      <span class="k">Signed</span>       <span class="v">${signBadge}</span>
+      <span class="k">Signed</span>       <span class="v">${renderSignedIcon(sig2)}</span>
       ${sig2 ? `<span class="k">Sig Status</span>   <span class="v">${esc(sig2.Status||'—')}</span>
       <span class="k">SignerSubject</span> <span class="v">${esc(sig2.SignerSubject||'—')}</span>
       <span class="k">SignerCompany</span> <span class="v">${esc(sig2.SignerCompany||'—')}</span>
@@ -181,15 +180,7 @@ function onDllRowClick(i, e, rowEl) {
     </div>
     ${sameProcHTML}`;
 
-  const viewport = rowEl.closest('.vscroll-viewport');
-  if (viewport) {
-    const inner = viewport.querySelector('.vscroll-inner');
-    expand.style.position = 'absolute';
-    expand.style.top      = (parseInt(rowEl.style.top) + ROW_H) + 'px';
-    expand.style.left     = '0';
-    expand.style.width    = '100%';
-    inner.appendChild(expand);
-  }
+  if (vs) vs.expand(i, expand);
 }
 
 function dllSortBy(col) {

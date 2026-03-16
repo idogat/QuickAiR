@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.2";
+const ANALYZER_VERSION = "2.3";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -196,7 +196,17 @@ function loadJsonFile(file, onDone) {
       data.processes   = data.Processes   || data.processes   || [];
       data.network_tcp = (data.Network && data.Network.tcp) || data.network_tcp || [];
       data.dns_cache   = (data.Network && data.Network.dns) || data.dns_cache   || [];
-      // Expose Network_source from manifest for fleet/manifest panel
+      // Build DLL count per process (CAPABILITY: DLL Count column)
+      const hasDlls = Array.isArray(data.DLLs) && data.DLLs.length > 0;
+      const dllCountMap = {};
+      if (hasDlls) {
+        data.DLLs.forEach(dll => {
+          dllCountMap[dll.ProcessId] = (dllCountMap[dll.ProcessId] || 0) + 1;
+        });
+      }
+      data.processes.forEach(p => {
+        p.DLLCount = hasDlls ? (dllCountMap[p.ProcessId] || 0) : null;
+      });
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
@@ -336,29 +346,48 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick) {
   viewport.appendChild(inner);
   wrap.appendChild(viewport);
 
+  // Expansion state — tracks which row is expanded and its pixel height
+  let expandIdx    = -1;
+  let expandHeight = 0;
+
+  function totalHeight()  { return data.length * ROW_H + expandHeight; }
+  function getRowTop(i)   { return i * ROW_H + (expandIdx >= 0 && i > expandIdx ? expandHeight : 0); }
+
   let lastStart = -1;
   function render() {
     const scrollTop = viewport.scrollTop;
     const visH      = viewport.clientHeight;
     const start     = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
     const end       = Math.min(data.length, Math.ceil((scrollTop + visH) / ROW_H) + BUFFER);
-    if (start === lastStart && inner.children.length > 0) return;
+    if (start === lastStart && inner.querySelectorAll('.vrow').length > 0) return;
     lastStart = start;
 
-    // Remove nodes outside range
+    // Remove vrow nodes outside range; preserve .expand-row
     Array.from(inner.children).forEach(n => {
+      if (!n.classList.contains('vrow')) return;
       const idx = parseInt(n.dataset.idx);
       if (idx < start || idx >= end) n.remove();
     });
 
+    // Update tops of remaining rows (expansion shifts rows below expandIdx)
+    inner.querySelectorAll('.vrow').forEach(n => {
+      n.style.top = getRowTop(parseInt(n.dataset.idx)) + 'px';
+    });
+
+    // Reposition expand-row if present
+    const expEl = inner.querySelector('.expand-row');
+    if (expEl && expandIdx >= 0) {
+      expEl.style.top = (getRowTop(expandIdx) + ROW_H) + 'px';
+    }
+
     // Add missing nodes
-    const existing = new Set(Array.from(inner.children).map(n => parseInt(n.dataset.idx)));
+    const existing = new Set(Array.from(inner.querySelectorAll('.vrow')).map(n => parseInt(n.dataset.idx)));
     for (let i = start; i < end && (i - start) < MAX_ROWS; i++) {
       if (existing.has(i)) continue;
       const row = document.createElement('div');
       row.className = 'vrow';
       row.dataset.idx = i;
-      row.style.top = (i * ROW_H) + 'px';
+      row.style.top = getRowTop(i) + 'px';
       row.style.gridTemplateColumns = columns;
       row.innerHTML = rowRenderer(data[i], i);
       row.addEventListener('click', ev => {
@@ -372,15 +401,43 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick) {
   viewport.addEventListener('scroll', render);
   setTimeout(render, 0);
 
-  return { viewport, inner, render, data,
+  return {
+    viewport, inner, render,
     scrollToIndex(idx) {
-      viewport.scrollTop = idx * ROW_H;
+      viewport.scrollTop = Math.max(0, idx * ROW_H - viewport.clientHeight / 2);
       setTimeout(render, 50);
     },
+    // FIX 1: update closure variable `data`, not just this.data
     update(newData) {
-      this.data = newData;
-      inner.style.height = (newData.length * ROW_H) + 'px';
+      data = newData;
+      expandIdx = -1; expandHeight = 0;
+      inner.style.height = totalHeight() + 'px';
       inner.innerHTML = '';
+      lastStart = -1;
+      render();
+    },
+    // FIX 2: insert expand panel below row idx, push subsequent rows down
+    expand(idx, contentEl) {
+      const old = inner.querySelector('.expand-row');
+      if (old) old.remove();
+      expandIdx    = idx;
+      expandHeight = 0;
+      contentEl.classList.add('expand-row');
+      contentEl.style.cssText = 'position:absolute;left:0;width:100%;top:' + (getRowTop(idx) + ROW_H) + 'px';
+      inner.appendChild(contentEl);
+      // Measure actual rendered height then re-layout
+      requestAnimationFrame(() => {
+        expandHeight = contentEl.offsetHeight || 200;
+        inner.style.height = totalHeight() + 'px';
+        lastStart = -1;
+        render();
+      });
+    },
+    collapse() {
+      const old = inner.querySelector('.expand-row');
+      if (old) old.remove();
+      expandIdx = -1; expandHeight = 0;
+      inner.style.height = totalHeight() + 'px';
       lastStart = -1;
       render();
     }
@@ -507,12 +564,11 @@ function gotoNetwork(ip) {
 function navigateToRow(tab, matchField, matchValue) {
   switchTab(tab);
   setTimeout(function() {
-    // Map tab to data array and vs key
     const tabMap = {
-      processes: { data: procData,    vsKey: 'proc'  },
-      network:   { data: netData,     vsKey: 'net'   },
-      dns:       { data: dnsData,     vsKey: 'dns'   },
-      dlls:      { data: dllData,     vsKey: 'dlls'  },
+      processes: { data: procData, vsKey: 'proc' },
+      network:   { data: netData,  vsKey: 'net'  },
+      dns:       { data: dnsData,  vsKey: 'dns'  },
+      dlls:      { data: dllData,  vsKey: 'dlls' },
     };
     const entry = tabMap[tab];
     if (!entry) return;
@@ -520,23 +576,22 @@ function navigateToRow(tab, matchField, matchValue) {
     const vs = state.vsInstances[entry.vsKey];
     if (!vs) return;
     if (idx >= 0) {
-      const visibleHeight = vs.viewport.clientHeight;
-      vs.viewport.scrollTop = Math.max(0, idx * ROW_H - visibleHeight / 2);
+      vs.viewport.scrollTop = Math.max(0, idx * ROW_H - vs.viewport.clientHeight / 2);
       setTimeout(function() {
         vs.render();
         setTimeout(function() {
-          // Find the row element
-          const vsEl = vs.viewport.querySelector('.vscroll-inner');
-          if (!vsEl) return;
-          const rowEl = vsEl.querySelector('[data-idx="' + idx + '"]');
+          const inner = vs.viewport.querySelector('.vscroll-inner');
+          if (!inner) return;
+          const rowEl = inner.querySelector('[data-idx="' + idx + '"]');
           if (!rowEl) return;
           // Clear any existing highlight
-          vsEl.querySelectorAll('.row-highlight').forEach(function(el) {
-            el.classList.remove('row-highlight','fade');
+          inner.querySelectorAll('.row-highlight').forEach(function(el) {
+            el.classList.remove('row-highlight', 'fade');
           });
+          // FIX 3: brighter pulse, 3s hold then 1.5s fade
           rowEl.classList.add('row-highlight');
-          setTimeout(function() { rowEl.classList.add('fade'); }, 500);
-          setTimeout(function() { rowEl.classList.remove('row-highlight','fade'); }, 2500);
+          setTimeout(function() { rowEl.classList.add('fade'); }, 3000);
+          setTimeout(function() { rowEl.classList.remove('row-highlight', 'fade'); }, 4500);
         }, 50);
       }, 50);
     }

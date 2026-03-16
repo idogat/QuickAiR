@@ -81,7 +81,7 @@ input::placeholder{color:var(--muted)}
 .td.link:hover{text-decoration:underline}
 
 /* EXPAND DETAIL */
-.expand-row{background:var(--expand);border-bottom:1px solid var(--border);padding:10px 16px;font-size:12px}
+.expand-row{background:var(--expand);border-left:3px solid var(--accent);border-bottom:1px solid var(--border);padding:10px 16px;font-size:12px}
 .expand-row .kv-grid{display:grid;grid-template-columns:180px 1fr;gap:4px 12px;margin-bottom:8px}
 .expand-row .kv-grid .k{color:var(--muted)}
 .expand-row .kv-grid .v{word-break:break-all}
@@ -166,8 +166,10 @@ input::placeholder{color:var(--muted)}
 .col-resize-handle:hover,.col-resize-handle.dragging{background:var(--accent)}
 
 /* ROW HIGHLIGHT (cross-reference navigation) */
-.row-highlight{background:rgba(88,166,255,0.15)!important;border-left:3px solid var(--accent)!important;transition:background 2s ease,border-left 2s ease}
-.row-highlight.fade{background:transparent!important;border-left:3px solid transparent!important}
+@keyframes rowPulse{0%{background:rgba(88,166,255,0.35)}50%{background:rgba(88,166,255,0.6)}100%{background:rgba(88,166,255,0.35)}}
+.row-highlight{background:rgba(88,166,255,0.35)!important;border-left:4px solid var(--accent)!important;outline:1px solid var(--accent);box-shadow:inset 0 0 0 1px var(--accent);animation:rowPulse 0.6s ease 2}
+.row-highlight.fade{background:transparent!important;border-left:4px solid transparent!important;outline:none;box-shadow:none;transition:all 1.5s ease}
+
 </style>
 </head>
 
@@ -218,7 +220,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.2";
+const ANALYZER_VERSION = "2.3";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -414,7 +416,17 @@ function loadJsonFile(file, onDone) {
       data.processes   = data.Processes   || data.processes   || [];
       data.network_tcp = (data.Network && data.Network.tcp) || data.network_tcp || [];
       data.dns_cache   = (data.Network && data.Network.dns) || data.dns_cache   || [];
-      // Expose Network_source from manifest for fleet/manifest panel
+      // Build DLL count per process (CAPABILITY: DLL Count column)
+      const hasDlls = Array.isArray(data.DLLs) && data.DLLs.length > 0;
+      const dllCountMap = {};
+      if (hasDlls) {
+        data.DLLs.forEach(dll => {
+          dllCountMap[dll.ProcessId] = (dllCountMap[dll.ProcessId] || 0) + 1;
+        });
+      }
+      data.processes.forEach(p => {
+        p.DLLCount = hasDlls ? (dllCountMap[p.ProcessId] || 0) : null;
+      });
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
@@ -554,29 +566,48 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick) {
   viewport.appendChild(inner);
   wrap.appendChild(viewport);
 
+  // Expansion state — tracks which row is expanded and its pixel height
+  let expandIdx    = -1;
+  let expandHeight = 0;
+
+  function totalHeight()  { return data.length * ROW_H + expandHeight; }
+  function getRowTop(i)   { return i * ROW_H + (expandIdx >= 0 && i > expandIdx ? expandHeight : 0); }
+
   let lastStart = -1;
   function render() {
     const scrollTop = viewport.scrollTop;
     const visH      = viewport.clientHeight;
     const start     = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
     const end       = Math.min(data.length, Math.ceil((scrollTop + visH) / ROW_H) + BUFFER);
-    if (start === lastStart && inner.children.length > 0) return;
+    if (start === lastStart && inner.querySelectorAll('.vrow').length > 0) return;
     lastStart = start;
 
-    // Remove nodes outside range
+    // Remove vrow nodes outside range; preserve .expand-row
     Array.from(inner.children).forEach(n => {
+      if (!n.classList.contains('vrow')) return;
       const idx = parseInt(n.dataset.idx);
       if (idx < start || idx >= end) n.remove();
     });
 
+    // Update tops of remaining rows (expansion shifts rows below expandIdx)
+    inner.querySelectorAll('.vrow').forEach(n => {
+      n.style.top = getRowTop(parseInt(n.dataset.idx)) + 'px';
+    });
+
+    // Reposition expand-row if present
+    const expEl = inner.querySelector('.expand-row');
+    if (expEl && expandIdx >= 0) {
+      expEl.style.top = (getRowTop(expandIdx) + ROW_H) + 'px';
+    }
+
     // Add missing nodes
-    const existing = new Set(Array.from(inner.children).map(n => parseInt(n.dataset.idx)));
+    const existing = new Set(Array.from(inner.querySelectorAll('.vrow')).map(n => parseInt(n.dataset.idx)));
     for (let i = start; i < end && (i - start) < MAX_ROWS; i++) {
       if (existing.has(i)) continue;
       const row = document.createElement('div');
       row.className = 'vrow';
       row.dataset.idx = i;
-      row.style.top = (i * ROW_H) + 'px';
+      row.style.top = getRowTop(i) + 'px';
       row.style.gridTemplateColumns = columns;
       row.innerHTML = rowRenderer(data[i], i);
       row.addEventListener('click', ev => {
@@ -590,15 +621,43 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick) {
   viewport.addEventListener('scroll', render);
   setTimeout(render, 0);
 
-  return { viewport, inner, render, data,
+  return {
+    viewport, inner, render,
     scrollToIndex(idx) {
-      viewport.scrollTop = idx * ROW_H;
+      viewport.scrollTop = Math.max(0, idx * ROW_H - viewport.clientHeight / 2);
       setTimeout(render, 50);
     },
+    // FIX 1: update closure variable `data`, not just this.data
     update(newData) {
-      this.data = newData;
-      inner.style.height = (newData.length * ROW_H) + 'px';
+      data = newData;
+      expandIdx = -1; expandHeight = 0;
+      inner.style.height = totalHeight() + 'px';
       inner.innerHTML = '';
+      lastStart = -1;
+      render();
+    },
+    // FIX 2: insert expand panel below row idx, push subsequent rows down
+    expand(idx, contentEl) {
+      const old = inner.querySelector('.expand-row');
+      if (old) old.remove();
+      expandIdx    = idx;
+      expandHeight = 0;
+      contentEl.classList.add('expand-row');
+      contentEl.style.cssText = 'position:absolute;left:0;width:100%;top:' + (getRowTop(idx) + ROW_H) + 'px';
+      inner.appendChild(contentEl);
+      // Measure actual rendered height then re-layout
+      requestAnimationFrame(() => {
+        expandHeight = contentEl.offsetHeight || 200;
+        inner.style.height = totalHeight() + 'px';
+        lastStart = -1;
+        render();
+      });
+    },
+    collapse() {
+      const old = inner.querySelector('.expand-row');
+      if (old) old.remove();
+      expandIdx = -1; expandHeight = 0;
+      inner.style.height = totalHeight() + 'px';
       lastStart = -1;
       render();
     }
@@ -725,12 +784,11 @@ function gotoNetwork(ip) {
 function navigateToRow(tab, matchField, matchValue) {
   switchTab(tab);
   setTimeout(function() {
-    // Map tab to data array and vs key
     const tabMap = {
-      processes: { data: procData,    vsKey: 'proc'  },
-      network:   { data: netData,     vsKey: 'net'   },
-      dns:       { data: dnsData,     vsKey: 'dns'   },
-      dlls:      { data: dllData,     vsKey: 'dlls'  },
+      processes: { data: procData, vsKey: 'proc' },
+      network:   { data: netData,  vsKey: 'net'  },
+      dns:       { data: dnsData,  vsKey: 'dns'  },
+      dlls:      { data: dllData,  vsKey: 'dlls' },
     };
     const entry = tabMap[tab];
     if (!entry) return;
@@ -738,23 +796,22 @@ function navigateToRow(tab, matchField, matchValue) {
     const vs = state.vsInstances[entry.vsKey];
     if (!vs) return;
     if (idx >= 0) {
-      const visibleHeight = vs.viewport.clientHeight;
-      vs.viewport.scrollTop = Math.max(0, idx * ROW_H - visibleHeight / 2);
+      vs.viewport.scrollTop = Math.max(0, idx * ROW_H - vs.viewport.clientHeight / 2);
       setTimeout(function() {
         vs.render();
         setTimeout(function() {
-          // Find the row element
-          const vsEl = vs.viewport.querySelector('.vscroll-inner');
-          if (!vsEl) return;
-          const rowEl = vsEl.querySelector('[data-idx="' + idx + '"]');
+          const inner = vs.viewport.querySelector('.vscroll-inner');
+          if (!inner) return;
+          const rowEl = inner.querySelector('[data-idx="' + idx + '"]');
           if (!rowEl) return;
           // Clear any existing highlight
-          vsEl.querySelectorAll('.row-highlight').forEach(function(el) {
-            el.classList.remove('row-highlight','fade');
+          inner.querySelectorAll('.row-highlight').forEach(function(el) {
+            el.classList.remove('row-highlight', 'fade');
           });
+          // FIX 3: brighter pulse, 3s hold then 1.5s fade
           rowEl.classList.add('row-highlight');
-          setTimeout(function() { rowEl.classList.add('fade'); }, 500);
-          setTimeout(function() { rowEl.classList.remove('row-highlight','fade'); }, 2500);
+          setTimeout(function() { rowEl.classList.add('fade'); }, 3000);
+          setTimeout(function() { rowEl.classList.remove('row-highlight', 'fade'); }, 4500);
         }, 50);
       }, 50);
     }
@@ -978,7 +1035,7 @@ function renderProcesses() {
   const d      = activeData();
   if (!d) { panel.innerHTML = '<div class="solo-notice">No file loaded.</div>'; return; }
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
+  const COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px';
 
   panel.innerHTML = `
     <div class="filter-bar">
@@ -996,7 +1053,7 @@ function renderProcesses() {
   applyProcFilters();
 }
 
-const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
+const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px';
 
 function buildProcHeader(COLS) {
   const headers = [
@@ -1007,6 +1064,7 @@ function buildProcHeader(COLS) {
     { key:'ExecutablePath',  label:'Path'   },
     { key:'CommandLine',     label:'CmdLine'},
     { key:'_connCount',      label:'Conns'  },
+    { key:'DLLCount',        label:'DLLs'   },
     { key:'_signed',         label:'Sig'    },
     { key:'_signerCompany',  label:'Signer' },
     { key:'_sha256Short',    label:'SHA256' },
@@ -1095,18 +1153,20 @@ function renderProcRow(p, i) {
     <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
     <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
     <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
+    <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
     <div class="td dim">${esc(trunc(p._signerCompany||'',16))}</div>
     <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
 }
 
 function onProcRowClick(i, p, rowEl) {
-  const vsWrap = el('proc-vs');
-  const prev   = state.expandedRows['proc'];
-  // Remove previous expand
-  const prevEl = vsWrap ? vsWrap.querySelector('.expand-row') : null;
-  if (prevEl) prevEl.remove();
-  if (prev === i) { state.expandedRows['proc'] = null; return; }
+  const vs   = state.vsInstances['proc'];
+  const prev = state.expandedRows['proc'];
+  if (prev === i) {
+    state.expandedRows['proc'] = null;
+    if (vs) vs.collapse();
+    return;
+  }
   state.expandedRows['proc'] = i;
 
   const d = activeData();
@@ -1125,17 +1185,14 @@ function onProcRowClick(i, p, rowEl) {
       <th>Remote IP</th><th>Port</th><th>State</th><th>DNS Match</th><th>Reverse DNS</th><th>Interface</th><th>Private</th>
     </tr>` +
     myConns.map(c => {
-      const ia    = c.InterfaceAlias || '';
-      const iCol  = ifaceColor(ia, adAliases);
+      const ia   = c.InterfaceAlias || '';
+      const iCol = ifaceColor(ia, adAliases);
       return `<tr>
       <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress)}')">${esc(c.RemoteAddress)}</a></td>
-      <td>${c.RemotePort}</td>
-      <td>${esc(c.State)}</td>
-      <td>${esc(c.DnsMatch||'')}</td>
-      <td>${esc(c.ReverseDns||'')}</td>
+      <td>${c.RemotePort}</td><td>${esc(c.State)}</td>
+      <td>${esc(c.DnsMatch||'')}</td><td>${esc(c.ReverseDns||'')}</td>
       <td><span style="color:${iCol};font-weight:bold">${esc(ia)}</span></td>
-      <td>${c.IsPrivateIP?'yes':''}</td>
-    </tr>`;
+      <td>${c.IsPrivateIP?'yes':''}</td></tr>`;
     }).join('') + '</table>';
   }
 
@@ -1145,41 +1202,34 @@ function onProcRowClick(i, p, rowEl) {
       children.map(c => `<a onclick="gotoProcessPid(${c.ProcessId})">${esc(c.Name)} [${c.ProcessId}]</a>`).join('  ');
   }
 
+  const dllCountHTML = p.DLLCount != null
+    ? `<span class="detail-value"><a onclick="event.stopPropagation();gotoProcessDlls(${p.ProcessId})">${p.DLLCount} modules</a></span>`
+    : `<span class="detail-value">—</span>`;
+
   const expand = document.createElement('div');
-  expand.className = 'expand-row';
   expand.innerHTML = `
     <div class="kv-grid">
-      <span class="k">CommandLine</span>  <span class="v">${esc(p.CommandLine||'—')}</span>
-      <span class="k">ExecutablePath</span><span class="v">${esc(p.ExecutablePath||'—')}</span>
+      <span class="k">CommandLine</span>   <span class="v">${esc(p.CommandLine||'—')}</span>
+      <span class="k">ExecutablePath</span> <span class="v">${esc(p.ExecutablePath||'—')}</span>
       <span class="k">CreationDateUTC</span><span class="v">${esc(p.CreationDateUTC||'')}</span>
       <span class="k">CreationDateLocal</span><span class="v">${esc(p.CreationDateLocal||'')}</span>
-      <span class="k">WorkingSetSize</span><span class="v">${fmtBytes(p.WorkingSetSize)}</span>
-      <span class="k">VirtualSize</span>   <span class="v">${fmtBytes(p.VirtualSize)}</span>
-      <span class="k">SessionId</span>     <span class="v">${p.SessionId}</span>
-      <span class="k">HandleCount</span>   <span class="v">${p.HandleCount}</span>
+      <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
+      <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
+      <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>
+      <span class="k">HandleCount</span>    <span class="v">${p.HandleCount}</span>
+      <span class="k">Loaded DLLs</span>   ${dllCountHTML}
       ${p.SHA256 ? `<span class="k">SHA256</span><span class="v mono">${esc(p.SHA256)}</span>` : ''}
       ${!p.SHA256 && p.SHA256Error ? `<span class="k">SHA256Error</span><span class="v" style="color:var(--amber)">${esc(p.SHA256Error)}</span>` : ''}
-      ${p.Signature ? `<span class="k">Sig Status</span>  <span class="v">${esc(p.Signature.Status||'—')}</span>
-      <span class="k">SignerSubject</span><span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
-      <span class="k">SignerCompany</span><span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
-      <span class="k">Thumbprint</span>  <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
-      <span class="k">NotAfter</span>    <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
-      <span class="k">TimeStamper</span> <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
+      ${p.Signature ? `<span class="k">Sig Status</span>   <span class="v">${esc(p.Signature.Status||'—')}</span>
+      <span class="k">SignerSubject</span> <span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
+      <span class="k">SignerCompany</span> <span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
+      <span class="k">Thumbprint</span>   <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
+      <span class="k">NotAfter</span>     <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
+      <span class="k">TimeStamper</span>  <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
     </div>
-    ${connsHTML}
-    ${childHTML}`;
+    ${connsHTML}${childHTML}`;
 
-  // Insert after the row
-  const viewport = rowEl.closest('.vscroll-viewport');
-  if (viewport) {
-    const inner = viewport.querySelector('.vscroll-inner');
-    const top   = parseInt(rowEl.style.top) + ROW_H;
-    expand.style.position = 'absolute';
-    expand.style.top      = top + 'px';
-    expand.style.left     = '0';
-    expand.style.width    = '100%';
-    inner.appendChild(expand);
-  }
+  if (vs) vs.expand(i, expand);
 }
 
 
@@ -1193,6 +1243,15 @@ function highlightProcessPid(pid) {
 function gotoProcessPid(pid) { navigateToRow('processes', 'ProcessId', pid); }
 function gotoNetworkPid(pid) { switchTab('network'); setTimeout(() => highlightNetworkPid(pid), 100); }
 function gotoNetworkIp(ip)   { switchTab('network'); setTimeout(() => highlightNetworkIp(ip), 100); }
+function gotoProcessDlls(pid) {
+  switchTab('dlls');
+  setTimeout(() => {
+    dllFilters.search = String(pid);
+    const inp = el('dlls-search');
+    if (inp) inp.value = String(pid);
+    applyDllFilters();
+  }, 100);
+}
 
 function fmtBytes(b) {
   if (!b) return '0 B';
@@ -1340,11 +1399,13 @@ function renderNetRow(c, i) {
 }
 
 function onNetRowClick(i, c, rowEl) {
-  const vsWrap = el('net-vs');
-  const prev   = state.expandedRows['net'];
-  const prevEl = vsWrap ? vsWrap.querySelector('.expand-row') : null;
-  if (prevEl) prevEl.remove();
-  if (prev === i) { state.expandedRows['net'] = null; return; }
+  const vs   = state.vsInstances['net'];
+  const prev = state.expandedRows['net'];
+  if (prev === i) {
+    state.expandedRows['net'] = null;
+    if (vs) vs.collapse();
+    return;
+  }
   state.expandedRows['net'] = i;
 
   const d = activeData();
@@ -1367,7 +1428,6 @@ function onNetRowClick(i, c, rowEl) {
     '</table>' : '';
 
   const expand = document.createElement('div');
-  expand.className = 'expand-row';
   expand.innerHTML = `
     <div class="kv-grid">
       <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${c.OwningProcess})">${esc(c._procName)} [${c.OwningProcess}]</a></span>
@@ -1383,15 +1443,7 @@ function onNetRowClick(i, c, rowEl) {
     </div>
     ${sameProcHTML}${sameIPHTML}`;
 
-  const viewport = rowEl.closest('.vscroll-viewport');
-  if (viewport) {
-    const inner = viewport.querySelector('.vscroll-inner');
-    expand.style.position = 'absolute';
-    expand.style.top      = (parseInt(rowEl.style.top) + ROW_H) + 'px';
-    expand.style.left     = '0';
-    expand.style.width    = '100%';
-    inner.appendChild(expand);
-  }
+  if (vs) vs.expand(i, expand);
 }
 
 function buildIpSummary(d, filteredConns) {
@@ -1576,37 +1628,36 @@ function renderDllRow(e, i) {
 }
 
 function onDllRowClick(i, e, rowEl) {
-  // Apply private row color to the vrow element itself
   if (e.IsPrivatePath) rowEl.classList.add('row-private');
 
-  const vsWrap = el('dlls-vs');
-  const prev   = state.expandedRows['dlls'];
-  const prevEl = vsWrap ? vsWrap.querySelector('.expand-row') : null;
-  if (prevEl) prevEl.remove();
-  if (prev === i) { state.expandedRows['dlls'] = null; return; }
+  const vs   = state.vsInstances['dlls'];
+  const prev = state.expandedRows['dlls'];
+  if (prev === i) {
+    state.expandedRows['dlls'] = null;
+    if (vs) vs.collapse();
+    return;
+  }
   state.expandedRows['dlls'] = i;
 
   const d = activeData();
-
-  // Other DLLs from same process
-  const sameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e).slice(0, 30);
-  const sameProcHTML = sameProc.length ? `
-    <h4 style="margin-top:8px">Other DLLs loaded by this process (${sameProc.length}${sameProc.length===30?' shown, more may exist':''})</h4>
-    <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th><th>Signed</th></tr>` +
-    sameProc.map(x=>`<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td><td>${x.Signature?(x.Signature.IsSigned===true?'yes':x.Signature.IsSigned===false?'no':''):''}</td></tr>`).join('') +
+  const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e);
+  const shown = allSameProc.slice(0, 30);
+  const more  = allSameProc.length - shown.length;
+  const sameProcHTML = shown.length ? `
+    <h4 style="margin-top:8px">Other DLLs loaded by this process (${shown.length}${more > 0 ? ', ' + more + ' more exist' : ''})</h4>
+    <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th></tr>` +
+    shown.map(x => `<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const privBadge = e.IsPrivatePath
     ? `<span style="background:rgba(255,180,0,0.3);padding:1px 6px;border-radius:3px;color:var(--amber)">PRIVATE PATH</span>`
     : `<span style="color:var(--muted)">no</span>`;
   const sig2 = e.Signature || null;
-  const signBadge = renderSignedIcon(sig2);
   const shaDisplay = e.FileHash
     ? `<span class="mono">${esc(e.FileHash)}</span>`
     : (e.SHA256Error ? `<span style="color:var(--amber)">${esc(e.SHA256Error)}</span>` : '—');
 
   const expand = document.createElement('div');
-  expand.className = 'expand-row';
   expand.innerHTML = `
     <div class="kv-grid">
       <span class="k">Process</span>      <span class="v"><a onclick="dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')} [${e.ProcessId}]</a></span>
@@ -1616,7 +1667,7 @@ function onDllRowClick(i, e, rowEl) {
       <span class="k">Company</span>      <span class="v">${esc(e.Company||'—')}</span>
       <span class="k">SHA256</span>       <span class="v">${shaDisplay}</span>
       <span class="k">Private Path</span> <span class="v">${privBadge}</span>
-      <span class="k">Signed</span>       <span class="v">${signBadge}</span>
+      <span class="k">Signed</span>       <span class="v">${renderSignedIcon(sig2)}</span>
       ${sig2 ? `<span class="k">Sig Status</span>   <span class="v">${esc(sig2.Status||'—')}</span>
       <span class="k">SignerSubject</span> <span class="v">${esc(sig2.SignerSubject||'—')}</span>
       <span class="k">SignerCompany</span> <span class="v">${esc(sig2.SignerCompany||'—')}</span>
@@ -1627,15 +1678,7 @@ function onDllRowClick(i, e, rowEl) {
     </div>
     ${sameProcHTML}`;
 
-  const viewport = rowEl.closest('.vscroll-viewport');
-  if (viewport) {
-    const inner = viewport.querySelector('.vscroll-inner');
-    expand.style.position = 'absolute';
-    expand.style.top      = (parseInt(rowEl.style.top) + ROW_H) + 'px';
-    expand.style.left     = '0';
-    expand.style.width    = '100%';
-    inner.appendChild(expand);
-  }
+  if (vs) vs.expand(i, expand);
 }
 
 function dllSortBy(col) {

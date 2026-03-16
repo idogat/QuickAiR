@@ -135,11 +135,13 @@ function renderNetRow(c, i) {
 }
 
 function onNetRowClick(i, c, rowEl) {
-  const vsWrap = el('net-vs');
-  const prev   = state.expandedRows['net'];
-  const prevEl = vsWrap ? vsWrap.querySelector('.expand-row') : null;
-  if (prevEl) prevEl.remove();
-  if (prev === i) { state.expandedRows['net'] = null; return; }
+  const vs   = state.vsInstances['net'];
+  const prev = state.expandedRows['net'];
+  if (prev === i) {
+    state.expandedRows['net'] = null;
+    if (vs) vs.collapse();
+    return;
+  }
   state.expandedRows['net'] = i;
 
   const d = activeData();
@@ -162,7 +164,6 @@ function onNetRowClick(i, c, rowEl) {
     '</table>' : '';
 
   const expand = document.createElement('div');
-  expand.className = 'expand-row';
   expand.innerHTML = `
     <div class="kv-grid">
       <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${c.OwningProcess})">${esc(c._procName)} [${c.OwningProcess}]</a></span>
@@ -178,15 +179,7 @@ function onNetRowClick(i, c, rowEl) {
     </div>
     ${sameProcHTML}${sameIPHTML}`;
 
-  const viewport = rowEl.closest('.vscroll-viewport');
-  if (viewport) {
-    const inner = viewport.querySelector('.vscroll-inner');
-    expand.style.position = 'absolute';
-    expand.style.top      = (parseInt(rowEl.style.top) + ROW_H) + 'px';
-    expand.style.left     = '0';
-    expand.style.width    = '100%';
-    inner.appendChild(expand);
-  }
+  if (vs) vs.expand(i, expand);
 }
 
 function buildIpSummary(d, filteredConns) {

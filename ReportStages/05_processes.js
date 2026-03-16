@@ -16,7 +16,7 @@ function renderProcesses() {
   const d      = activeData();
   if (!d) { panel.innerHTML = '<div class="solo-notice">No file loaded.</div>'; return; }
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
+  const COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px';
 
   panel.innerHTML = `
     <div class="filter-bar">
@@ -34,7 +34,7 @@ function renderProcesses() {
   applyProcFilters();
 }
 
-const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
+const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px';
 
 function buildProcHeader(COLS) {
   const headers = [
@@ -45,6 +45,7 @@ function buildProcHeader(COLS) {
     { key:'ExecutablePath',  label:'Path'   },
     { key:'CommandLine',     label:'CmdLine'},
     { key:'_connCount',      label:'Conns'  },
+    { key:'DLLCount',        label:'DLLs'   },
     { key:'_signed',         label:'Sig'    },
     { key:'_signerCompany',  label:'Signer' },
     { key:'_sha256Short',    label:'SHA256' },
@@ -133,18 +134,20 @@ function renderProcRow(p, i) {
     <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
     <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
     <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
+    <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
     <div class="td dim">${esc(trunc(p._signerCompany||'',16))}</div>
     <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
 }
 
 function onProcRowClick(i, p, rowEl) {
-  const vsWrap = el('proc-vs');
-  const prev   = state.expandedRows['proc'];
-  // Remove previous expand
-  const prevEl = vsWrap ? vsWrap.querySelector('.expand-row') : null;
-  if (prevEl) prevEl.remove();
-  if (prev === i) { state.expandedRows['proc'] = null; return; }
+  const vs   = state.vsInstances['proc'];
+  const prev = state.expandedRows['proc'];
+  if (prev === i) {
+    state.expandedRows['proc'] = null;
+    if (vs) vs.collapse();
+    return;
+  }
   state.expandedRows['proc'] = i;
 
   const d = activeData();
@@ -163,17 +166,14 @@ function onProcRowClick(i, p, rowEl) {
       <th>Remote IP</th><th>Port</th><th>State</th><th>DNS Match</th><th>Reverse DNS</th><th>Interface</th><th>Private</th>
     </tr>` +
     myConns.map(c => {
-      const ia    = c.InterfaceAlias || '';
-      const iCol  = ifaceColor(ia, adAliases);
+      const ia   = c.InterfaceAlias || '';
+      const iCol = ifaceColor(ia, adAliases);
       return `<tr>
       <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress)}')">${esc(c.RemoteAddress)}</a></td>
-      <td>${c.RemotePort}</td>
-      <td>${esc(c.State)}</td>
-      <td>${esc(c.DnsMatch||'')}</td>
-      <td>${esc(c.ReverseDns||'')}</td>
+      <td>${c.RemotePort}</td><td>${esc(c.State)}</td>
+      <td>${esc(c.DnsMatch||'')}</td><td>${esc(c.ReverseDns||'')}</td>
       <td><span style="color:${iCol};font-weight:bold">${esc(ia)}</span></td>
-      <td>${c.IsPrivateIP?'yes':''}</td>
-    </tr>`;
+      <td>${c.IsPrivateIP?'yes':''}</td></tr>`;
     }).join('') + '</table>';
   }
 
@@ -183,41 +183,34 @@ function onProcRowClick(i, p, rowEl) {
       children.map(c => `<a onclick="gotoProcessPid(${c.ProcessId})">${esc(c.Name)} [${c.ProcessId}]</a>`).join('  ');
   }
 
+  const dllCountHTML = p.DLLCount != null
+    ? `<span class="detail-value"><a onclick="event.stopPropagation();gotoProcessDlls(${p.ProcessId})">${p.DLLCount} modules</a></span>`
+    : `<span class="detail-value">—</span>`;
+
   const expand = document.createElement('div');
-  expand.className = 'expand-row';
   expand.innerHTML = `
     <div class="kv-grid">
-      <span class="k">CommandLine</span>  <span class="v">${esc(p.CommandLine||'—')}</span>
-      <span class="k">ExecutablePath</span><span class="v">${esc(p.ExecutablePath||'—')}</span>
+      <span class="k">CommandLine</span>   <span class="v">${esc(p.CommandLine||'—')}</span>
+      <span class="k">ExecutablePath</span> <span class="v">${esc(p.ExecutablePath||'—')}</span>
       <span class="k">CreationDateUTC</span><span class="v">${esc(p.CreationDateUTC||'')}</span>
       <span class="k">CreationDateLocal</span><span class="v">${esc(p.CreationDateLocal||'')}</span>
-      <span class="k">WorkingSetSize</span><span class="v">${fmtBytes(p.WorkingSetSize)}</span>
-      <span class="k">VirtualSize</span>   <span class="v">${fmtBytes(p.VirtualSize)}</span>
-      <span class="k">SessionId</span>     <span class="v">${p.SessionId}</span>
-      <span class="k">HandleCount</span>   <span class="v">${p.HandleCount}</span>
+      <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
+      <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
+      <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>
+      <span class="k">HandleCount</span>    <span class="v">${p.HandleCount}</span>
+      <span class="k">Loaded DLLs</span>   ${dllCountHTML}
       ${p.SHA256 ? `<span class="k">SHA256</span><span class="v mono">${esc(p.SHA256)}</span>` : ''}
       ${!p.SHA256 && p.SHA256Error ? `<span class="k">SHA256Error</span><span class="v" style="color:var(--amber)">${esc(p.SHA256Error)}</span>` : ''}
-      ${p.Signature ? `<span class="k">Sig Status</span>  <span class="v">${esc(p.Signature.Status||'—')}</span>
-      <span class="k">SignerSubject</span><span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
-      <span class="k">SignerCompany</span><span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
-      <span class="k">Thumbprint</span>  <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
-      <span class="k">NotAfter</span>    <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
-      <span class="k">TimeStamper</span> <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
+      ${p.Signature ? `<span class="k">Sig Status</span>   <span class="v">${esc(p.Signature.Status||'—')}</span>
+      <span class="k">SignerSubject</span> <span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
+      <span class="k">SignerCompany</span> <span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
+      <span class="k">Thumbprint</span>   <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
+      <span class="k">NotAfter</span>     <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
+      <span class="k">TimeStamper</span>  <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
     </div>
-    ${connsHTML}
-    ${childHTML}`;
+    ${connsHTML}${childHTML}`;
 
-  // Insert after the row
-  const viewport = rowEl.closest('.vscroll-viewport');
-  if (viewport) {
-    const inner = viewport.querySelector('.vscroll-inner');
-    const top   = parseInt(rowEl.style.top) + ROW_H;
-    expand.style.position = 'absolute';
-    expand.style.top      = top + 'px';
-    expand.style.left     = '0';
-    expand.style.width    = '100%';
-    inner.appendChild(expand);
-  }
+  if (vs) vs.expand(i, expand);
 }
 
 
@@ -231,6 +224,15 @@ function highlightProcessPid(pid) {
 function gotoProcessPid(pid) { navigateToRow('processes', 'ProcessId', pid); }
 function gotoNetworkPid(pid) { switchTab('network'); setTimeout(() => highlightNetworkPid(pid), 100); }
 function gotoNetworkIp(ip)   { switchTab('network'); setTimeout(() => highlightNetworkIp(ip), 100); }
+function gotoProcessDlls(pid) {
+  switchTab('dlls');
+  setTimeout(() => {
+    dllFilters.search = String(pid);
+    const inp = el('dlls-search');
+    if (inp) inp.value = String(pid);
+    applyDllFilters();
+  }, 100);
+}
 
 function fmtBytes(b) {
   if (!b) return '0 B';
