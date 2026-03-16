@@ -110,7 +110,7 @@ function applyNetFilters() {
   if (state.vsInstances['net']) {
     state.vsInstances['net'].update(rows);
   } else {
-    state.vsInstances['net'] = createVS('net-vs', COLS, rows, renderNetRow, onNetRowClick);
+    state.vsInstances['net'] = createVS('net-vs', COLS, rows, renderNetRow, onNetRowClick, 'network');
   }
 
   buildIpSummary(d, rows);

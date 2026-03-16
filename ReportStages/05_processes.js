@@ -115,7 +115,7 @@ function applyProcFilters() {
   if (state.vsInstances['proc']) {
     state.vsInstances['proc'].update(rows);
   } else {
-    state.vsInstances['proc'] = createVS('proc-vs', PROC_COLS, rows, renderProcRow, onProcRowClick);
+    state.vsInstances['proc'] = createVS('proc-vs', PROC_COLS, rows, renderProcRow, onProcRowClick, 'processes');
   }
 }
 

@@ -109,7 +109,7 @@ function applyDnsFilters() {
   if (state.vsInstances['dns']) {
     state.vsInstances['dns'].update(rows);
   } else {
-    state.vsInstances['dns'] = createVS('dns-vs', COLS, rows, renderDnsRow, onDnsRowClick);
+    state.vsInstances['dns'] = createVS('dns-vs', COLS, rows, renderDnsRow, onDnsRowClick, 'dns');
   }
 }
 

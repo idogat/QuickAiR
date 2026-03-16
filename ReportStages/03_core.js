@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.3";
+const ANALYZER_VERSION = "2.4";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -101,30 +101,47 @@ function addResizeHandles(headerId, tabName) {
     handle.className = 'col-resize-handle';
     th.appendChild(handle);
 
+    // BUG 2: track whether a drag occurred to suppress the post-mouseup click
+    let resizeDragging = false;
+    let resizeDragOccurred = false;
+
     handle.addEventListener('mousedown', function(e) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopPropagation();  // prevents sort trigger on th mousedown
+      resizeDragging = true;
+      resizeDragOccurred = false;
       const startX = e.clientX;
       const startWidth = th.offsetWidth;
       handle.classList.add('dragging');
 
       function onMove(ev) {
+        resizeDragOccurred = true;  // BUG 2: mark drag as occurred
         const delta = ev.clientX - startX;
         const newWidth = Math.max(40, startWidth + delta);
+        // BUG 1: apply to header cell
         th.style.width = newWidth + 'px';
         th.style.minWidth = newWidth + 'px';
-        // Update tds in same column across all vrows
+        // BUG 1: apply to ALL body cells in same column on every mousemove
         applyColWidthToRows(tabName, colIndex, newWidth);
+        // BUG 1: save to sessionStorage on every move so scroll reapply works
+        sessionStorage.setItem('colWidth_' + tabName + '_' + colIndex, newWidth);
       }
       function onUp() {
+        resizeDragging = false;
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
         handle.classList.remove('dragging');
-        const finalWidth = th.offsetWidth;
-        sessionStorage.setItem('colWidth_' + tabName + '_' + colIndex, finalWidth);
       }
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
+    });
+
+    // BUG 2: suppress the click event that fires after mouseup when drag occurred
+    handle.addEventListener('click', function(e) {
+      if (resizeDragOccurred) {
+        resizeDragOccurred = false;
+        e.stopPropagation();
+      }
     });
   });
 }
@@ -159,6 +176,22 @@ function restoreColWidths(tabName, headerId) {
       th.style.minWidth = saved + 'px';
     }
   });
+}
+
+// BUG 3: re-apply saved column widths to all visible vrows after virtual scroll render
+function reapplyColWidthsFromStorage(tabName, vsEl) {
+  if (!tabName || !vsEl) return;
+  for (let i = 0; i < 20; i++) {
+    const saved = sessionStorage.getItem('colWidth_' + tabName + '_' + i);
+    if (!saved) continue;
+    vsEl.querySelectorAll('.vrow').forEach(function(row) {
+      const cells = row.children;
+      if (cells[i]) {
+        cells[i].style.width = saved + 'px';
+        cells[i].style.minWidth = saved + 'px';
+      }
+    });
+  }
 }
 
 // ── FILE LOADER ───────────────────────────────────────────────────────────────
@@ -332,7 +365,7 @@ const ROW_H    = 28;
 const BUFFER   = 20;
 const MAX_ROWS = 60;
 
-function createVS(containerId, columns, data, rowRenderer, onRowClick) {
+function createVS(containerId, columns, data, rowRenderer, onRowClick, tabName) {
   const wrap = el(containerId);
   if (!wrap) return null;
   wrap.innerHTML = '';
@@ -396,6 +429,8 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick) {
       });
       inner.appendChild(row);
     }
+    // BUG 3: re-apply saved column widths after every render so scroll doesn't lose widths
+    if (tabName) reapplyColWidthsFromStorage(tabName, inner);
   }
 
   viewport.addEventListener('scroll', render);

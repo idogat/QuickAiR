@@ -103,7 +103,7 @@ function applyDllFilters() {
   if (state.vsInstances['dlls']) {
     state.vsInstances['dlls'].update(rows);
   } else {
-    state.vsInstances['dlls'] = createVS('dlls-vs', COLS, rows, renderDllRow, onDllRowClick);
+    state.vsInstances['dlls'] = createVS('dlls-vs', COLS, rows, renderDllRow, onDllRowClick, 'dlls');
   }
 }
 

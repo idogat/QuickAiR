@@ -118,7 +118,8 @@ function renderFleet() {
     (i, row) => {
       switchHost(row.hostname);
       renderManifestPanel(row.hostname);
-    }
+    },
+    'fleet'
   );
 }
 
