@@ -119,4 +119,55 @@ function Build-Manifest {
     return $manifest
 }
 
-Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest
+function Get-QuickerSha256 {
+    param([string]$Path)
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $hash = $sha.ComputeHash($bytes)
+        $sha.Dispose()
+        return ([BitConverter]::ToString($hash) -replace '-','').ToLower()
+    } catch {
+        return $null
+    }
+}
+
+function Get-QuickerSignature {
+    param([string]$Path)
+    try {
+        if ($PSVersionTable.PSVersion.Major -ge 3) {
+            $sig = Get-AuthenticodeSignature -FilePath $Path -ErrorAction Stop
+            $cert = $null
+            if ($sig.SignerCertificate) {
+                $subj = $sig.SignerCertificate.Subject
+                $cn = if ($subj -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
+                $cert = @{
+                    Subject    = $subj
+                    Issuer     = $sig.SignerCertificate.Issuer
+                    Thumbprint = $sig.SignerCertificate.Thumbprint
+                    NotAfter   = $sig.SignerCertificate.NotAfter.ToString('o')
+                    CN         = $cn
+                }
+            }
+            return @{
+                IsSigned         = ($sig.Status -ne 'NotSigned')
+                IsValid          = ($sig.Status -eq 'Valid')
+                Status           = $sig.Status.ToString()
+                SignerCertificate = $cert
+                TimeStamper      = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
+            }
+        } else {
+            # PS 2.0 fallback
+            try {
+                $cert = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($Path)
+                return @{ IsSigned=$true; IsValid=$null; Status='PS2_SIGNED'; SignerCertificate=@{Subject=$cert.Subject;Issuer=$cert.Issuer;Thumbprint=$null;NotAfter=$null;CN=$null}; TimeStamper=$null }
+            } catch {
+                return @{ IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'; SignerCertificate=$null; TimeStamper=$null }
+            }
+        }
+    } catch {
+        return @{ IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"; SignerCertificate=$null; TimeStamper=$null }
+    }
+}
+
+Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickerSha256, Get-QuickerSignature

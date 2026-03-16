@@ -44,23 +44,26 @@ function renderNetwork() {
 
 function buildNetHeader(COLS) {
   const headers = [
-    {key:'_procName',     label:'Process'    },
-    {key:'OwningProcess', label:'PID'        },
-    {key:'LocalAddress',  label:'Local Addr' },
-    {key:'LocalPort',     label:'L.Port'     },
-    {key:'RemoteAddress', label:'Remote Addr'},
-    {key:'RemotePort',    label:'R.Port'     },
-    {key:'DnsMatch',      label:'DNS Match'  },
-    {key:'ReverseDns',    label:'Reverse DNS'},
-    {key:'InterfaceAlias',label:'Interface'  },
-    {key:'State',         label:'State'      },
-    {key:'IsPrivateIP',   label:'Private'    },
+    {key:'_procName',     label:'Process',    numeric:false },
+    {key:'OwningProcess', label:'PID',        numeric:true  },
+    {key:'LocalAddress',  label:'Local Addr', numeric:false },
+    {key:'LocalPort',     label:'L.Port',     numeric:true  },
+    {key:'RemoteAddress', label:'Remote Addr',numeric:false },
+    {key:'RemotePort',    label:'R.Port',     numeric:true  },
+    {key:'DnsMatch',      label:'DNS Match',  numeric:false },
+    {key:'ReverseDns',    label:'Reverse DNS',numeric:false },
+    {key:'InterfaceAlias',label:'Interface',  numeric:false },
+    {key:'State',         label:'State',      numeric:false },
+    {key:'IsPrivateIP',   label:'Private',    numeric:false },
   ];
   const h = el('net-header');
   if (!h) return;
   h.innerHTML = headers.map(hd => {
-    const cls = netSort.col === hd.key ? (netSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-    return `<div class="${cls}" onclick="netSortBy('${hd.key}')">${esc(hd.label)}</div>`;
+    const arrow = (sortState.tab === 'network' && sortState.column === hd.key)
+      ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+    const arrowCls = (sortState.tab === 'network' && sortState.column === hd.key && sortState.dir !== 'none')
+      ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+    return `<div class="th sortable-th" onclick="sortTable('network','${hd.key}',${hd.numeric})">${esc(hd.label)} <span id="sort-network-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
 }
 
@@ -87,11 +90,16 @@ function applyNetFilters() {
   if (netFilters.state) rows = rows.filter(c => c.State === netFilters.state);
   if (netFilters.iface) rows = rows.filter(c => c.InterfaceAlias === netFilters.iface);
 
-  rows.sort((a,b) => {
-    const av = a[netSort.col]; const bv = b[netSort.col];
-    if (typeof av === 'number') return (av-bv)*netSort.dir;
-    return String(av||'').localeCompare(String(bv||''))*netSort.dir;
-  });
+  if (sortState.tab === 'network' && sortState.column && sortState.dir !== 'none') {
+    const numericNetCols = new Set(['OwningProcess','LocalPort','RemotePort']);
+    rows = applySortToRows(rows, sortState.column, numericNetCols.has(sortState.column));
+  } else {
+    rows.sort((a,b) => {
+      const av = a[netSort.col]; const bv = b[netSort.col];
+      if (typeof av === 'number') return (av-bv)*netSort.dir;
+      return String(av||'').localeCompare(String(bv||''))*netSort.dir;
+    });
+  }
   netData = rows;
 
   const cnt = el('net-count');

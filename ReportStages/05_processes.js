@@ -3,12 +3,20 @@ let procFilters = { search: '', hasConns: false, noPath: false };
 let procSort    = { col: 'ProcessId', dir: 1 };
 let procData    = [];
 
+function renderSignedIcon(sig) {
+  if (!sig) return '<span style="color:var(--muted)">?</span>';
+  if (sig.IsSigned === true  && sig.IsValid === true)  return '<span style="color:var(--green)">&#10003;</span>';
+  if (sig.IsSigned === true  && sig.IsValid === false)  return '<span style="color:var(--red)">&#10007;</span>';
+  if (sig.IsSigned === false) return '<span style="color:var(--muted)">&mdash;</span>';
+  return '<span style="color:var(--amber)">?</span>';
+}
+
 function renderProcesses() {
   const panel  = el('panel-processes');
   const d      = activeData();
   if (!d) { panel.innerHTML = '<div class="solo-notice">No file loaded.</div>'; return; }
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px';
+  const COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
 
   panel.innerHTML = `
     <div class="filter-bar">
@@ -28,19 +36,31 @@ function renderProcesses() {
   applyProcFilters();
 }
 
+const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
+
 function buildProcHeader(COLS) {
+  const sortable = ['ProcessId','Name','CreationDateUTC'];
   const headers = [
-    { key:'ProcessId',       label:'PID'      },
-    { key:'ParentProcessId', label:'PPID'     },
-    { key:'_parentName',     label:'Parent'   },
-    { key:'Name',            label:'Name'     },
-    { key:'ExecutablePath',  label:'Path'     },
-    { key:'CommandLine',     label:'CmdLine'  },
-    { key:'_connCount',      label:'Conns'    },
+    { key:'ProcessId',       label:'PID',     sortable:true  },
+    { key:'ParentProcessId', label:'PPID',    sortable:false },
+    { key:'_parentName',     label:'Parent',  sortable:false },
+    { key:'Name',            label:'Name',    sortable:true  },
+    { key:'ExecutablePath',  label:'Path',    sortable:false },
+    { key:'CommandLine',     label:'CmdLine', sortable:false },
+    { key:'_connCount',      label:'Conns',   sortable:false },
+    { key:'_signed',         label:'Sig',     sortable:false },
+    { key:'_signerCompany',  label:'Signer',  sortable:false },
+    { key:'_sha256Short',    label:'SHA256',  sortable:false },
   ];
   const h = el('proc-header');
   if (!h) return;
   h.innerHTML = headers.map(hd => {
+    if (hd.sortable) {
+      const arrow = (sortState.tab === 'processes' && sortState.column === hd.key)
+        ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+      const arrowCls = (sortState.tab === 'processes' && sortState.column === hd.key && sortState.dir !== 'none') ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+      return `<div class="th sortable-th" onclick="sortTable('processes','${hd.key}',${hd.key==='ProcessId'?'true':'false'})">${esc(hd.label)} <span id="sort-processes-${hd.key}"${arrowCls}>${arrow}</span></div>`;
+    }
     const cls = procSort.col === hd.key ? (procSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
     return `<div class="${cls}" onclick="procSortBy('${hd.key}')">${esc(hd.label)}</div>`;
   }).join('');
@@ -60,35 +80,47 @@ function applyProcFilters() {
   const nameMap = {};
   (d.processes||[]).forEach(p => nameMap[p.ProcessId] = p.Name);
 
-  let rows = (d.processes||[]).map(p => Object.assign({}, p, {
-    _connCount:  connMap[p.ProcessId] || 0,
-    _parentName: nameMap[p.ParentProcessId] || '',
-  }));
+  let rows = (d.processes||[]).map(p => {
+    const sig = p.Signature || null;
+    const sha256Short = p.SHA256 ? (p.SHA256.slice(0,16)+'...') : (p.SHA256Error ? p.SHA256Error : '');
+    return Object.assign({}, p, {
+      _connCount:     connMap[p.ProcessId] || 0,
+      _parentName:    nameMap[p.ParentProcessId] || '',
+      _signed:        sig ? sig.IsSigned : null,
+      _signerCompany: sig ? (sig.SignerCompany || '') : '',
+      _sha256Short:   sha256Short,
+    });
+  });
 
   if (lq) rows = rows.filter(p =>
-    str(p.Name).includes(lq) || str(p.ProcessId).includes(lq) ||
-    str(p.ExecutablePath).includes(lq) || str(p.CommandLine).includes(lq)
+    str(p.Name).toLowerCase().includes(lq) || str(p.ProcessId).includes(lq) ||
+    str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq)
   );
   if (procFilters.hasConns) rows = rows.filter(p => p._connCount > 0);
   if (procFilters.noPath)   rows = rows.filter(p => !p.ExecutablePath);
 
-  rows.sort((a,b) => {
-    const av = a[procSort.col]; const bv = b[procSort.col];
-    if (typeof av === 'number') return (av - bv) * procSort.dir;
-    return String(av||'').localeCompare(String(bv||'')) * procSort.dir;
-  });
+  // Apply sortTable if active for this tab
+  if (sortState.tab === 'processes' && sortState.column && sortState.dir !== 'none') {
+    rows = applySortToRows(rows, sortState.column, sortState.column === 'ProcessId');
+  } else {
+    rows.sort((a,b) => {
+      const av = a[procSort.col]; const bv = b[procSort.col];
+      if (typeof av === 'number') return (av - bv) * procSort.dir;
+      return String(av||'').localeCompare(String(bv||'')) * procSort.dir;
+    });
+  }
   procData = rows;
+  state.filtered['processes'] = rows;
 
   const cnt = el('proc-count');
   if (cnt) cnt.textContent = rows.length + ' processes';
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px';
   state.expandedRows['proc'] = null;
 
   if (state.vsInstances['proc']) {
     state.vsInstances['proc'].update(rows);
   } else {
-    state.vsInstances['proc'] = createVS('proc-vs', COLS, rows, renderProcRow, onProcRowClick);
+    state.vsInstances['proc'] = createVS('proc-vs', PROC_COLS, rows, renderProcRow, onProcRowClick);
   }
 }
 
@@ -106,7 +138,10 @@ function renderProcRow(p, i) {
     <div class="${nameCls}">${esc(trunc(p.Name,20))}${fbBadge}</div>
     <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
     <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
-    <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>`;
+    <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
+    <div class="td">${renderSignedIcon(p.Signature)}</div>
+    <div class="td dim">${esc(trunc(p._signerCompany||'',16))}</div>
+    <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
 }
 
 function onProcRowClick(i, p, rowEl) {
@@ -166,6 +201,14 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">VirtualSize</span>   <span class="v">${fmtBytes(p.VirtualSize)}</span>
       <span class="k">SessionId</span>     <span class="v">${p.SessionId}</span>
       <span class="k">HandleCount</span>   <span class="v">${p.HandleCount}</span>
+      ${p.SHA256 ? `<span class="k">SHA256</span><span class="v mono">${esc(p.SHA256)}</span>` : ''}
+      ${!p.SHA256 && p.SHA256Error ? `<span class="k">SHA256Error</span><span class="v" style="color:var(--amber)">${esc(p.SHA256Error)}</span>` : ''}
+      ${p.Signature ? `<span class="k">Sig Status</span>  <span class="v">${esc(p.Signature.Status||'—')}</span>
+      <span class="k">SignerSubject</span><span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
+      <span class="k">SignerCompany</span><span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
+      <span class="k">Thumbprint</span>  <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
+      <span class="k">NotAfter</span>    <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
+      <span class="k">TimeStamper</span> <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
     </div>
     ${connsHTML}
     ${childHTML}`;

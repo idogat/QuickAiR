@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "1.6";
+const ANALYZER_VERSION = "2.1";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -8,7 +8,113 @@ const state = {
   activeHost: null,
   vsInstances: {},  // virtual scroll instances keyed by id
   expandedRows: {}, // { tableId: rowIndex }
+  filtered: {},     // { tab: sortedRows[] } for sortTable
 };
+
+// ── SORT/RESIZE CSS ───────────────────────────────────────────────────────────
+(function injectSortResizeCSS() {
+  const s = document.createElement('style');
+  s.textContent = `
+    .sortable-th { cursor: pointer; user-select: none; }
+    .sort-arrow { color: var(--muted); font-size: 0.8em; }
+    .sort-arrow.asc { color: var(--accent); }
+    .sort-arrow.desc { color: var(--accent); }
+    .resize-handle {
+      position: absolute; right: 0; top: 0;
+      width: 5px; height: 100%;
+      cursor: col-resize;
+      background: transparent;
+      z-index: 1;
+    }
+    .resize-handle:hover { background: var(--border); }
+    th { position: relative; }
+  `;
+  document.head.appendChild(s);
+})();
+
+// ── SORT STATE ────────────────────────────────────────────────────────────────
+const sortState = { tab: null, column: null, dir: 'none' };
+
+function sortTable(tab, colKey, numeric) {
+  if (sortState.tab === tab && sortState.column === colKey) {
+    if (sortState.dir === 'none') sortState.dir = 'asc';
+    else if (sortState.dir === 'asc') sortState.dir = 'desc';
+    else sortState.dir = 'none';
+  } else {
+    sortState.tab = tab; sortState.column = colKey; sortState.dir = 'asc';
+  }
+  // Update arrow indicators
+  document.querySelectorAll('.sort-arrow').forEach(el => {
+    el.classList.remove('asc','desc');
+    el.textContent = '⇅';
+  });
+  const arrowEl = document.getElementById('sort-' + tab + '-' + colKey);
+  if (arrowEl) {
+    if (sortState.dir === 'asc')  { arrowEl.textContent = '↑'; arrowEl.classList.add('asc'); }
+    if (sortState.dir === 'desc') { arrowEl.textContent = '↓'; arrowEl.classList.add('desc'); }
+  }
+  // Re-render the tab
+  switch(tab) {
+    case 'processes': applyProcFilters(); break;
+    case 'network':   applyNetFilters();  break;
+    case 'dns':       applyDnsFilters();  break;
+    case 'dlls':      applyDllFilters();  break;
+    case 'fleet':     renderFleet();      break;
+  }
+}
+
+function makeSortHeader(label, tab, colKey, numeric) {
+  return `<th class="sortable-th" onclick="sortTable('${tab}','${colKey}',${numeric?'true':'false'})">` +
+    `${esc(label)} <span class="sort-arrow" id="sort-${tab}-${colKey}">⇅</span></th>`;
+}
+
+function applySortToRows(rows, colKey, numeric) {
+  if (!sortState.dir || sortState.dir === 'none') return rows;
+  const dir = sortState.dir === 'asc' ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const av = a[colKey]; const bv = b[colKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (numeric) return (Number(av) - Number(bv)) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+
+// ── RESIZABLE COLUMNS ─────────────────────────────────────────────────────────
+function initResizable(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const ths = table.querySelectorAll('th');
+  ths.forEach((th, colIndex) => {
+    // Restore saved width
+    const saved = sessionStorage.getItem('colW_' + tableId + '_' + colIndex);
+    if (saved) th.style.width = saved + 'px';
+    // Add handle
+    let handle = th.querySelector('.resize-handle');
+    if (!handle) {
+      handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      th.appendChild(handle);
+    }
+    let startX, startW;
+    handle.addEventListener('mousedown', function(e) {
+      e.stopPropagation();
+      startX = e.pageX; startW = th.offsetWidth;
+      function onMove(ev) {
+        const newW = Math.max(40, startW + ev.pageX - startX);
+        th.style.width = newW + 'px';
+        sessionStorage.setItem('colW_' + tableId + '_' + colIndex, newW);
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
 
 // ── FILE LOADER ───────────────────────────────────────────────────────────────
 function triggerLoad() {

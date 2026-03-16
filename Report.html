@@ -209,7 +209,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "1.6";
+const ANALYZER_VERSION = "2.1";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -217,7 +217,113 @@ const state = {
   activeHost: null,
   vsInstances: {},  // virtual scroll instances keyed by id
   expandedRows: {}, // { tableId: rowIndex }
+  filtered: {},     // { tab: sortedRows[] } for sortTable
 };
+
+// ── SORT/RESIZE CSS ───────────────────────────────────────────────────────────
+(function injectSortResizeCSS() {
+  const s = document.createElement('style');
+  s.textContent = `
+    .sortable-th { cursor: pointer; user-select: none; }
+    .sort-arrow { color: var(--muted); font-size: 0.8em; }
+    .sort-arrow.asc { color: var(--accent); }
+    .sort-arrow.desc { color: var(--accent); }
+    .resize-handle {
+      position: absolute; right: 0; top: 0;
+      width: 5px; height: 100%;
+      cursor: col-resize;
+      background: transparent;
+      z-index: 1;
+    }
+    .resize-handle:hover { background: var(--border); }
+    th { position: relative; }
+  `;
+  document.head.appendChild(s);
+})();
+
+// ── SORT STATE ────────────────────────────────────────────────────────────────
+const sortState = { tab: null, column: null, dir: 'none' };
+
+function sortTable(tab, colKey, numeric) {
+  if (sortState.tab === tab && sortState.column === colKey) {
+    if (sortState.dir === 'none') sortState.dir = 'asc';
+    else if (sortState.dir === 'asc') sortState.dir = 'desc';
+    else sortState.dir = 'none';
+  } else {
+    sortState.tab = tab; sortState.column = colKey; sortState.dir = 'asc';
+  }
+  // Update arrow indicators
+  document.querySelectorAll('.sort-arrow').forEach(el => {
+    el.classList.remove('asc','desc');
+    el.textContent = '⇅';
+  });
+  const arrowEl = document.getElementById('sort-' + tab + '-' + colKey);
+  if (arrowEl) {
+    if (sortState.dir === 'asc')  { arrowEl.textContent = '↑'; arrowEl.classList.add('asc'); }
+    if (sortState.dir === 'desc') { arrowEl.textContent = '↓'; arrowEl.classList.add('desc'); }
+  }
+  // Re-render the tab
+  switch(tab) {
+    case 'processes': applyProcFilters(); break;
+    case 'network':   applyNetFilters();  break;
+    case 'dns':       applyDnsFilters();  break;
+    case 'dlls':      applyDllFilters();  break;
+    case 'fleet':     renderFleet();      break;
+  }
+}
+
+function makeSortHeader(label, tab, colKey, numeric) {
+  return `<th class="sortable-th" onclick="sortTable('${tab}','${colKey}',${numeric?'true':'false'})">` +
+    `${esc(label)} <span class="sort-arrow" id="sort-${tab}-${colKey}">⇅</span></th>`;
+}
+
+function applySortToRows(rows, colKey, numeric) {
+  if (!sortState.dir || sortState.dir === 'none') return rows;
+  const dir = sortState.dir === 'asc' ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const av = a[colKey]; const bv = b[colKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (numeric) return (Number(av) - Number(bv)) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+
+// ── RESIZABLE COLUMNS ─────────────────────────────────────────────────────────
+function initResizable(tableId) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const ths = table.querySelectorAll('th');
+  ths.forEach((th, colIndex) => {
+    // Restore saved width
+    const saved = sessionStorage.getItem('colW_' + tableId + '_' + colIndex);
+    if (saved) th.style.width = saved + 'px';
+    // Add handle
+    let handle = th.querySelector('.resize-handle');
+    if (!handle) {
+      handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      th.appendChild(handle);
+    }
+    let startX, startW;
+    handle.addEventListener('mousedown', function(e) {
+      e.stopPropagation();
+      startX = e.pageX; startW = th.offsetWidth;
+      function onMove(ev) {
+        const newW = Math.max(40, startW + ev.pageX - startX);
+        th.style.width = newW + 'px';
+        sessionStorage.setItem('colW_' + tableId + '_' + colIndex, newW);
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
 
 // ── FILE LOADER ───────────────────────────────────────────────────────────────
 function triggerLoad() {
@@ -755,12 +861,20 @@ let procFilters = { search: '', hasConns: false, noPath: false };
 let procSort    = { col: 'ProcessId', dir: 1 };
 let procData    = [];
 
+function renderSignedIcon(sig) {
+  if (!sig) return '<span style="color:var(--muted)">?</span>';
+  if (sig.IsSigned === true  && sig.IsValid === true)  return '<span style="color:var(--green)">&#10003;</span>';
+  if (sig.IsSigned === true  && sig.IsValid === false)  return '<span style="color:var(--red)">&#10007;</span>';
+  if (sig.IsSigned === false) return '<span style="color:var(--muted)">&mdash;</span>';
+  return '<span style="color:var(--amber)">?</span>';
+}
+
 function renderProcesses() {
   const panel  = el('panel-processes');
   const d      = activeData();
   if (!d) { panel.innerHTML = '<div class="solo-notice">No file loaded.</div>'; return; }
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px';
+  const COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
 
   panel.innerHTML = `
     <div class="filter-bar">
@@ -780,19 +894,31 @@ function renderProcesses() {
   applyProcFilters();
 }
 
+const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 40px 120px 130px';
+
 function buildProcHeader(COLS) {
+  const sortable = ['ProcessId','Name','CreationDateUTC'];
   const headers = [
-    { key:'ProcessId',       label:'PID'      },
-    { key:'ParentProcessId', label:'PPID'     },
-    { key:'_parentName',     label:'Parent'   },
-    { key:'Name',            label:'Name'     },
-    { key:'ExecutablePath',  label:'Path'     },
-    { key:'CommandLine',     label:'CmdLine'  },
-    { key:'_connCount',      label:'Conns'    },
+    { key:'ProcessId',       label:'PID',     sortable:true  },
+    { key:'ParentProcessId', label:'PPID',    sortable:false },
+    { key:'_parentName',     label:'Parent',  sortable:false },
+    { key:'Name',            label:'Name',    sortable:true  },
+    { key:'ExecutablePath',  label:'Path',    sortable:false },
+    { key:'CommandLine',     label:'CmdLine', sortable:false },
+    { key:'_connCount',      label:'Conns',   sortable:false },
+    { key:'_signed',         label:'Sig',     sortable:false },
+    { key:'_signerCompany',  label:'Signer',  sortable:false },
+    { key:'_sha256Short',    label:'SHA256',  sortable:false },
   ];
   const h = el('proc-header');
   if (!h) return;
   h.innerHTML = headers.map(hd => {
+    if (hd.sortable) {
+      const arrow = (sortState.tab === 'processes' && sortState.column === hd.key)
+        ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+      const arrowCls = (sortState.tab === 'processes' && sortState.column === hd.key && sortState.dir !== 'none') ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+      return `<div class="th sortable-th" onclick="sortTable('processes','${hd.key}',${hd.key==='ProcessId'?'true':'false'})">${esc(hd.label)} <span id="sort-processes-${hd.key}"${arrowCls}>${arrow}</span></div>`;
+    }
     const cls = procSort.col === hd.key ? (procSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
     return `<div class="${cls}" onclick="procSortBy('${hd.key}')">${esc(hd.label)}</div>`;
   }).join('');
@@ -812,35 +938,47 @@ function applyProcFilters() {
   const nameMap = {};
   (d.processes||[]).forEach(p => nameMap[p.ProcessId] = p.Name);
 
-  let rows = (d.processes||[]).map(p => Object.assign({}, p, {
-    _connCount:  connMap[p.ProcessId] || 0,
-    _parentName: nameMap[p.ParentProcessId] || '',
-  }));
+  let rows = (d.processes||[]).map(p => {
+    const sig = p.Signature || null;
+    const sha256Short = p.SHA256 ? (p.SHA256.slice(0,16)+'...') : (p.SHA256Error ? p.SHA256Error : '');
+    return Object.assign({}, p, {
+      _connCount:     connMap[p.ProcessId] || 0,
+      _parentName:    nameMap[p.ParentProcessId] || '',
+      _signed:        sig ? sig.IsSigned : null,
+      _signerCompany: sig ? (sig.SignerCompany || '') : '',
+      _sha256Short:   sha256Short,
+    });
+  });
 
   if (lq) rows = rows.filter(p =>
-    str(p.Name).includes(lq) || str(p.ProcessId).includes(lq) ||
-    str(p.ExecutablePath).includes(lq) || str(p.CommandLine).includes(lq)
+    str(p.Name).toLowerCase().includes(lq) || str(p.ProcessId).includes(lq) ||
+    str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq)
   );
   if (procFilters.hasConns) rows = rows.filter(p => p._connCount > 0);
   if (procFilters.noPath)   rows = rows.filter(p => !p.ExecutablePath);
 
-  rows.sort((a,b) => {
-    const av = a[procSort.col]; const bv = b[procSort.col];
-    if (typeof av === 'number') return (av - bv) * procSort.dir;
-    return String(av||'').localeCompare(String(bv||'')) * procSort.dir;
-  });
+  // Apply sortTable if active for this tab
+  if (sortState.tab === 'processes' && sortState.column && sortState.dir !== 'none') {
+    rows = applySortToRows(rows, sortState.column, sortState.column === 'ProcessId');
+  } else {
+    rows.sort((a,b) => {
+      const av = a[procSort.col]; const bv = b[procSort.col];
+      if (typeof av === 'number') return (av - bv) * procSort.dir;
+      return String(av||'').localeCompare(String(bv||'')) * procSort.dir;
+    });
+  }
   procData = rows;
+  state.filtered['processes'] = rows;
 
   const cnt = el('proc-count');
   if (cnt) cnt.textContent = rows.length + ' processes';
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px';
   state.expandedRows['proc'] = null;
 
   if (state.vsInstances['proc']) {
     state.vsInstances['proc'].update(rows);
   } else {
-    state.vsInstances['proc'] = createVS('proc-vs', COLS, rows, renderProcRow, onProcRowClick);
+    state.vsInstances['proc'] = createVS('proc-vs', PROC_COLS, rows, renderProcRow, onProcRowClick);
   }
 }
 
@@ -858,7 +996,10 @@ function renderProcRow(p, i) {
     <div class="${nameCls}">${esc(trunc(p.Name,20))}${fbBadge}</div>
     <div class="td dim">${esc(trunc(p.ExecutablePath||'',40))}</div>
     <div class="td dim">${esc(trunc(p.CommandLine||'',60))}</div>
-    <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>`;
+    <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
+    <div class="td">${renderSignedIcon(p.Signature)}</div>
+    <div class="td dim">${esc(trunc(p._signerCompany||'',16))}</div>
+    <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
 }
 
 function onProcRowClick(i, p, rowEl) {
@@ -918,6 +1059,14 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">VirtualSize</span>   <span class="v">${fmtBytes(p.VirtualSize)}</span>
       <span class="k">SessionId</span>     <span class="v">${p.SessionId}</span>
       <span class="k">HandleCount</span>   <span class="v">${p.HandleCount}</span>
+      ${p.SHA256 ? `<span class="k">SHA256</span><span class="v mono">${esc(p.SHA256)}</span>` : ''}
+      ${!p.SHA256 && p.SHA256Error ? `<span class="k">SHA256Error</span><span class="v" style="color:var(--amber)">${esc(p.SHA256Error)}</span>` : ''}
+      ${p.Signature ? `<span class="k">Sig Status</span>  <span class="v">${esc(p.Signature.Status||'—')}</span>
+      <span class="k">SignerSubject</span><span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
+      <span class="k">SignerCompany</span><span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
+      <span class="k">Thumbprint</span>  <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
+      <span class="k">NotAfter</span>    <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
+      <span class="k">TimeStamper</span> <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
     </div>
     ${connsHTML}
     ${childHTML}`;
@@ -1007,23 +1156,26 @@ function renderNetwork() {
 
 function buildNetHeader(COLS) {
   const headers = [
-    {key:'_procName',     label:'Process'    },
-    {key:'OwningProcess', label:'PID'        },
-    {key:'LocalAddress',  label:'Local Addr' },
-    {key:'LocalPort',     label:'L.Port'     },
-    {key:'RemoteAddress', label:'Remote Addr'},
-    {key:'RemotePort',    label:'R.Port'     },
-    {key:'DnsMatch',      label:'DNS Match'  },
-    {key:'ReverseDns',    label:'Reverse DNS'},
-    {key:'InterfaceAlias',label:'Interface'  },
-    {key:'State',         label:'State'      },
-    {key:'IsPrivateIP',   label:'Private'    },
+    {key:'_procName',     label:'Process',    numeric:false },
+    {key:'OwningProcess', label:'PID',        numeric:true  },
+    {key:'LocalAddress',  label:'Local Addr', numeric:false },
+    {key:'LocalPort',     label:'L.Port',     numeric:true  },
+    {key:'RemoteAddress', label:'Remote Addr',numeric:false },
+    {key:'RemotePort',    label:'R.Port',     numeric:true  },
+    {key:'DnsMatch',      label:'DNS Match',  numeric:false },
+    {key:'ReverseDns',    label:'Reverse DNS',numeric:false },
+    {key:'InterfaceAlias',label:'Interface',  numeric:false },
+    {key:'State',         label:'State',      numeric:false },
+    {key:'IsPrivateIP',   label:'Private',    numeric:false },
   ];
   const h = el('net-header');
   if (!h) return;
   h.innerHTML = headers.map(hd => {
-    const cls = netSort.col === hd.key ? (netSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-    return `<div class="${cls}" onclick="netSortBy('${hd.key}')">${esc(hd.label)}</div>`;
+    const arrow = (sortState.tab === 'network' && sortState.column === hd.key)
+      ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+    const arrowCls = (sortState.tab === 'network' && sortState.column === hd.key && sortState.dir !== 'none')
+      ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+    return `<div class="th sortable-th" onclick="sortTable('network','${hd.key}',${hd.numeric})">${esc(hd.label)} <span id="sort-network-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
 }
 
@@ -1050,11 +1202,16 @@ function applyNetFilters() {
   if (netFilters.state) rows = rows.filter(c => c.State === netFilters.state);
   if (netFilters.iface) rows = rows.filter(c => c.InterfaceAlias === netFilters.iface);
 
-  rows.sort((a,b) => {
-    const av = a[netSort.col]; const bv = b[netSort.col];
-    if (typeof av === 'number') return (av-bv)*netSort.dir;
-    return String(av||'').localeCompare(String(bv||''))*netSort.dir;
-  });
+  if (sortState.tab === 'network' && sortState.column && sortState.dir !== 'none') {
+    const numericNetCols = new Set(['OwningProcess','LocalPort','RemotePort']);
+    rows = applySortToRows(rows, sortState.column, numericNetCols.has(sortState.column));
+  } else {
+    rows.sort((a,b) => {
+      const av = a[netSort.col]; const bv = b[netSort.col];
+      if (typeof av === 'number') return (av-bv)*netSort.dir;
+      return String(av||'').localeCompare(String(bv||''))*netSort.dir;
+    });
+  }
   netData = rows;
 
   const cnt = el('net-count');
@@ -1227,7 +1384,7 @@ function renderDlls() {
     return;
   }
 
-  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 55px';
+  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 40px 120px';
 
   panel.innerHTML = `
     <div class="filter-bar" id="dlls-filter-bar">
@@ -1250,22 +1407,26 @@ function renderDlls() {
 
 function buildDllHeader(COLS) {
   const headers = [
-    { key: 'ProcessName', label: 'Process'   },
-    { key: 'ProcessId',   label: 'PID'       },
-    { key: 'ModuleName',  label: 'DLL Name'  },
-    { key: 'ModulePath',  label: 'Path'      },
-    { key: 'FileVersion', label: 'Version'   },
-    { key: 'Company',     label: 'Company'   },
-    { key: 'FileHash',      label: 'FileHash'    },
-    { key: 'IsPrivatePath',label: 'Private'  },
-    { key: 'IsSigned',    label: 'Signed'    },
+    { key: 'ProcessName',  label: 'Process',  numeric: false },
+    { key: 'ProcessId',    label: 'PID',      numeric: true  },
+    { key: 'ModuleName',   label: 'DLL Name', numeric: false },
+    { key: 'ModulePath',   label: 'Path',     numeric: false },
+    { key: 'FileVersion',  label: 'Version',  numeric: false },
+    { key: 'Company',      label: 'Company',  numeric: false },
+    { key: 'FileHash',     label: 'SHA256',   numeric: false },
+    { key: 'IsPrivatePath',label: 'Private',  numeric: false },
+    { key: '_signed',      label: 'Sig',      numeric: false },
+    { key: '_signerCo',    label: 'Signer',   numeric: false },
   ];
   const h = el('dlls-header');
   if (!h) return;
   h.style.gridTemplateColumns = COLS;
   h.innerHTML = headers.map(hd => {
-    const cls = dllSort.col === hd.key ? (dllSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-    return `<div class="${cls}" onclick="dllSortBy('${hd.key}')">${esc(hd.label)}</div>`;
+    const arrow = (sortState.tab === 'dlls' && sortState.column === hd.key)
+      ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+    const arrowCls = (sortState.tab === 'dlls' && sortState.column === hd.key && sortState.dir !== 'none')
+      ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+    return `<div class="th sortable-th" onclick="sortTable('dlls','${hd.key}',${hd.numeric})">${esc(hd.label)} <span id="sort-dlls-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
 }
 
@@ -1273,7 +1434,10 @@ function applyDllFilters() {
   const d = activeData(); if (!d || !d.DLLs) return;
   const lq = dllFilters.search.toLowerCase();
 
-  let rows = d.DLLs.slice();
+  let rows = d.DLLs.slice().map(e => Object.assign({}, e, {
+    _signed:   e.Signature ? e.Signature.IsSigned : null,
+    _signerCo: e.Signature ? (e.Signature.SignerCompany || '') : '',
+  }));
 
   if (lq) rows = rows.filter(e =>
     str(e.ProcessName).includes(lq) ||
@@ -1286,17 +1450,22 @@ function applyDllFilters() {
   if (dllFilters.nonSystem)   rows = rows.filter(e => !isDllSystem(e.ModulePath));
   if (dllFilters.hasFileHash) rows = rows.filter(e => e.FileHash != null && e.FileHash !== '');
 
-  rows.sort((a, b) => {
-    const av = a[dllSort.col]; const bv = b[dllSort.col];
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dllSort.dir;
-    return String(av||'').localeCompare(String(bv||'')) * dllSort.dir;
-  });
+  if (sortState.tab === 'dlls' && sortState.column && sortState.dir !== 'none') {
+    const numericDllCols = new Set(['ProcessId']);
+    rows = applySortToRows(rows, sortState.column, numericDllCols.has(sortState.column));
+  } else {
+    rows.sort((a, b) => {
+      const av = a[dllSort.col]; const bv = b[dllSort.col];
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dllSort.dir;
+      return String(av||'').localeCompare(String(bv||'')) * dllSort.dir;
+    });
+  }
   dllData = rows;
 
   const cnt = el('dlls-count');
   if (cnt) cnt.textContent = rows.length + ' entries';
 
-  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 55px';
+  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 40px 120px';
   state.expandedRows['dlls'] = null;
 
   if (state.vsInstances['dlls']) {
@@ -1307,15 +1476,14 @@ function applyDllFilters() {
 }
 
 function renderDllRow(e, i) {
-  const sha = e.FileHash ? (e.FileHash.slice(0, 16) + '...') : '';
-  const privCls  = e.IsPrivatePath ? 'amber' : 'dim';
-  const signCls  = e.IsSigned === true ? 'green' : (e.IsSigned === false ? 'red' : 'dim');
-  const signTxt  = e.IsSigned === true ? 'yes' : (e.IsSigned === false ? 'no' : '');
-  const rowCls   = e.IsPrivatePath ? 'row-private' : '';
+  const sha     = e.FileHash ? (e.FileHash.slice(0, 16) + '...') : (e.SHA256Error ? e.SHA256Error : '');
+  const shaTitle = e.FileHash || e.SHA256Error || '';
+  const shaCls  = !e.FileHash && e.SHA256Error ? 'td amber' : 'td mono dim';
+  const privCls = e.IsPrivatePath ? 'amber' : 'dim';
+  const sig     = e.Signature || null;
+  const signerCo = e._signerCo || (sig ? (sig.SignerCompany || '') : '');
   const pathTrunc = e.ModulePath ? trunc(e.ModulePath, 32) : (e.reason ? '[' + esc(e.reason) + ']' : '');
   const nameTrunc = trunc(e.ModuleName || '', 22);
-  // Note: row class injected via the vrow itself - we add it via a trick on the wrapper
-  // We prefix the first td with a data attribute we can use to style the row
   return `
     <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(trunc(e.ProcessName||'',18))}</div>
     <div class="td dim">${e.ProcessId != null ? e.ProcessId : ''}</div>
@@ -1323,9 +1491,10 @@ function renderDllRow(e, i) {
     <div class="td dim mono" title="${esc(e.ModulePath||'')}">${esc(pathTrunc)}</div>
     <div class="td dim">${esc(trunc(e.FileVersion||'',12))}</div>
     <div class="td dim">${esc(trunc(e.Company||'',18))}</div>
-    <div class="td mono dim" title="${esc(e.FileHash||'')}">${esc(sha)}</div>
+    <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
-    <div class="td ${signCls}">${signTxt}</div>`;
+    <div class="td">${renderSignedIcon(sig)}</div>
+    <div class="td dim">${esc(trunc(signerCo,16))}</div>`;
 }
 
 function onDllRowClick(i, e, rowEl) {
@@ -1346,17 +1515,17 @@ function onDllRowClick(i, e, rowEl) {
   const sameProcHTML = sameProc.length ? `
     <h4 style="margin-top:8px">Other DLLs loaded by this process (${sameProc.length}${sameProc.length===30?' shown, more may exist':''})</h4>
     <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th><th>Signed</th></tr>` +
-    sameProc.map(x=>`<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td><td>${x.IsSigned===true?'yes':x.IsSigned===false?'no':''}</td></tr>`).join('') +
+    sameProc.map(x=>`<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td><td>${x.Signature?(x.Signature.IsSigned===true?'yes':x.Signature.IsSigned===false?'no':''):''}</td></tr>`).join('') +
     '</table>' : '';
 
   const privBadge = e.IsPrivatePath
     ? `<span style="background:rgba(255,180,0,0.3);padding:1px 6px;border-radius:3px;color:var(--amber)">PRIVATE PATH</span>`
     : `<span style="color:var(--muted)">no</span>`;
-  const signBadge = e.IsSigned === true
-    ? `<span style="color:var(--green)">SIGNED</span>`
-    : e.IsSigned === false
-      ? `<span style="color:var(--red)">NOT SIGNED</span>`
-      : `<span style="color:var(--muted)">unknown</span>`;
+  const sig2 = e.Signature || null;
+  const signBadge = renderSignedIcon(sig2);
+  const shaDisplay = e.FileHash
+    ? `<span class="mono">${esc(e.FileHash)}</span>`
+    : (e.SHA256Error ? `<span style="color:var(--amber)">${esc(e.SHA256Error)}</span>` : '—');
 
   const expand = document.createElement('div');
   expand.className = 'expand-row';
@@ -1367,9 +1536,15 @@ function onDllRowClick(i, e, rowEl) {
       <span class="k">Full Path</span>    <span class="v mono">${esc(e.ModulePath||'—')}</span>
       <span class="k">FileVersion</span>  <span class="v">${esc(e.FileVersion||'—')}</span>
       <span class="k">Company</span>      <span class="v">${esc(e.Company||'—')}</span>
-      <span class="k">FileHash</span>       <span class="v mono">${esc(e.FileHash||'—')}</span>
+      <span class="k">SHA256</span>       <span class="v">${shaDisplay}</span>
       <span class="k">Private Path</span> <span class="v">${privBadge}</span>
       <span class="k">Signed</span>       <span class="v">${signBadge}</span>
+      ${sig2 ? `<span class="k">Sig Status</span>   <span class="v">${esc(sig2.Status||'—')}</span>
+      <span class="k">SignerSubject</span> <span class="v">${esc(sig2.SignerSubject||'—')}</span>
+      <span class="k">SignerCompany</span> <span class="v">${esc(sig2.SignerCompany||'—')}</span>
+      <span class="k">Thumbprint</span>   <span class="v mono">${esc(sig2.Thumbprint||'—')}</span>
+      <span class="k">NotAfter</span>     <span class="v">${esc(sig2.NotAfter||'—')}</span>
+      <span class="k">TimeStamper</span>  <span class="v">${esc(sig2.TimeStamper||'—')}</span>` : ''}
       ${e.reason ? `<span class="k">Reason</span><span class="v" style="color:var(--red)">${esc(e.reason)}</span>` : ''}
     </div>
     ${sameProcHTML}`;
@@ -1387,7 +1562,7 @@ function onDllRowClick(i, e, rowEl) {
 
 function dllSortBy(col) {
   if (dllSort.col === col) dllSort.dir *= -1; else { dllSort.col = col; dllSort.dir = 1; }
-  buildDllHeader('140px 55px 160px 220px 90px 140px 145px 55px 55px');
+  buildDllHeader('140px 55px 160px 220px 90px 140px 145px 55px 40px 120px');
   applyDllFilters();
 }
 

@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -22,8 +22,6 @@ $ErrorActionPreference = 'Continue'
 # ── .NET scriptblock (PS 3+) ─────────────────────────────────────────────────
 $script:DLL_SB_DOTNET = {
     $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
-    $SYS32_PATH       = 'C:\Windows\System32\'
-    $SYSWOW_PATH      = 'C:\Windows\SysWOW64\'
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
     $out = @()
@@ -39,9 +37,9 @@ $script:DLL_SB_DOTNET = {
         foreach ($pp in $PROTECTED_PROCS) { if ($pName -ieq $pp) { $skip = $true; break } }
         if ($skip) { continue }
 
-        $pId = $null
-        try { $pId = [int]$p.Id } catch {}
-        if ($pId -eq $null) { continue }
+        $procId = $null
+        try { $procId = [int]$p.Id } catch {}
+        if ($procId -eq $null) { continue }
 
         $mods = $null
         try {
@@ -49,15 +47,16 @@ $script:DLL_SB_DOTNET = {
         } catch {
             $reason = if ($_.Exception.Message -match 'Access') { 'ACCESS_DENIED' } else { $_.Exception.Message }
             $out += New-Object PSObject -Property @{
-                ProcessId     = $pId
+                ProcessId     = $procId
                 ProcessName   = $pName
                 ModuleName    = $null
                 ModulePath    = $null
                 FileVersion   = $null
                 Company       = $null
                 FileHash      = $null
+                SHA256Error   = $null
                 IsPrivatePath = $null
-                IsSigned      = $null
+                Signature     = $null
                 LoadedAt      = $null
                 reason        = $reason
                 source        = 'dotnet'
@@ -71,11 +70,6 @@ $script:DLL_SB_DOTNET = {
             try { $mPath = $m.FileName  } catch {}
             try { $mName = $m.ModuleName } catch {}
 
-            $isSystem = $false
-            if ($mPath) {
-                if ($mPath -like "$SYS32_PATH*" -or $mPath -like "$SYSWOW_PATH*") { $isSystem = $true }
-            }
-
             $isPrivate = $false
             if ($mPath) {
                 foreach ($marker in $PRIVATE_MARKERS) {
@@ -84,14 +78,26 @@ $script:DLL_SB_DOTNET = {
             }
 
             $fileHash = $null
-            if ($mPath -and -not $isSystem) {
+            $sha256Err = $null
+            if ($mPath) {
                 try {
-                    $bytes  = [System.IO.File]::ReadAllBytes($mPath)
-                    $hasher = [Security.Cryptography.SHA256]::Create()
-                    $hashBytes = $hasher.ComputeHash($bytes)
-                    $fileHash = ([BitConverter]::ToString($hashBytes) -replace '-','').ToLower()
-                    $hasher.Dispose()
-                } catch {}
+                    if (-not [System.IO.File]::Exists($mPath)) {
+                        $sha256Err = 'FILE_NOT_FOUND'
+                    } else {
+                        $bytes  = [System.IO.File]::ReadAllBytes($mPath)
+                        $hasher = [Security.Cryptography.SHA256]::Create()
+                        $hashBytes = $hasher.ComputeHash($bytes)
+                        $fileHash = ([BitConverter]::ToString($hashBytes) -replace '-','').ToLower()
+                        $hasher.Dispose()
+                    }
+                } catch {
+                    $msgD = $_.Exception.Message
+                    if ($msgD -match 'Access') { $sha256Err = 'ACCESS_DENIED' }
+                    elseif ($msgD -match 'not find|not exist|cannot find') { $sha256Err = 'FILE_NOT_FOUND' }
+                    else { $sha256Err = "COMPUTE_ERROR: $msgD" }
+                }
+            } else {
+                $sha256Err = 'PATH_NULL'
             }
 
             $ver     = $null
@@ -104,24 +110,45 @@ $script:DLL_SB_DOTNET = {
                 } catch {}
             }
 
-            $signed = $null
+            # Signature inline (PS 3+)
+            $sigD = $null
             if ($mPath) {
                 try {
-                    $sig    = Get-AuthenticodeSignature -FilePath $mPath -ErrorAction Stop
-                    $signed = ($sig.Status -eq 'Valid')
-                } catch {}
+                    $sigD3 = Get-AuthenticodeSignature -FilePath $mPath -ErrorAction Stop
+                    $certD3 = $null; $cnD3 = $null
+                    if ($sigD3.SignerCertificate) {
+                        $subjD3 = $sigD3.SignerCertificate.Subject
+                        $cnD3 = if ($subjD3 -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
+                    }
+                    $sigD = New-Object PSObject -Property @{
+                        IsSigned     = ($sigD3.Status -ne 'NotSigned')
+                        IsValid      = ($sigD3.Status -eq 'Valid')
+                        Status       = $sigD3.Status.ToString()
+                        SignerSubject = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Subject } else { $null }
+                        SignerCompany = $cnD3
+                        Thumbprint   = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Thumbprint } else { $null }
+                        NotAfter     = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.NotAfter.ToString('o') } else { $null }
+                        TimeStamper  = if ($sigD3.TimeStamperCertificate) { $sigD3.TimeStamperCertificate.Subject } else { $null }
+                    }
+                } catch {
+                    $sigD = New-Object PSObject -Property @{
+                        IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
+                        SignerSubject=$null; SignerCompany=$null; Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                    }
+                }
             }
 
             $out += New-Object PSObject -Property @{
-                ProcessId     = $pId
+                ProcessId     = $procId
                 ProcessName   = $pName
                 ModuleName    = $mName
                 ModulePath    = $mPath
                 FileVersion   = $ver
                 Company       = $company
                 FileHash      = $fileHash
+                SHA256Error   = $sha256Err
                 IsPrivatePath = $isPrivate
-                IsSigned      = $signed
+                Signature     = $sigD
                 LoadedAt      = $null
                 reason        = $null
                 source        = 'dotnet'
@@ -134,8 +161,6 @@ $script:DLL_SB_DOTNET = {
 # ── WMI scriptblock (PS 2.0) ─────────────────────────────────────────────────
 $script:DLL_SB_WMI = {
     $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
-    $SYS32_PATH       = 'C:\Windows\System32\'
-    $SYSWOW_PATH      = 'C:\Windows\SysWOW64\'
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
     $out = @()
@@ -144,10 +169,10 @@ $script:DLL_SB_WMI = {
 
     foreach ($p in $procs) {
         $pName = $null
-        $pId   = $null
+        $procId   = $null
         try { $pName = $p.Name }      catch {}
-        try { $pId   = [int]$p.ProcessId } catch {}
-        if (-not $pId -and $pId -ne 0) { continue }
+        try { $procId   = [int]$p.ProcessId } catch {}
+        if (-not $procId -and $procId -ne 0) { continue }
         if (-not $pName) { continue }
 
         $pNameNoExt = $pName -replace '\.exe$',''
@@ -162,23 +187,24 @@ $script:DLL_SB_WMI = {
         $useDependent = $false
 
         try {
-            $assocObjs   = Get-WmiObject Win32_ProcessVMMapsFiles -Filter "Antecedent like '%Handle=""$pId""%'" -ErrorAction Stop
+            $assocObjs   = Get-WmiObject Win32_ProcessVMMapsFiles -Filter "Antecedent like '%Handle=""$procId""%'" -ErrorAction Stop
             $useDependent = $false
         } catch {
             try {
-                $assocObjs   = Get-WmiObject CIM_ProcessExecutable -Filter "Dependent like '%Handle=""$pId""%'" -ErrorAction Stop
+                $assocObjs   = Get-WmiObject CIM_ProcessExecutable -Filter "Dependent like '%Handle=""$procId""%'" -ErrorAction Stop
                 $useDependent = $true
             } catch {
                 $out += New-Object PSObject -Property @{
-                    ProcessId     = $pId
+                    ProcessId     = $procId
                     ProcessName   = $pName
                     ModuleName    = $null
                     ModulePath    = $null
                     FileVersion   = $null
                     Company       = $null
                     FileHash      = $null
+                    SHA256Error   = $null
                     IsPrivatePath = $null
-                    IsSigned      = $null
+                    Signature     = $null
                     LoadedAt      = $null
                     reason        = 'WMI_UNAVAILABLE'
                     source        = 'wmi'
@@ -189,15 +215,16 @@ $script:DLL_SB_WMI = {
 
         if (-not $assocObjs) {
             $out += New-Object PSObject -Property @{
-                ProcessId     = $pId
+                ProcessId     = $procId
                 ProcessName   = $pName
                 ModuleName    = $null
                 ModulePath    = $null
                 FileVersion   = $null
                 Company       = $null
                 FileHash      = $null
+                SHA256Error   = $null
                 IsPrivatePath = $null
-                IsSigned      = $null
+                Signature     = $null
                 LoadedAt      = $null
                 reason        = 'WMI_UNAVAILABLE'
                 source        = 'wmi'
@@ -222,23 +249,28 @@ $script:DLL_SB_WMI = {
 
             $mName = [System.IO.Path]::GetFileName($mPath)
 
-            $isSystem = $false
-            if ($mPath -like "$SYS32_PATH*" -or $mPath -like "$SYSWOW_PATH*") { $isSystem = $true }
-
             $isPrivate = $false
             foreach ($marker in $PRIVATE_MARKERS) {
                 if ($mPath -like "*$marker*") { $isPrivate = $true; break }
             }
 
             $fileHash = $null
-            if (-not $isSystem) {
-                try {
+            $sha256ErrW = $null
+            try {
+                if (-not [System.IO.File]::Exists($mPath)) {
+                    $sha256ErrW = 'FILE_NOT_FOUND'
+                } else {
                     $bytes     = [System.IO.File]::ReadAllBytes($mPath)
                     $hasher    = [Security.Cryptography.SHA256]::Create()
                     $hashBytes = $hasher.ComputeHash($bytes)
                     $fileHash  = ([BitConverter]::ToString($hashBytes) -replace '-','').ToLower()
                     $hasher.Dispose()
-                } catch {}
+                }
+            } catch {
+                $msgW2 = $_.Exception.Message
+                if ($msgW2 -match 'Access') { $sha256ErrW = 'ACCESS_DENIED' }
+                elseif ($msgW2 -match 'not find|not exist|cannot find') { $sha256ErrW = 'FILE_NOT_FOUND' }
+                else { $sha256ErrW = "COMPUTE_ERROR: $msgW2" }
             }
 
             $ver     = $null
@@ -252,22 +284,34 @@ $script:DLL_SB_WMI = {
                 }
             } catch {}
 
-            $signed = $null
+            # Signature inline (PS 2.0 compatible)
+            $sigW = $null
             try {
-                $sig    = Get-AuthenticodeSignature -FilePath $mPath -ErrorAction Stop
-                $signed = ($sig.Status -eq 'Valid')
-            } catch {}
+                $certW = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($mPath)
+                $sigW = New-Object PSObject -Property @{
+                    IsSigned=$true; IsValid=$null; Status='PS2_SIGNED'
+                    SignerSubject=$certW.Subject; SignerCompany=$null
+                    Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                }
+            } catch {
+                $sigW = New-Object PSObject -Property @{
+                    IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
+                    SignerSubject=$null; SignerCompany=$null
+                    Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                }
+            }
 
             $out += New-Object PSObject -Property @{
-                ProcessId     = $pId
+                ProcessId     = $procId
                 ProcessName   = $pName
                 ModuleName    = $mName
                 ModulePath    = $mPath
                 FileVersion   = $ver
                 Company       = $company
                 FileHash      = $fileHash
+                SHA256Error   = $sha256ErrW
                 IsPrivatePath = $isPrivate
-                IsSigned      = $signed
+                Signature     = $sigW
                 LoadedAt      = $null
                 reason        = $null
                 source        = 'wmi'
@@ -299,6 +343,22 @@ function Invoke-Collector {
         }
 
         foreach ($entry in @($raw)) {
+            # Extract Signature as hashtable
+            $sigOut2 = $null
+            if ($entry.Signature -ne $null) {
+                try {
+                    $sigOut2 = @{
+                        IsSigned     = $entry.Signature.IsSigned
+                        IsValid      = $entry.Signature.IsValid
+                        Status       = $entry.Signature.Status
+                        SignerSubject = $entry.Signature.SignerSubject
+                        SignerCompany = $entry.Signature.SignerCompany
+                        Thumbprint   = $entry.Signature.Thumbprint
+                        NotAfter     = $entry.Signature.NotAfter
+                        TimeStamper  = $entry.Signature.TimeStamper
+                    }
+                } catch {}
+            }
             $dlls += @{
                 ProcessId     = $entry.ProcessId
                 ProcessName   = $entry.ProcessName
@@ -307,8 +367,9 @@ function Invoke-Collector {
                 FileVersion   = $entry.FileVersion
                 Company       = $entry.Company
                 FileHash      = $entry.FileHash
+                SHA256Error   = $entry.SHA256Error
                 IsPrivatePath = $entry.IsPrivatePath
-                IsSigned      = $entry.IsSigned
+                Signature     = $sigOut2
                 LoadedAt      = $entry.LoadedAt
                 reason        = $entry.reason
                 source        = $entry.source

@@ -30,7 +30,7 @@ function renderDlls() {
     return;
   }
 
-  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 55px';
+  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 40px 120px';
 
   panel.innerHTML = `
     <div class="filter-bar" id="dlls-filter-bar">
@@ -53,22 +53,26 @@ function renderDlls() {
 
 function buildDllHeader(COLS) {
   const headers = [
-    { key: 'ProcessName', label: 'Process'   },
-    { key: 'ProcessId',   label: 'PID'       },
-    { key: 'ModuleName',  label: 'DLL Name'  },
-    { key: 'ModulePath',  label: 'Path'      },
-    { key: 'FileVersion', label: 'Version'   },
-    { key: 'Company',     label: 'Company'   },
-    { key: 'FileHash',      label: 'FileHash'    },
-    { key: 'IsPrivatePath',label: 'Private'  },
-    { key: 'IsSigned',    label: 'Signed'    },
+    { key: 'ProcessName',  label: 'Process',  numeric: false },
+    { key: 'ProcessId',    label: 'PID',      numeric: true  },
+    { key: 'ModuleName',   label: 'DLL Name', numeric: false },
+    { key: 'ModulePath',   label: 'Path',     numeric: false },
+    { key: 'FileVersion',  label: 'Version',  numeric: false },
+    { key: 'Company',      label: 'Company',  numeric: false },
+    { key: 'FileHash',     label: 'SHA256',   numeric: false },
+    { key: 'IsPrivatePath',label: 'Private',  numeric: false },
+    { key: '_signed',      label: 'Sig',      numeric: false },
+    { key: '_signerCo',    label: 'Signer',   numeric: false },
   ];
   const h = el('dlls-header');
   if (!h) return;
   h.style.gridTemplateColumns = COLS;
   h.innerHTML = headers.map(hd => {
-    const cls = dllSort.col === hd.key ? (dllSort.dir===1?'th sort-asc':'th sort-desc') : 'th';
-    return `<div class="${cls}" onclick="dllSortBy('${hd.key}')">${esc(hd.label)}</div>`;
+    const arrow = (sortState.tab === 'dlls' && sortState.column === hd.key)
+      ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
+    const arrowCls = (sortState.tab === 'dlls' && sortState.column === hd.key && sortState.dir !== 'none')
+      ? ' class="sort-arrow ' + sortState.dir + '"' : ' class="sort-arrow"';
+    return `<div class="th sortable-th" onclick="sortTable('dlls','${hd.key}',${hd.numeric})">${esc(hd.label)} <span id="sort-dlls-${hd.key}"${arrowCls}>${arrow}</span></div>`;
   }).join('');
 }
 
@@ -76,7 +80,10 @@ function applyDllFilters() {
   const d = activeData(); if (!d || !d.DLLs) return;
   const lq = dllFilters.search.toLowerCase();
 
-  let rows = d.DLLs.slice();
+  let rows = d.DLLs.slice().map(e => Object.assign({}, e, {
+    _signed:   e.Signature ? e.Signature.IsSigned : null,
+    _signerCo: e.Signature ? (e.Signature.SignerCompany || '') : '',
+  }));
 
   if (lq) rows = rows.filter(e =>
     str(e.ProcessName).includes(lq) ||
@@ -89,17 +96,22 @@ function applyDllFilters() {
   if (dllFilters.nonSystem)   rows = rows.filter(e => !isDllSystem(e.ModulePath));
   if (dllFilters.hasFileHash) rows = rows.filter(e => e.FileHash != null && e.FileHash !== '');
 
-  rows.sort((a, b) => {
-    const av = a[dllSort.col]; const bv = b[dllSort.col];
-    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dllSort.dir;
-    return String(av||'').localeCompare(String(bv||'')) * dllSort.dir;
-  });
+  if (sortState.tab === 'dlls' && sortState.column && sortState.dir !== 'none') {
+    const numericDllCols = new Set(['ProcessId']);
+    rows = applySortToRows(rows, sortState.column, numericDllCols.has(sortState.column));
+  } else {
+    rows.sort((a, b) => {
+      const av = a[dllSort.col]; const bv = b[dllSort.col];
+      if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dllSort.dir;
+      return String(av||'').localeCompare(String(bv||'')) * dllSort.dir;
+    });
+  }
   dllData = rows;
 
   const cnt = el('dlls-count');
   if (cnt) cnt.textContent = rows.length + ' entries';
 
-  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 55px';
+  const COLS = '140px 55px 160px 220px 90px 140px 145px 55px 40px 120px';
   state.expandedRows['dlls'] = null;
 
   if (state.vsInstances['dlls']) {
@@ -110,15 +122,14 @@ function applyDllFilters() {
 }
 
 function renderDllRow(e, i) {
-  const sha = e.FileHash ? (e.FileHash.slice(0, 16) + '...') : '';
-  const privCls  = e.IsPrivatePath ? 'amber' : 'dim';
-  const signCls  = e.IsSigned === true ? 'green' : (e.IsSigned === false ? 'red' : 'dim');
-  const signTxt  = e.IsSigned === true ? 'yes' : (e.IsSigned === false ? 'no' : '');
-  const rowCls   = e.IsPrivatePath ? 'row-private' : '';
+  const sha     = e.FileHash ? (e.FileHash.slice(0, 16) + '...') : (e.SHA256Error ? e.SHA256Error : '');
+  const shaTitle = e.FileHash || e.SHA256Error || '';
+  const shaCls  = !e.FileHash && e.SHA256Error ? 'td amber' : 'td mono dim';
+  const privCls = e.IsPrivatePath ? 'amber' : 'dim';
+  const sig     = e.Signature || null;
+  const signerCo = e._signerCo || (sig ? (sig.SignerCompany || '') : '');
   const pathTrunc = e.ModulePath ? trunc(e.ModulePath, 32) : (e.reason ? '[' + esc(e.reason) + ']' : '');
   const nameTrunc = trunc(e.ModuleName || '', 22);
-  // Note: row class injected via the vrow itself - we add it via a trick on the wrapper
-  // We prefix the first td with a data attribute we can use to style the row
   return `
     <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(trunc(e.ProcessName||'',18))}</div>
     <div class="td dim">${e.ProcessId != null ? e.ProcessId : ''}</div>
@@ -126,9 +137,10 @@ function renderDllRow(e, i) {
     <div class="td dim mono" title="${esc(e.ModulePath||'')}">${esc(pathTrunc)}</div>
     <div class="td dim">${esc(trunc(e.FileVersion||'',12))}</div>
     <div class="td dim">${esc(trunc(e.Company||'',18))}</div>
-    <div class="td mono dim" title="${esc(e.FileHash||'')}">${esc(sha)}</div>
+    <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
-    <div class="td ${signCls}">${signTxt}</div>`;
+    <div class="td">${renderSignedIcon(sig)}</div>
+    <div class="td dim">${esc(trunc(signerCo,16))}</div>`;
 }
 
 function onDllRowClick(i, e, rowEl) {
@@ -149,17 +161,17 @@ function onDllRowClick(i, e, rowEl) {
   const sameProcHTML = sameProc.length ? `
     <h4 style="margin-top:8px">Other DLLs loaded by this process (${sameProc.length}${sameProc.length===30?' shown, more may exist':''})</h4>
     <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th><th>Signed</th></tr>` +
-    sameProc.map(x=>`<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td><td>${x.IsSigned===true?'yes':x.IsSigned===false?'no':''}</td></tr>`).join('') +
+    sameProc.map(x=>`<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td><td>${x.Signature?(x.Signature.IsSigned===true?'yes':x.Signature.IsSigned===false?'no':''):''}</td></tr>`).join('') +
     '</table>' : '';
 
   const privBadge = e.IsPrivatePath
     ? `<span style="background:rgba(255,180,0,0.3);padding:1px 6px;border-radius:3px;color:var(--amber)">PRIVATE PATH</span>`
     : `<span style="color:var(--muted)">no</span>`;
-  const signBadge = e.IsSigned === true
-    ? `<span style="color:var(--green)">SIGNED</span>`
-    : e.IsSigned === false
-      ? `<span style="color:var(--red)">NOT SIGNED</span>`
-      : `<span style="color:var(--muted)">unknown</span>`;
+  const sig2 = e.Signature || null;
+  const signBadge = renderSignedIcon(sig2);
+  const shaDisplay = e.FileHash
+    ? `<span class="mono">${esc(e.FileHash)}</span>`
+    : (e.SHA256Error ? `<span style="color:var(--amber)">${esc(e.SHA256Error)}</span>` : '—');
 
   const expand = document.createElement('div');
   expand.className = 'expand-row';
@@ -170,9 +182,15 @@ function onDllRowClick(i, e, rowEl) {
       <span class="k">Full Path</span>    <span class="v mono">${esc(e.ModulePath||'—')}</span>
       <span class="k">FileVersion</span>  <span class="v">${esc(e.FileVersion||'—')}</span>
       <span class="k">Company</span>      <span class="v">${esc(e.Company||'—')}</span>
-      <span class="k">FileHash</span>       <span class="v mono">${esc(e.FileHash||'—')}</span>
+      <span class="k">SHA256</span>       <span class="v">${shaDisplay}</span>
       <span class="k">Private Path</span> <span class="v">${privBadge}</span>
       <span class="k">Signed</span>       <span class="v">${signBadge}</span>
+      ${sig2 ? `<span class="k">Sig Status</span>   <span class="v">${esc(sig2.Status||'—')}</span>
+      <span class="k">SignerSubject</span> <span class="v">${esc(sig2.SignerSubject||'—')}</span>
+      <span class="k">SignerCompany</span> <span class="v">${esc(sig2.SignerCompany||'—')}</span>
+      <span class="k">Thumbprint</span>   <span class="v mono">${esc(sig2.Thumbprint||'—')}</span>
+      <span class="k">NotAfter</span>     <span class="v">${esc(sig2.NotAfter||'—')}</span>
+      <span class="k">TimeStamper</span>  <span class="v">${esc(sig2.TimeStamper||'—')}</span>` : ''}
       ${e.reason ? `<span class="k">Reason</span><span class="v" style="color:var(--red)">${esc(e.reason)}</span>` : ''}
     </div>
     ${sameProcHTML}`;
@@ -190,7 +208,7 @@ function onDllRowClick(i, e, rowEl) {
 
 function dllSortBy(col) {
   if (dllSort.col === col) dllSort.dir *= -1; else { dllSort.col = col; dllSort.dir = 1; }
-  buildDllHeader('140px 55px 160px 220px 90px 140px 145px 55px 55px');
+  buildDllHeader('140px 55px 160px 220px 90px 140px 145px 55px 40px 120px');
   applyDllFilters();
 }
 
