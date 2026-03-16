@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.6";
+const ANALYZER_VERSION = "2.7";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -115,16 +115,16 @@ function addResizeHandles(headerId, tabName) {
 
   ths.forEach(function(th, colIndex) {
     // Remove existing handle to avoid duplicates on re-render
-    var existing = th.querySelector('.col-resize-handle');
+    var existing = th.querySelector('.resizer');
     if (existing) existing.remove();
     var handle = document.createElement('div');
-    handle.className = 'col-resize-handle';
+    handle.className = 'resizer';
     th.appendChild(handle);
 
     handle.addEventListener('mousedown', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      handle.classList.add('dragging');
+      handle.classList.add('resizing');
       var startX = e.clientX;
       var startW = widths[colIndex];
 
@@ -135,7 +135,7 @@ function addResizeHandles(headerId, tabName) {
         _applyGridTemplate(tabName);
       }
       function onUp() {
-        handle.classList.remove('dragging');
+        handle.classList.remove('resizing');
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       }

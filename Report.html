@@ -162,8 +162,11 @@ input::placeholder{color:var(--muted)}
 
 /* COLUMN RESIZE */
 .tbl-header .th{position:relative;user-select:none}
-.col-resize-handle{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;z-index:10}
-.col-resize-handle:hover,.col-resize-handle.dragging{background:var(--accent)}
+.tbl-header .th:last-child{overflow:visible}
+.resizer{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;z-index:10;border-right:2px solid var(--border);transition:border-color .15s ease,background .15s ease}
+.resizer:hover{border-right:2px solid var(--accent);background:rgba(88,166,255,0.15)}
+.resizer.resizing{border-right:2px solid var(--accent);background:rgba(88,166,255,0.3)}
+.tbl-header .th:last-child .resizer{right:0}
 
 /* ROW HIGHLIGHT (cross-reference navigation) */
 @keyframes rowPulse{0%{background:rgba(88,166,255,0.35)}50%{background:rgba(88,166,255,0.6)}100%{background:rgba(88,166,255,0.35)}}
@@ -220,7 +223,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.6";
+const ANALYZER_VERSION = "2.7";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -335,16 +338,16 @@ function addResizeHandles(headerId, tabName) {
 
   ths.forEach(function(th, colIndex) {
     // Remove existing handle to avoid duplicates on re-render
-    var existing = th.querySelector('.col-resize-handle');
+    var existing = th.querySelector('.resizer');
     if (existing) existing.remove();
     var handle = document.createElement('div');
-    handle.className = 'col-resize-handle';
+    handle.className = 'resizer';
     th.appendChild(handle);
 
     handle.addEventListener('mousedown', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      handle.classList.add('dragging');
+      handle.classList.add('resizing');
       var startX = e.clientX;
       var startW = widths[colIndex];
 
@@ -355,7 +358,7 @@ function addResizeHandles(headerId, tabName) {
         _applyGridTemplate(tabName);
       }
       function onUp() {
-        handle.classList.remove('dragging');
+        handle.classList.remove('resizing');
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
       }
