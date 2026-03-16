@@ -1,0 +1,44 @@
+
+<body>
+<div id="drop-zone">Drop JSON files here</div>
+<div id="placeholder" class="show">
+  <h2>Quicker &mdash; DFIR Volatile Analyzer</h2>
+  <p>Loading file picker&hellip;</p>
+</div>
+
+<div id="progress-overlay">
+  <div id="progress-label">Loading&hellip;</div>
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+</div>
+
+<div id="gsearch-panel"></div>
+
+<div id="topbar">
+  <h1>Quicker</h1>
+  <span class="sep">|</span>
+  <button id="loadBtn" onclick="triggerLoad()">&#128193; Load JSON</button>
+  <input type="file" id="fileInput" multiple accept=".json" style="display:none" onchange="handleFiles(this.files)">
+  <select id="hostSelector" onchange="switchHost(this.value)"><option value="">-- No files loaded --</option></select>
+  <input type="text" id="globalSearch" placeholder="Global search&hellip;" oninput="onGlobalSearch(this.value)" onkeydown="if(event.key==='Escape'){closeGSearch()}">
+  <span class="sep">|</span>
+  <span class="badge">Procs <span id="b-procs">0</span></span>
+  <span class="badge">Active <span id="b-active">0</span></span>
+  <span class="badge">Remote IPs <span id="b-ips">0</span></span>
+  <span class="badge">DNS Matches <span id="b-dns">0</span></span>
+  <span class="sep">|</span>
+  <span id="collectionMeta"></span>
+</div>
+
+<div id="tabbar">
+  <button class="tab-btn active" onclick="switchTab('fleet')"    id="tab-fleet">FLEET</button>
+  <button class="tab-btn"        onclick="switchTab('processes')" id="tab-processes">PROCESSES</button>
+  <button class="tab-btn"        onclick="switchTab('network')"   id="tab-network">NETWORK</button>
+  <button class="tab-btn"        onclick="switchTab('dns')"       id="tab-dns">DNS</button>
+</div>
+
+<div id="panel-fleet"     class="tab-panel active"></div>
+<div id="panel-processes" class="tab-panel"></div>
+<div id="panel-network"   class="tab-panel"></div>
+<div id="panel-dns"       class="tab-panel"></div>
+
+<script>

@@ -3,7 +3,9 @@ https://github.com/idogat/quicker
 
 ## Structure
 Collector.ps1          — orchestrator, entry point
-Report.html            — offline single-file GUI
+Report.html            — offline single-file GUI (do not edit directly)
+ReportStages\          — HTML stage files (edit these, not Report.html)
+build_report.ps1       — concatenates stages into Report.html
 TestSuite.ps1          — test runner (auto-discovers Tests\)
 Modules\Core\          — Connection, DateTime, Output
 Modules\Collectors\    — Processes, Network (+ future plugins)
@@ -56,3 +58,9 @@ Collector must handle any Windows target dynamically:
 If Invoke-Collector throws: catch in orchestrator,
 add to manifest.collection_errors, log WARN, continue.
 Never let one plugin crash abort the whole collection.
+
+## Report.html Editing Rule
+Never edit Report.html directly.
+Edit the relevant ReportStages\*.js or *.html file.
+Run .\build_report.ps1 to rebuild Report.html.
+Adding new tab = add new stage file + run build.
