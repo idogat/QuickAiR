@@ -8,16 +8,16 @@ let usersData  = [];          // flat array of userIndex entries for virtual scr
 // ── Field tooltips ────────────────────────────────────────────────────────────
 const USER_TIPS = {
   FirstLogon:      "Earliest of: profile folder creation time, NTUSER.DAT creation time, ProfileList registry key write time",
-  ProfileFolder:   "Source: File system — CreationTime of C:\\Users\\<username>\\ folder. Set on first logon. Can be modified.",
-  NTUserDat:       "Source: File system — CreationTime of C:\\Users\\<username>\\NTUSER.DAT. Created on first logon with profile folder.",
-  RegistryKey:     "Source: Registry — LastWrite time of HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\<SID>",
-  LastUseTime:     "Source: Registry — LastUseTime value in ProfileList\\<SID>. Updated on logoff.",
-  WhenCreated:     "Source: Active Directory — whenCreated attribute. Set when account was created. Only available from DC.",
-  LastLogonAD:     "Source: Active Directory — lastLogonTimestamp. Replicated every 9-14 days. May be stale.",
-  IsLoaded:        "Source: Registry — State value in ProfileList\\<SID>. 1=loaded, 0=not loaded.",
-  LogonType:       "Source: Win32_LogonSession.LogonType. Indicates how user authenticated.\n2=Interactive, 3=Network, 4=Batch, 5=Service, 7=Unlock, 10=RemoteInteractive (RDP), 11=CachedInteractive",
-  SID:             "Source: ProfileList registry key name.\nS-1-5-21-<machine>-* = local account.\nS-1-5-21-<domain>-* = domain account.",
-  Confidence:      "Comparison of three first-logon sources: profile folder, NTUSER.DAT, registry key.\nHIGH=all agree, MEDIUM=two agree, LOW=one source, TAMPERED=differ >7 days.",
+  ProfileFolder:   "Profile folder CreationTime\n(created on first logon, can be modified)",
+  NTUserDat:       "NTUSER.DAT CreationTime\n(created with profile on first logon)",
+  RegistryKey:     "ProfileList registry key LastWrite time\n(set when profile first registered)",
+  LastUseTime:     "ProfileList LastUseTime value\n(updated on each logoff)",
+  WhenCreated:     "AD whenCreated attribute\n(set at account creation, DC only)",
+  LastLogonAD:     "AD lastLogonTimestamp\n(replicates every 9-14 days, may be stale)",
+  IsLoaded:        "ProfileList State value\n(1=currently loaded, 0=not loaded)",
+  LogonType:       "Win32_LogonSession LogonType\n2=Interactive 3=Network 4=Batch\n5=Service 7=Unlock 10=RDP 11=Cached",
+  SID:             "ProfileList key name (SID)\nS-1-5-21-<machine>-* = local\nS-1-5-21-<domain>-* = domain",
+  Confidence:      "Cross-check: profile folder + NTUSER.DAT\n+ registry key\nHIGH=all agree MEDIUM=two agree\nLOW=one source TAMPERED=differ >7 days",
 };
 
 const CONF_BADGE = {
@@ -44,16 +44,17 @@ function renderUsers() {
 
   panel.innerHTML = `
     <div class="filter-bar" style="margin-bottom:10px">
-      <button id="users-btn-peruser" class="active" onclick="usersSetView('peruser')">Per User</button>
-      <button id="users-btn-perhost"                onclick="usersSetView('perhost')">Per Host</button>
+      <button id="users-btn-peruser" ${usersView==='peruser'?'class="active"':''} onclick="usersSetView('peruser')">Per User</button>
+      <button id="users-btn-perhost" ${usersView==='perhost'?'class="active"':''} onclick="usersSetView('perhost')">Per Host</button>
       <span class="sep">|</span>
-      <input type="text" id="users-search" placeholder="Search username, SID, group…" style="width:280px"
+      <input type="text" id="users-search" value="${esc(usersSearch)}" placeholder="Search username, SID, group…" style="width:280px"
              oninput="usersSearch=this.value;usersApplyFilters()">
       <span id="users-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
     </div>
     <div id="users-view-container"></div>`;
 
   usersApplyFilters();
+  setTimeout(() => addResizeHandles('users-header', 'users'), 0);
 }
 
 function usersSetView(v) {
@@ -61,6 +62,7 @@ function usersSetView(v) {
   el('users-btn-peruser').classList.toggle('active', v === 'peruser');
   el('users-btn-perhost').classList.toggle('active', v === 'perhost');
   usersApplyFilters();
+  setTimeout(() => addResizeHandles('users-header', 'users'), 0);
 }
 
 function usersApplyFilters() {
@@ -107,7 +109,6 @@ function renderUsersPerUser(container) {
 
   state.vsInstances['users'] = createVS(
     'users-vs', UCOLS, rows, renderUserRow, onUserRowClick, 'users');
-  setTimeout(() => addResizeHandles('users-header', 'users'), 0);
 }
 
 function renderUserRow(u) {
@@ -256,8 +257,16 @@ function renderUsersPerHost(container) {
   const lq = usersSearch.toLowerCase();
   let totalRows = 0;
 
+  // Per Host shows selected host only
+  const hostname = state.activeHost;
+  const hostData = state.hosts[hostname];
+  if (!hostData || !hostData.Users) {
+    container.innerHTML = '<div class="solo-notice">No Users data for selected host.</div>';
+    return;
+  }
+
   let html = '';
-  Object.entries(state.hosts).forEach(([hostname, hostData]) => {
+  (function() {
     const u = hostData.Users;
     if (!u) return;
 
@@ -390,7 +399,7 @@ function renderUsersPerHost(container) {
     }
 
     html += '</div></div>';
-  });
+  })();
 
   if (!html) html = '<div class="solo-notice">No Users data matches filter.</div>';
   container.innerHTML = html;

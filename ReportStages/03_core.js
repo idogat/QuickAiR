@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.9";
+const ANALYZER_VERSION = "3.1";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -81,8 +81,8 @@ function applySortToRows(rows, colKey, numeric) {
 const colWidths = {};
 
 // VS container IDs per tabName
-const VS_IDS = { processes:'proc-vs', network:'net-vs', dns:'dns-vs', dlls:'dlls-vs', fleet:'fleet-vs' };
-const HDR_IDS = { processes:'proc-header', network:'net-header', dns:'dns-header', dlls:'dlls-header', fleet:'fleet-header' };
+const VS_IDS  = { processes:'proc-vs', network:'net-vs', dns:'dns-vs', dlls:'dlls-vs', fleet:'fleet-vs', users:'users-vs' };
+const HDR_IDS = { processes:'proc-header', network:'net-header', dns:'dns-header', dlls:'dlls-header', fleet:'fleet-header', users:'users-header' };
 
 // Apply current colWidths[tabName] as grid-template-columns to header + all visible vrows
 function _applyGridTemplate(tabName) {
@@ -239,19 +239,30 @@ function triggerLoad() {
   document.getElementById('fileInput').click();
 }
 
+function rebuildUserIndex() {
+  window.userIndex = buildUserIndex(Object.values(state.hosts));
+}
+
 function handleFiles(files) {
   if (!files || !files.length) return;
-  showProgress('Loading 0 / ' + files.length, 0);
+  const fileArr = Array.from(files);
+  showProgress('Loading 0 / ' + fileArr.length, 0);
   let done = 0;
-  Array.from(files).forEach(f => {
+  fileArr.forEach(f => {
     loadJsonFile(f, () => {
       done++;
-      setProgress(done / files.length * 100);
-      setProgressLabel('Loading ' + done + ' / ' + files.length);
-      if (done === files.length) {
-        hideProgress();
-        refreshAll();
-      }
+      setProgress(done / fileArr.length * 100);
+      setProgressLabel('Loading ' + done + ' / ' + fileArr.length);
+      // Update UI after EACH file so hosts appear as they load
+      const ph = document.getElementById('placeholder');
+      if (Object.keys(state.hosts).length > 0) ph.classList.remove('show');
+      rebuildHostSelector();
+      updateBadges();
+      updateMeta();
+      updateTabVisibility();
+      rebuildUserIndex();
+      renderActiveTab();
+      if (done === fileArr.length) hideProgress();
     });
   });
 }
@@ -280,6 +291,8 @@ function loadJsonFile(file, onDone) {
       data.processes.forEach(p => {
         p.DLLCount = hasDlls ? parseInt(dllCountMap[p.ProcessId] || 0, 10) : null;
       });
+      // Duplicate detection by hostname — skip if already loaded
+      if (state.hosts[host]) { onDone(); return; }
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
@@ -322,7 +335,7 @@ function refreshAll() {
   updateBadges();
   updateMeta();
   updateTabVisibility();
-  window.userIndex = buildUserIndex(Object.values(state.hosts));
+  rebuildUserIndex();
   renderActiveTab();
 }
 
@@ -354,6 +367,9 @@ function switchHost(h) {
   if (!h || !state.hosts[h]) return;
   state.activeHost = h;
   state.expandedRows = {};
+  // Reset users view state on every host switch (userIndex is global — do NOT rebuild)
+  usersView   = 'peruser';
+  usersSearch = '';
   updateBadges();
   updateMeta();
   updateTabVisibility();
