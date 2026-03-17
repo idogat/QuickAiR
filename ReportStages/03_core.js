@@ -77,6 +77,7 @@ function sortTable(tab, colKey, numeric) {
     case 'dns':       applyDnsFilters();  break;
     case 'dlls':      applyDllFilters();  break;
     case 'fleet':     renderFleet();      break;
+    case 'users':     usersApplyFilters(); break;
   }
 }
 
@@ -226,7 +227,7 @@ function buildUserIndex(allHosts) {
         idx[p.SID].appearances.push({
           host: hostname, FirstLogon: p.FirstLogon, LastLogon: p.LastUseTimeUTC,
           AccountType: p.AccountType, ProfilePath: p.ProfilePath,
-          IsLoaded: p.IsLoaded, TamperedFlag: p.FirstLogon ? p.FirstLogon.TamperedFlag : false
+          IsLoaded: p.IsLoaded, TimestampMismatch: p.FirstLogon ? p.FirstLogon.TimestampMismatch : false
         });
       });
     }

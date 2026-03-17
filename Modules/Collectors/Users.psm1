@@ -12,7 +12,7 @@
 # ║               group_members=[]     ║
 # ║             }; source="";errors=[]}║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 1.1                    ║
+# ║  Version  : 1.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -370,55 +370,77 @@ function script:ComputeFirstLogonConfidence {
     if ($ntAvail -and $ntUTC) { $available += 'NT' }
     if ($rkAvail -and $rkUTC) { $available += 'RK' }
 
-    $firstUTC    = if ($pfUTC) { $pfUTC } elseif ($ntUTC) { $ntUTC } else { $rkUTC }
-    $confidence  = 'LOW'
-    $tampered    = $false
-    $note        = ''
+    $firstUTC          = if ($pfUTC) { $pfUTC } elseif ($ntUTC) { $ntUTC } else { $rkUTC }
+    $confidence        = 'LOW'
+    $timestampMismatch = $false
+    $note              = ''
 
-    if ($available.Count -ge 2) {
+    function _agree24($a,$b) {
+        if (-not $a -or -not $b) { return $false }
+        return [Math]::Abs(($a - $b).TotalHours) -le 24
+    }
+
+    if ($available.Count -eq 0) {
+        $confidence = 'N/A'
+        $firstUTC   = $null
+    } elseif ($available.Count -eq 1) {
+        $confidence = 'LOW'
+    } elseif ($available.Count -eq 2) {
         $pfDt = script:IsoToDate $pfUTC
         $ntDt = script:IsoToDate $ntUTC
         $rkDt = script:IsoToDate $rkUTC
 
-        function _diff7($a,$b) {
-            if (-not $a -or -not $b) { return $false }
-            return [Math]::Abs(($a - $b).TotalDays) -gt 7
-        }
-        function _agree($a,$b) {
-            if (-not $a -or -not $b) { return $false }
-            return [Math]::Abs(($a - $b).TotalHours) -le 24
-        }
-
-        if ($available.Count -eq 3) {
-            $d_pf_nt = _diff7 $pfDt $ntDt
-            $d_pf_rk = _diff7 $pfDt $rkDt
-            $d_nt_rk = _diff7 $ntDt $rkDt
-            if ($d_pf_nt -or $d_pf_rk -or $d_nt_rk) {
-                $confidence = 'TAMPERED'; $tampered = $true
-                $notes = @()
-                if ($d_pf_nt) { $notes += 'ProfileFolder vs NTUserDat >7d' }
-                if ($d_pf_rk) { $notes += 'ProfileFolder vs RegistryKey >7d' }
-                if ($d_nt_rk) { $notes += 'NTUserDat vs RegistryKey >7d' }
-                $note = $notes -join '; '
+        if ($available -contains 'PF' -and $available -contains 'NT') {
+            if (_agree24 $pfDt $ntDt) { $confidence = 'MEDIUM'; $firstUTC = $pfUTC }
+            else {
+                $confidence = '?'; $timestampMismatch = $true
+                $note = "Profile folder: $pfUTC`nNTUSER.DAT: $ntUTC"
                 $firstUTC = $pfUTC
-            } elseif ((_agree $pfDt $ntDt) -and (_agree $pfDt $rkDt)) {
-                $confidence = 'HIGH'; $firstUTC = $pfUTC
-            } else {
-                $confidence = 'MEDIUM'
-                if (_agree $pfDt $ntDt)     { $firstUTC = $pfUTC; $note = 'RegistryKey differs' }
-                elseif (_agree $pfDt $rkDt) { $firstUTC = $pfUTC; $note = 'NTUserDat differs' }
-                else                        { $firstUTC = $ntUTC; $note = 'ProfileFolder differs' }
+            }
+        } elseif ($available -contains 'PF' -and $available -contains 'RK') {
+            if (_agree24 $pfDt $rkDt) { $confidence = 'MEDIUM'; $firstUTC = $pfUTC }
+            else {
+                $confidence = '?'; $timestampMismatch = $true
+                $note = "Profile folder: $pfUTC`nProfileList key: $rkUTC"
+                $firstUTC = $pfUTC
             }
         } else {
+            if (_agree24 $ntDt $rkDt) { $confidence = 'MEDIUM'; $firstUTC = $ntUTC }
+            else {
+                $confidence = '?'; $timestampMismatch = $true
+                $note = "NTUSER.DAT: $ntUTC`nProfileList key: $rkUTC"
+                $firstUTC = $ntUTC
+            }
+        }
+    } else {
+        # 3 sources
+        $pfDt = script:IsoToDate $pfUTC
+        $ntDt = script:IsoToDate $ntUTC
+        $rkDt = script:IsoToDate $rkUTC
+
+        $pfNtAgree = _agree24 $pfDt $ntDt
+        $pfRkAgree = _agree24 $pfDt $rkDt
+        $ntRkAgree = _agree24 $ntDt $rkDt
+
+        if ($pfNtAgree -and $pfRkAgree) {
+            $confidence = 'HIGH'; $firstUTC = $pfUTC
+        } elseif ($pfNtAgree -or $pfRkAgree -or $ntRkAgree) {
             $confidence = 'MEDIUM'
+            if ($pfNtAgree)     { $firstUTC = $pfUTC; $note = 'RegistryKey differs' }
+            elseif ($pfRkAgree) { $firstUTC = $pfUTC; $note = 'NTUserDat differs' }
+            else                { $firstUTC = $ntUTC; $note = 'ProfileFolder differs' }
+        } else {
+            $confidence = '?'; $timestampMismatch = $true
+            $note = "Profile folder: $pfUTC`nNTUSER.DAT: $ntUTC`nProfileList key: $rkUTC"
+            $firstUTC = $pfUTC
         }
     }
 
     return @{
-        UTC          = $firstUTC
-        Confidence   = $confidence
-        TamperedFlag = $tampered
-        TamperedNote = $note
+        UTC               = $firstUTC
+        Confidence        = $confidence
+        TimestampMismatch = $timestampMismatch
+        TamperedNote      = $note
     }
 }
 
@@ -517,8 +539,8 @@ function Invoke-Collector {
                 ProfileFolder= @{ Value=$p.PFRaw; UTC=$p.PFRaw; Available=[bool]$p.PFAvail }
                 NTUserDat    = @{ Value=$p.NTRaw; UTC=$p.NTRaw; Available=[bool]$p.NTAvail }
                 RegistryKey  = @{ Value=$p.RKRaw; UTC=$p.RKRaw; Available=[bool]$p.RKAvail }
-                TamperedFlag = $fl.TamperedFlag
-                TamperedNote = $fl.TamperedNote
+                TimestampMismatch = $fl.TimestampMismatch
+                TamperedNote      = $fl.TamperedNote
             }
         }
     }

@@ -305,6 +305,7 @@ function sortTable(tab, colKey, numeric) {
     case 'dns':       applyDnsFilters();  break;
     case 'dlls':      applyDllFilters();  break;
     case 'fleet':     renderFleet();      break;
+    case 'users':     usersApplyFilters(); break;
   }
 }
 
@@ -454,7 +455,7 @@ function buildUserIndex(allHosts) {
         idx[p.SID].appearances.push({
           host: hostname, FirstLogon: p.FirstLogon, LastLogon: p.LastUseTimeUTC,
           AccountType: p.AccountType, ProfilePath: p.ProfilePath,
-          IsLoaded: p.IsLoaded, TamperedFlag: p.FirstLogon ? p.FirstLogon.TamperedFlag : false
+          IsLoaded: p.IsLoaded, TimestampMismatch: p.FirstLogon ? p.FirstLogon.TimestampMismatch : false
         });
       });
     }
@@ -2094,15 +2095,72 @@ const USER_TIPS = {
   IsLoaded:        "ProfileList State value\n(1=currently loaded, 0=not loaded)",
   LogonType:       "Win32_LogonSession LogonType\n2=Interactive 3=Network 4=Batch\n5=Service 7=Unlock 10=RDP 11=Cached",
   SID:             "ProfileList key name (SID)\nS-1-5-21-<machine>-* = local\nS-1-5-21-<domain>-* = domain",
-  Confidence:      "Cross-check: profile folder + NTUSER.DAT\n+ registry key\nHIGH=all agree MEDIUM=two agree\nLOW=one source TAMPERED=differ >7 days",
+  Confidence:      "Cross-check: profile folder + NTUSER.DAT\n+ registry key\nHIGH=all agree (24h) MEDIUM=two agree\nLOW=one source ?=sources disagree N/A=none",
 };
 
 const CONF_BADGE = {
-  HIGH:     '<span style="color:var(--green)">✓ HIGH</span>',
-  MEDIUM:   '<span style="color:var(--amber)">~ MEDIUM</span>',
-  LOW:      '<span style="color:var(--muted)">? LOW</span>',
-  TAMPERED: '<span style="color:var(--red)">⚠ TAMPERED</span>',
+  HIGH:   '<span style="color:var(--green)">✓ HIGH</span>',
+  MEDIUM: '<span style="color:var(--amber)">~ MEDIUM</span>',
+  LOW:    '<span style="color:var(--muted)">? LOW</span>',
+  '?':    '<span style="color:var(--amber)">? ?</span>',
+  'N/A':  '<span style="color:var(--muted)">—</span>',
 };
+
+const CONF_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2, '?': 3, 'N/A': 4 };
+
+function usersGetBestConf(u) {
+  let best = 'N/A';
+  u.appearances.forEach(a => {
+    const c = a.FirstLogon ? (a.FirstLogon.Confidence || 'N/A') : 'N/A';
+    if ((CONF_ORDER[c] ?? 99) < (CONF_ORDER[best] ?? 99)) best = c;
+  });
+  return best;
+}
+
+function usersGetFirstSeen(u) {
+  return u.appearances.reduce((best, a) => {
+    if (!a.FirstLogon || !a.FirstLogon.UTC) return best;
+    return (!best || a.FirstLogon.UTC < best) ? a.FirstLogon.UTC : best;
+  }, null);
+}
+
+function usersGetLastSeen(u) {
+  return u.appearances.reduce((best, a) => {
+    if (!a.LastLogon) return best;
+    return (!best || a.LastLogon > best) ? a.LastLogon : best;
+  }, null);
+}
+
+function usersSortRows(rows) {
+  if (!sortState.tab || sortState.tab !== 'users' || sortState.dir === 'none') return rows;
+  const dir = sortState.dir === 'asc' ? 1 : -1;
+  const col = sortState.column;
+  return rows.slice().sort((a, b) => {
+    let av, bv;
+    switch (col) {
+      case 'username':   av = str(a.username || a.SID); bv = str(b.username || b.SID); break;
+      case 'acctType':   av = str(a.appearances.length > 0 ? a.appearances[0].AccountType : '');
+                         bv = str(b.appearances.length > 0 ? b.appearances[0].AccountType : ''); break;
+      case 'dcCreated':  av = a.domainAccount ? (a.domainAccount.WhenCreated || '') : '';
+                         bv = b.domainAccount ? (b.domainAccount.WhenCreated || '') : ''; break;
+      case 'hosts':      return (a.appearances.length - b.appearances.length) * dir;
+      case 'firstSeen':  av = usersGetFirstSeen(a) || ''; bv = usersGetFirstSeen(b) || ''; break;
+      case 'lastSeen':   av = usersGetLastSeen(a) || ''; bv = usersGetLastSeen(b) || ''; break;
+      case 'active':     av = a.sessions.length > 0 ? 'yes' : ''; bv = b.sessions.length > 0 ? 'yes' : ''; break;
+      case 'domainAcct': av = a.domainAccount ? 'yes' : ''; bv = b.domainAccount ? 'yes' : ''; break;
+      case 'confidence': {
+        const ao = CONF_ORDER[usersGetBestConf(a)] ?? 99;
+        const bo = CONF_ORDER[usersGetBestConf(b)] ?? 99;
+        return (ao - bo) * dir;
+      }
+      default: av = ''; bv = '';
+    }
+    if (av == null && bv == null) return 0;
+    if (av == null) return dir;
+    if (bv == null) return -dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
 
 function confBadge(c) { return CONF_BADGE[c] || `<span>${esc(c||'?')}</span>`; }
 function fmtDate(s)   { if (!s) return '<span style="color:var(--muted)">—</span>'; return esc(s.slice(0,10)); }
@@ -2162,7 +2220,11 @@ function renderUsersPerUser(container) {
             u.groups.some(g => str(g.GroupName).includes(lq)));
   });
 
-  rows.sort((a, b) => str(a.username).localeCompare(str(b.username)));
+  if (sortState.tab !== 'users' || sortState.dir === 'none') {
+    rows.sort((a, b) => str(a.username).localeCompare(str(b.username)));
+  } else {
+    rows = usersSortRows(rows);
+  }
   usersData = rows;
 
   const cnt = el('users-count');
@@ -2171,15 +2233,15 @@ function renderUsersPerUser(container) {
   container.innerHTML = `
     <div class="tbl-wrap">
       <div class="tbl-header" style="grid-template-columns:${UCOLS}" id="users-header">
-        <div class="th">Username</div>
-        <div class="th">Acct Type</div>
-        <div class="th" title="${esc(USER_TIPS.WhenCreated)}">Created (DC)</div>
-        <div class="th">Hosts</div>
-        <div class="th" title="${esc(USER_TIPS.FirstLogon)}">First Seen</div>
-        <div class="th" title="${esc(USER_TIPS.LastUseTime)}">Last Seen</div>
-        <div class="th">Active</div>
-        <div class="th">Domain Acct</div>
-        <div class="th" title="${esc(USER_TIPS.Confidence)}">Tampered</div>
+        <div class="th sortable-th" onclick="sortTable('users','username',false)">Username <span class="sort-arrow" id="sort-users-username">⇅</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','acctType',false)">Acct Type <span class="sort-arrow" id="sort-users-acctType">⇅</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.WhenCreated)}" onclick="sortTable('users','dcCreated',false)">Created (DC) <span class="sort-arrow" id="sort-users-dcCreated">⇅</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','hosts',true)">Hosts <span class="sort-arrow" id="sort-users-hosts">⇅</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.FirstLogon)}" onclick="sortTable('users','firstSeen',false)">First Seen <span class="sort-arrow" id="sort-users-firstSeen">⇅</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.LastUseTime)}" onclick="sortTable('users','lastSeen',false)">Last Seen <span class="sort-arrow" id="sort-users-lastSeen">⇅</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','active',false)">Active <span class="sort-arrow" id="sort-users-active">⇅</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','domainAcct',false)">Domain Acct <span class="sort-arrow" id="sort-users-domainAcct">⇅</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.Confidence)}" onclick="sortTable('users','confidence',false)">Confidence <span class="sort-arrow" id="sort-users-confidence">⇅</span></div>
       </div>
       <div id="users-vs"></div>
     </div>`;
@@ -2189,26 +2251,21 @@ function renderUsersPerUser(container) {
 }
 
 function renderUserRow(u) {
-  const hasTamper  = u.appearances.some(a => a.TamperedFlag);
-  const isActive   = u.sessions.length > 0;
+  const hasMismatch   = u.appearances.some(a => a.TimestampMismatch);
+  const bestConf      = usersGetBestConf(u);
+  const isActive      = u.sessions.length > 0;
   const isDomDisabled = u.domainAccount && u.domainAccount.Enabled === false;
 
   let rowClass = '';
-  if (hasTamper)    rowClass = 'color:var(--red)';
+  if (hasMismatch && bestConf === '?') rowClass = 'color:var(--amber)';
   else if (isDomDisabled && u.appearances.length > 0) rowClass = 'color:var(--amber)';
   else if (isActive) rowClass = 'color:var(--green)';
 
-  const acctType = u.appearances.length > 0 ? (u.appearances[0].AccountType || '—') : '—';
-  const dcCreated= u.domainAccount ? fmtDate(u.domainAccount.WhenCreated) : '<span style="color:var(--muted)">—</span>';
-  const hostCount= u.appearances.length;
-  const firstSeen= u.appearances.reduce((best, a) => {
-    if (!a.FirstLogon || !a.FirstLogon.UTC) return best;
-    return (!best || a.FirstLogon.UTC < best) ? a.FirstLogon.UTC : best;
-  }, null);
-  const lastSeen = u.appearances.reduce((best, a) => {
-    if (!a.LastLogon) return best;
-    return (!best || a.LastLogon > best) ? a.LastLogon : best;
-  }, null);
+  const acctType  = u.appearances.length > 0 ? (u.appearances[0].AccountType || '—') : '—';
+  const dcCreated = u.domainAccount ? fmtDate(u.domainAccount.WhenCreated) : '<span style="color:var(--muted)">—</span>';
+  const hostCount = u.appearances.length;
+  const firstSeen = usersGetFirstSeen(u);
+  const lastSeen  = usersGetLastSeen(u);
 
   return `
     <div class="td mono" style="${rowClass}" title="${esc(USER_TIPS.SID)}\nSID: ${esc(u.SID)}">${esc(u.username||u.SID)}</div>
@@ -2219,7 +2276,7 @@ function renderUserRow(u) {
     <div class="td dim" title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(lastSeen)}</div>
     <div class="td">${isActive ? '<span style="color:var(--green)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</div>
     <div class="td dim">${u.domainAccount ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</div>
-    <div class="td">${hasTamper ? '<span style="color:var(--red)">⚠</span>' : '<span style="color:var(--muted)">—</span>'}</div>`;
+    <div class="td">${confBadge(bestConf)}</div>`;
 }
 
 function onUserRowClick(i, u, rowEl) {
@@ -2297,8 +2354,8 @@ function buildUserExpand(u) {
         <td class="mono" style="font-size:10px">${esc(a.ProfilePath||'—')}</td>
         <td title="${esc(USER_TIPS.IsLoaded)}">${a.IsLoaded ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
       </tr>${srcRow}`;
-      if (fl.TamperedFlag) {
-        html += `<tr><td colspan="6" style="color:var(--red);font-size:11px">⚠ TAMPERED: ${esc(fl.TamperedNote||'')}</td></tr>`;
+      if (fl.TimestampMismatch) {
+        html += `<tr><td colspan="6" style="color:var(--amber);font-size:11px" title="${esc(fl.TamperedNote||'')}">? Timestamp mismatch: ${esc(fl.TamperedNote||'')}</td></tr>`;
       }
     });
     html += '</table>';
@@ -2402,7 +2459,7 @@ function renderUsersPerHost(container) {
       profiles.forEach(p => {
         const fl = p.FirstLogon || {};
         const tip = `Profile folder: ${fl.ProfileFolder?fl.ProfileFolder.UTC||'?':'N/A'}\nNTUSER.DAT: ${fl.NTUserDat?fl.NTUserDat.UTC||'?':'N/A'}\nRegistry key: ${fl.RegistryKey?fl.RegistryKey.UTC||'?':'N/A'}`;
-        const tamperStyle = fl.TamperedFlag ? 'border-left:3px solid var(--red)' : '';
+        const tamperStyle = fl.TimestampMismatch ? 'border-left:3px solid var(--amber)' : '';
         html += `<tr style="${tamperStyle}">
           <td class="mono">${esc(p.Username||'—')}</td>
           <td class="mono" style="font-size:10px" title="${esc(USER_TIPS.SID)}">${esc(p.SID||'—')}</td>
