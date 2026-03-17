@@ -75,3 +75,23 @@ Never edit Report.html directly.
 Edit the relevant ReportStages\*.js or *.html file.
 Run .\build_report.ps1 to rebuild Report.html.
 Adding new tab = add new stage file + run build.
+
+## Report.html Build Rule
+After every build_report.ps1 run verify:
+  Exactly 1 <script> open tag
+  Exactly 1 </script> close tag
+  JS content between tags > 50KB
+  No JS visible as text in browser
+If any check fails: fix before committing.
+
+## build_report.ps1 Rule
+Always run .\build_report.ps1 after any stage file change.
+Build exits with code 1 if structure invalid.
+Never commit Report.html that fails build check.
+Use Playwright to screenshot after every build.
+Stage file naming: closing HTML must sort AFTER all JS stages.
+Current order: 01_head, 02_shell, 03_core, 04_fleet, 05_processes,
+  06_network, 06b_dlls, 07_dns, 08_manifest, 09_users, 10_close.
+New stages must be named so they sort before 10_close.html.
+
+

@@ -17,3 +17,48 @@ $outPath = Join-Path $PSScriptRoot "Report.html"
 [System.IO.File]::WriteAllText($outPath, $output, [System.Text.Encoding]::UTF8)
 $size = (Get-Item $outPath).Length
 Write-Host "Report.html built ΓÇö $([math]::Round($size/1kb,1)) KB"
+function Test-ReportHtml {
+  param([string]$Path)
+  $html = Get-Content $Path -Raw
+  $pass = $true
+
+  $opens = ([regex]::Matches($html, '<script>')).Count
+  if ($opens -ne 1) {
+    Write-Host "FAIL: $opens <script> tags found (expected 1)" -ForegroundColor Red
+    $pass = $false
+  }
+
+  $closes = ([regex]::Matches($html, '</script>')).Count
+  if ($closes -ne 1) {
+    Write-Host "FAIL: $closes </script> tags found (expected 1)" -ForegroundColor Red
+    $pass = $false
+  }
+
+  $openIdx  = $html.IndexOf('<script>')
+  $closeIdx = $html.LastIndexOf('</script>')
+  if ($openIdx -gt $closeIdx) {
+    Write-Host "FAIL: </script> before <script>" -ForegroundColor Red
+    $pass = $false
+  }
+
+  $jsLen = $closeIdx - $openIdx
+  if ($jsLen -lt 50000) {
+    Write-Host "FAIL: JS content only $jsLen chars (expected >50000)" -ForegroundColor Red
+    $pass = $false
+  }
+
+  $fileSize = (Get-Item $Path).Length
+  if ($fileSize -lt 50kb) {
+    Write-Host "FAIL: file size $fileSize bytes (expected >50KB)" -ForegroundColor Red
+    $pass = $false
+  }
+
+  if ($pass) {
+    Write-Host "BUILD OK -- all checks passed ($([math]::Round($fileSize/1kb,1)) KB)" -ForegroundColor Green
+  } else {
+    Write-Host "BUILD FAILED -- fix stage files" -ForegroundColor Red
+    exit 1
+  }
+}
+
+Test-ReportHtml -Path $outPath
