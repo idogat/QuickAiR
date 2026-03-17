@@ -1,33 +1,40 @@
-2026-03-17T10:51:54Z INFO Quicker Collector v2.0 starting
-2026-03-17T10:51:54Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
-2026-03-17T10:51:54Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
-2026-03-17T10:51:54Z INFO Starting collection. Targets: 2
-2026-03-17T10:51:54Z INFO Collection start | target=192.168.1.250
-2026-03-17T10:52:09Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
-2026-03-17T10:52:09Z INFO Remote session created for 192.168.1.250
-2026-03-17T10:52:09Z INFO Running collector: DLLs
-2026-03-17T10:55:22Z INFO Collector DLLs complete
-2026-03-17T10:55:22Z INFO Running collector: Network
-2026-03-17T10:55:25Z INFO Collector Network complete
-2026-03-17T10:55:25Z INFO Running collector: Processes
-2026-03-17T10:55:27Z INFO Collector Processes complete
-2026-03-17T10:55:27Z INFO Running collector: Users
-2026-03-17T10:55:28Z INFO Collector Users complete
-2026-03-17T10:55:31Z WARN DNS resolution failed for 192.168.1.250, using IP as fallback: Exception calling "GetHostEntry" with "1" argument(s): "No such host is known"
-2026-03-17T10:55:31Z INFO Output hostname: 192.168.1.250
-2026-03-17T10:55:31Z INFO Output: C:\DFIRLab\repo\DFIROutput\192.168.1.250\192.168.1.250_20260317105531.json | SHA256: 5AAA934A166CABBEAC3CD7A595AF60BCC3A760A46F424A00804B2F66A029E90C
-2026-03-17T10:55:31Z INFO Target complete | elapsed=217s | processes=131 | connections=31 | dns=1 | errors=0
-2026-03-17T10:55:31Z INFO Collection start | target=127.0.0.1
-2026-03-17T10:55:32Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
-2026-03-17T10:55:32Z INFO Running collector: DLLs
-2026-03-17T11:00:18Z INFO Collector DLLs complete
-2026-03-17T11:00:18Z INFO Running collector: Network
-2026-03-17T11:00:24Z INFO Collector Network complete
-2026-03-17T11:00:24Z INFO Running collector: Processes
-2026-03-17T11:00:35Z INFO Collector Processes complete
-2026-03-17T11:00:35Z INFO Running collector: Users
-2026-03-17T11:00:36Z INFO Collector Users complete
-2026-03-17T11:00:36Z INFO Output hostname: DESKTOP-3JH57JT
-2026-03-17T11:00:36Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260317110036.json | SHA256: F6908B266D74DBC0FA816DE632C8D6367A7D31F5F71AAF5E80A58A2ADFCDC586
-2026-03-17T11:00:36Z INFO Target complete | elapsed=305s | processes=170 | connections=63 | dns=22 | errors=0
-2026-03-17T11:00:36Z INFO All targets complete | elapsed=522s
+2026-03-17T13:43:56Z INFO Quicker Collector v2.0 starting
+2026-03-17T13:43:56Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T13:43:56Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T13:43:56Z INFO Starting collection. Targets: 3
+2026-03-17T13:43:56Z INFO Collection start | target=192.168.1.250
+2026-03-17T13:44:04Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T13:44:04Z INFO Remote session created for 192.168.1.250
+2026-03-17T13:44:04Z INFO Running collector: DLLs
+2026-03-17T13:46:18Z INFO Collector DLLs complete
+2026-03-17T13:46:18Z INFO Running collector: Network
+2026-03-17T13:46:25Z INFO Collector Network complete
+2026-03-17T13:46:25Z INFO Running collector: Processes
+2026-03-17T13:46:29Z INFO Collector Processes complete
+2026-03-17T13:46:29Z INFO Running collector: Users
+2026-03-17T13:46:30Z INFO Collector Users complete
+2026-03-17T13:46:36Z WARN DNS resolution failed for 192.168.1.250, using IP as fallback: Exception calling "GetHostEntry" with "1" argument(s): "No such host is known"
+2026-03-17T13:46:36Z INFO Output hostname: 192.168.1.250
+2026-03-17T13:46:36Z INFO Output: C:\DFIRLab\repo\DFIROutput\192.168.1.250\192.168.1.250_20260317134636.json | SHA256: BD16C09C39E69DF915ED411DF43FAF9BB24E4FEA1EB556CE8BFE21D751424FFC
+2026-03-17T13:46:36Z INFO Target complete | elapsed=160s | processes=132 | connections=31 | dns=5 | errors=0
+2026-03-17T13:46:36Z INFO Collection start | target=127.0.0.1
+2026-03-17T13:46:36Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T13:46:36Z INFO Running collector: DLLs
+2026-03-17T13:48:02Z INFO Collector DLLs complete
+2026-03-17T13:48:02Z INFO Running collector: Network
+2026-03-17T13:48:08Z INFO Collector Network complete
+2026-03-17T13:48:08Z INFO Running collector: Processes
+2026-03-17T13:48:11Z WARN PID=7260 Name=msedgewebview2 absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z WARN PID=3612 Name=msedgewebview2 absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z WARN PID=4440 Name=msedgewebview2 absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z WARN PID=6684 Name=dllhost absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z WARN PID=8528 Name=msedgewebview2 absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z WARN PID=6368 Name=msedgewebview2 absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z WARN PID=7768 Name=msedgewebview2 absent from WMI/CIM - added via .NET fallback
+2026-03-17T13:48:11Z INFO Collector Processes complete
+2026-03-17T13:48:11Z INFO Running collector: Users
+2026-03-17T13:48:14Z INFO Collector Users complete
+2026-03-17T13:48:14Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-17T13:48:15Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260317134814.json | SHA256: 34BB231E65C10CFD954B56F36B87F8EAA8469BB0C4C8EA8228AA639CED694AD9
+2026-03-17T13:48:15Z INFO Target complete | elapsed=99s | processes=139 | connections=44 | dns=18 | errors=0
+2026-03-17T13:48:15Z INFO Collection start | target=192.168.100

@@ -10,23 +10,32 @@ const USER_TIPS = {
   FirstLogon:      "Earliest of: profile folder creation time, NTUSER.DAT creation time, ProfileList registry key write time",
   ProfileFolder:   "Profile folder CreationTime\n(created on first logon, can be modified)",
   NTUserDat:       "NTUSER.DAT CreationTime\n(created with profile on first logon)",
-  RegistryKey:     "ProfileList registry key LastWrite time\n(set when profile first registered)",
+  RegistryKey:     "Registry: HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\<SID>\nLastWrite time — set when profile registered",
   LastUseTime:     "ProfileList LastUseTime value\n(updated on each logoff)",
   WhenCreated:     "AD whenCreated attribute\n(set at account creation, DC only)",
   LastLogonAD:     "AD lastLogonTimestamp\n(replicates every 9-14 days, may be stale)",
   IsLoaded:        "ProfileList State value\n(1=currently loaded, 0=not loaded)",
   LogonType:       "Win32_LogonSession LogonType\n2=Interactive 3=Network 4=Batch\n5=Service 7=Unlock 10=RDP 11=Cached",
   SID:             "ProfileList key name (SID)\nS-1-5-21-<machine>-* = local\nS-1-5-21-<domain>-* = domain",
-  Confidence:      "Cross-check: profile folder + NTUSER.DAT\n+ registry key\nHIGH=all agree (24h) MEDIUM=two agree\nLOW=one source ?=sources disagree N/A=none",
+  Confidence:      "Cross-check of three sources:\n1. C:\\Users\\<username>\\ CreationTime\n2. C:\\Users\\<username>\\NTUSER.DAT CreationTime\n3. HKLM\\...\\ProfileList\\<SID> LastWrite time\nHIGH=all agree MEDIUM=two agree\nLOW=one source ?=none agree",
 };
 
 const CONF_BADGE = {
-  HIGH:   '<span style="color:var(--green)">✓ HIGH</span>',
-  MEDIUM: '<span style="color:var(--amber)">~ MEDIUM</span>',
-  LOW:    '<span style="color:var(--muted)">? LOW</span>',
-  '?':    '<span style="color:var(--amber)">? ?</span>',
-  'N/A':  '<span style="color:var(--muted)">—</span>',
+  HIGH:     '<span style="color:var(--green)">✓ HIGH</span>',
+  MEDIUM:   '<span style="color:var(--amber)">~ MEDIUM</span>',
+  LOW:      '<span style="color:var(--muted)">? LOW</span>',
+  '?':      '<span style="color:var(--amber)">? ?</span>',
+  'N/A':    '<span style="color:var(--muted)">—</span>',
+  TAMPERED: '<span style="color:var(--amber)">? ?</span>',  // legacy compat
 };
+
+// Determine IsReallyActive with fallback for older JSON lacking the field
+function sessionIsActive(s) {
+  if (s.IsReallyActive !== undefined && s.IsReallyActive !== null) return s.IsReallyActive;
+  // Legacy fallback: service/batch sessions are always considered active
+  const lt = s.LogonType;
+  return (lt === 4 || lt === 5);
+}
 
 const CONF_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2, '?': 3, 'N/A': 4 };
 
@@ -257,17 +266,6 @@ function buildUserExpand(u) {
       const tip = fl.ProfileFolder || fl.NTUserDat || fl.RegistryKey
         ? `Profile folder: ${fl.ProfileFolder ? fl.ProfileFolder.UTC||'?' : 'N/A'}\nNTUSER.DAT:     ${fl.NTUserDat ? fl.NTUserDat.UTC||'?' : 'N/A'}\nRegistry key:   ${fl.RegistryKey ? fl.RegistryKey.UTC||'?' : 'N/A'}\nConfidence:     ${fl.Confidence||'?'}`
         : '';
-      const pfVal = fl.ProfileFolder ? (fl.ProfileFolder.Value || fl.ProfileFolder.UTC) : null;
-      const ntVal = fl.NTUserDat    ? (fl.NTUserDat.Value    || fl.NTUserDat.UTC)    : null;
-      const rkVal = fl.RegistryKey  ? (fl.RegistryKey.Value  || fl.RegistryKey.UTC)  : null;
-      const srcRow = (pfVal || ntVal || rkVal) ? `
-        <tr><td colspan="6" style="padding:1px 8px 5px 8px;font-size:11px;color:var(--muted)">
-          <span title="${esc(USER_TIPS.ProfileFolder)}">ProfileFolder: <span style="color:${pfVal?'var(--text)':'var(--red)'}">${pfVal ? esc(pfVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
-          &nbsp;&nbsp;
-          <span title="${esc(USER_TIPS.NTUserDat)}">NTUserDat: <span style="color:${ntVal?'var(--text)':'var(--red)'}">${ntVal ? esc(ntVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
-          &nbsp;&nbsp;
-          <span title="${esc(USER_TIPS.RegistryKey)}">RegistryKey: <span style="color:${rkVal?'var(--text)':'var(--red)'}">${rkVal ? esc(rkVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
-        </td></tr>` : '';
       html += `<tr>
         <td>${esc(a.host)}</td>
         <td title="${esc(tip)}">${fmtDate(fl.UTC)}</td>
@@ -275,7 +273,7 @@ function buildUserExpand(u) {
         <td title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(a.LastLogon)}</td>
         <td class="mono" style="font-size:10px">${esc(a.ProfilePath||'—')}</td>
         <td title="${esc(USER_TIPS.IsLoaded)}">${a.IsLoaded ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
-      </tr>${srcRow}`;
+      </tr>`;
       if (fl.TimestampMismatch) {
         html += `<tr><td colspan="6" style="color:var(--amber);font-size:11px" title="${esc(fl.TamperedNote||'')}">? Timestamp mismatch: ${esc(fl.TamperedNote||'')}</td></tr>`;
       }
@@ -285,16 +283,21 @@ function buildUserExpand(u) {
 
   // ── Section 3: Active sessions ──
   if (u.sessions.length > 0) {
+    const sortedSessions = u.sessions.slice().sort((a, b) => (sessionIsActive(b) ? 1 : 0) - (sessionIsActive(a) ? 1 : 0));
     html += `<h4 style="margin-bottom:6px">Active Sessions (${u.sessions.length})</h4>
       <table class="expand-tbl" style="margin-bottom:10px">
-        <tr><th>Host</th><th title="${esc(USER_TIPS.LogonType)}">Type</th><th>Type Name</th><th>Logon Time</th><th>Session ID</th></tr>`;
-    u.sessions.forEach(s => {
+        <tr><th>Host</th><th title="${esc(USER_TIPS.LogonType)}">Type</th><th>Type Name</th><th>Logon Time</th><th>Session ID</th><th>Active</th></tr>`;
+    sortedSessions.forEach(s => {
+      const activeCell = sessionIsActive(s)
+        ? '<span style="color:var(--green)">✓</span>'
+        : `<span style="color:var(--amber)" title="No running processes found in this session. May be disconnected or stale.">✗</span>`;
       html += `<tr>
         <td>${esc(s.host)}</td>
         <td title="${esc(USER_TIPS.LogonType)}">${s.LogonType||'—'}</td>
         <td>${esc(s.LogonTypeName||'—')}</td>
         <td>${esc(fmtTs(s.LogonTimeUTC))}</td>
         <td class="mono">${esc(s.SessionId||'—')}</td>
+        <td style="text-align:center">${activeCell}</td>
       </tr>`;
     });
     html += '</table>';
@@ -347,12 +350,17 @@ function renderUsersPerHost(container) {
       <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;padding:10px 16px">`;
 
     // Sessions
-    const sessions = (u.sessions || []).filter(s => !lq || str(s.Username).includes(lq) || str(s.SID).includes(lq));
+    const sessions = (u.sessions || [])
+      .filter(s => !lq || str(s.Username).includes(lq) || str(s.SID).includes(lq))
+      .sort((a, b) => (sessionIsActive(b) ? 1 : 0) - (sessionIsActive(a) ? 1 : 0));
     if (sessions.length) {
       html += `<h4 style="margin-bottom:6px">Active Sessions (${sessions.length})</h4>
         <table class="expand-tbl" style="margin-bottom:10px">
-          <tr><th>Username</th><th>Domain</th><th title="${esc(USER_TIPS.LogonType)}">Type</th><th>Type Name</th><th>Logon Time</th><th title="${esc(USER_TIPS.SID)}">SID</th></tr>`;
+          <tr><th>Username</th><th>Domain</th><th title="${esc(USER_TIPS.LogonType)}">Type</th><th>Type Name</th><th>Logon Time</th><th title="${esc(USER_TIPS.SID)}">SID</th><th>Active</th></tr>`;
       sessions.forEach(s => {
+        const activeCell = sessionIsActive(s)
+          ? '<span style="color:var(--green)">✓</span>'
+          : `<span style="color:var(--amber)" title="No running processes found in this session. May be disconnected or stale.">✗</span>`;
         html += `<tr>
           <td class="mono">${esc(s.Username||'—')}</td>
           <td>${esc(s.Domain||'—')}</td>
@@ -360,6 +368,7 @@ function renderUsersPerHost(container) {
           <td>${esc(s.LogonTypeName||'—')}</td>
           <td title="${esc(USER_TIPS.LastUseTime)}">${esc(fmtTs(s.LogonTimeUTC))}</td>
           <td class="mono" style="font-size:10px" title="${esc(USER_TIPS.SID)}">${esc(s.SID||'—')}</td>
+          <td style="text-align:center">${activeCell}</td>
         </tr>`;
       });
       html += '</table>';

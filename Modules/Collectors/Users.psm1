@@ -12,7 +12,7 @@
 # ║               group_members=[]     ║
 # ║             }; source="";errors=[]}║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 1.2                    ║
+# ║  Version  : 1.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -86,14 +86,30 @@ $script:USERS_SB = {
                 }
             }
             $r.sessions_raw += @{
-                LogonId       = $lid
-                LogonType     = [int]$s.LogonType
-                StartTime_raw = [string]$s.StartTime
-                UserName      = $un
-                UserDomain    = $ud
-                SID           = $sid
-                IsLocal       = ($ud -and ($ud -ieq $machineName))
+                LogonId            = $lid
+                LogonType          = [int]$s.LogonType
+                StartTime_raw      = [string]$s.StartTime
+                UserName           = $un
+                UserDomain         = $ud
+                SID                = $sid
+                IsLocal            = ($ud -and ($ud -ieq $machineName))
+                HasActiveProcesses = $false
+                IsReallyActive     = $false
             }
+        }
+
+        # Cross-check sessions against running processes
+        $activeSessionIds = @{}
+        try {
+            Get-WmiObject Win32_Process | ForEach-Object {
+                $activeSessionIds[[string]$_.SessionId] = $true
+            }
+        } catch {}
+        foreach ($s in $r.sessions_raw) {
+            $hasProc = $activeSessionIds.ContainsKey([string]$s.LogonId)
+            $isSvc   = ($s.LogonType -eq 4 -or $s.LogonType -eq 5)
+            $s.HasActiveProcesses = $hasProc
+            $s.IsReallyActive     = $hasProc -or $isSvc
         }
     } catch { $r.errors += "Sessions: $($_.Exception.Message)" }
 
@@ -503,16 +519,18 @@ function Invoke-Collector {
         $lt = [int]$s.LogonType
         $typeName = if ($logonTypeMap.ContainsKey($lt)) { $logonTypeMap[$lt] } else { "Type$lt" }
         $sessions += @{
-            Username      = $s.UserName
-            Domain        = $s.UserDomain
-            LogonId       = $s.LogonId
-            LogonType     = $lt
-            LogonTypeName = $typeName
-            LogonTimeUTC  = ConvertTo-UtcIso -Value $s.StartTime_raw
-            LogonTimeLocal= $s.StartTime_raw
-            IsLocal       = [bool]$s.IsLocal
-            SID           = $s.SID
-            Source        = 'Win32_LogonSession+Win32_LoggedOnUser'
+            Username           = $s.UserName
+            Domain             = $s.UserDomain
+            LogonId            = $s.LogonId
+            LogonType          = $lt
+            LogonTypeName      = $typeName
+            LogonTimeUTC       = ConvertTo-UtcIso -Value $s.StartTime_raw
+            LogonTimeLocal     = $s.StartTime_raw
+            IsLocal            = [bool]$s.IsLocal
+            SID                = $s.SID
+            HasActiveProcesses = [bool]$s.HasActiveProcesses
+            IsReallyActive     = [bool]$s.IsReallyActive
+            Source             = 'Win32_LogonSession+Win32_LoggedOnUser'
         }
     }
 

@@ -243,7 +243,8 @@ function buildUserIndex(allHosts) {
         if (!idx[s.SID].username) idx[s.SID].username = s.Username;
         idx[s.SID].sessions.push({
           host: hostname, LogonType: s.LogonType, LogonTypeName: s.LogonTypeName,
-          LogonTimeUTC: s.LogonTimeUTC, SessionId: s.LogonId
+          LogonTimeUTC: s.LogonTimeUTC, SessionId: s.LogonId,
+          IsReallyActive: s.IsReallyActive, HasActiveProcesses: s.HasActiveProcesses
         });
       });
     }
