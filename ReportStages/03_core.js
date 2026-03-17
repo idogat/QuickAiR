@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "2.7";
+const ANALYZER_VERSION = "2.9";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -164,6 +164,76 @@ function reapplyColWidthsFromStorage(tabName, vsEl) {
   });
 }
 
+// ── CROSS-HOST USER INDEX ─────────────────────────────────────────────────────
+function buildUserIndex(allHosts) {
+  const idx = {};
+  allHosts.forEach(host => {
+    const users = host.Users;
+    if (!users) return;
+    const hostname = host.manifest ? host.manifest.hostname : '?';
+
+    // Domain accounts from DC — keyed by SID
+    if (users.domain_accounts) {
+      users.domain_accounts.forEach(u => {
+        if (!u.SID) return;
+        if (!idx[u.SID]) idx[u.SID] = {
+          SID: u.SID, username: u.SamAccountName, displayName: u.DisplayName || u.SamAccountName,
+          domainAccount: null, appearances: [], sessions: [], groups: []
+        };
+        idx[u.SID].domainAccount = {
+          host: hostname, WhenCreated: u.WhenCreatedUTC, LastLogon: u.LastLogonUTC,
+          PasswordLastSet: u.PasswordLastSetUTC, Enabled: u.Enabled,
+          LockedOut: u.LockedOut, BadLogonCount: u.BadLogonCount, Source: u.Source
+        };
+      });
+    }
+
+    // Profiles — keyed by SID
+    if (users.profiles) {
+      users.profiles.forEach(p => {
+        if (!p.SID) return;
+        if (!idx[p.SID]) idx[p.SID] = {
+          SID: p.SID, username: p.Username, displayName: p.Username,
+          domainAccount: null, appearances: [], sessions: [], groups: []
+        };
+        if (!idx[p.SID].username) idx[p.SID].username = p.Username;
+        idx[p.SID].appearances.push({
+          host: hostname, FirstLogon: p.FirstLogon, LastLogon: p.LastUseTimeUTC,
+          AccountType: p.AccountType, ProfilePath: p.ProfilePath,
+          IsLoaded: p.IsLoaded, TamperedFlag: p.FirstLogon ? p.FirstLogon.TamperedFlag : false
+        });
+      });
+    }
+
+    // Sessions — keyed by SID
+    if (users.sessions) {
+      users.sessions.forEach(s => {
+        if (!s.SID) return;
+        if (!idx[s.SID]) idx[s.SID] = {
+          SID: s.SID, username: s.Username, displayName: s.Username,
+          domainAccount: null, appearances: [], sessions: [], groups: []
+        };
+        if (!idx[s.SID].username) idx[s.SID].username = s.Username;
+        idx[s.SID].sessions.push({
+          host: hostname, LogonType: s.LogonType, LogonTypeName: s.LogonTypeName,
+          LogonTimeUTC: s.LogonTimeUTC, SessionId: s.LogonId
+        });
+      });
+    }
+
+    // Group membership — keyed by MemberSID
+    if (users.group_members) {
+      users.group_members.forEach(m => {
+        if (!m.MemberSID) return;
+        if (idx[m.MemberSID]) {
+          idx[m.MemberSID].groups.push({ host: hostname, GroupName: m.GroupName, IsLocal: m.IsLocal });
+        }
+      });
+    }
+  });
+  return idx;
+}
+
 // ── FILE LOADER ───────────────────────────────────────────────────────────────
 function triggerLoad() {
   document.getElementById('fileInput').click();
@@ -252,6 +322,7 @@ function refreshAll() {
   updateBadges();
   updateMeta();
   updateTabVisibility();
+  window.userIndex = buildUserIndex(Object.values(state.hosts));
   renderActiveTab();
 }
 
@@ -260,6 +331,11 @@ function updateTabVisibility() {
   const dllsBtn = el('tab-dlls');
   if (dllsBtn) {
     dllsBtn.style.display = (d && d.DLLs && d.DLLs.length > 0) ? '' : 'none';
+  }
+  const usersBtn = el('tab-users');
+  if (usersBtn) {
+    const hasUsers = Object.values(state.hosts).some(h => h.Users);
+    usersBtn.style.display = hasUsers ? '' : 'none';
   }
 }
 
@@ -327,6 +403,7 @@ function renderActiveTab() {
     case 'network':   renderNetwork();   break;
     case 'dns':       renderDns();       break;
     case 'dlls':      renderDlls();      break;
+    case 'users':     renderUsers();     break;
   }
 }
 

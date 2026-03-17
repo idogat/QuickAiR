@@ -8,8 +8,16 @@ ReportStages\          — HTML stage files (edit these, not Report.html)
 build_report.ps1       — concatenates stages into Report.html
 TestSuite.ps1          — test runner (auto-discovers Tests\)
 Modules\Core\          — Connection, DateTime, Output
-Modules\Collectors\    — Processes, Network (+ future plugins)
-Tests\                 — T01-T05 per-module test files
+Modules\Collectors\    — Processes, Network, Users (+ future plugins)
+Modules\Collectors\Users.psm1  — user accounts, sessions, profiles,
+                                 DC domain enumeration (Get-ADUser / ADSI)
+Tests\                 — T01-T08 per-module test files
+
+## Cross-Host User Correlation
+Report.html builds window.userIndex from all loaded host JSONs.
+Per-user view (USERS tab) correlates data from DC + all member machines.
+SID is the primary correlation key — usernames can differ across hosts.
+userIndex keyed by SID; entries have: domainAccount, appearances, sessions, groups.
 
 ## Adding A New Collector Plugin
 Drop *.psm1 into Modules\Collectors\
@@ -24,6 +32,9 @@ localhost              — PS 5.1, no credential
 192.168.1.100          — domain DC, 2 NICs
 192.168.1.236          — workgroup, Server 2008 R2,
                          PS 2.0, 2 NICs
+creds to all terget:
+user:administrator
+password:Aa123456
 
 ## Production Targets
 Unknown at development time.

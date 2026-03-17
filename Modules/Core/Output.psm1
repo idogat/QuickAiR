@@ -170,4 +170,37 @@ function Get-QuickerSignature {
     }
 }
 
-Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickerSha256, Get-QuickerSignature
+function Get-SidMetadata {
+    param([string]$SID, [string]$MachineSIDPrefix = '')
+    if (-not $SID) { return @{ SID=$null; AccountType='Unknown'; IsLocal=$false; IsDomain=$false; IsSystem=$false; IsAdmin=$false } }
+    $acctType = switch -Regex ($SID) {
+        '^S-1-5-18$' { 'SYSTEM'; break }
+        '^S-1-5-19$' { 'LocalService'; break }
+        '^S-1-5-20$' { 'NetworkService'; break }
+        '^S-1-5-32-' { 'BuiltInGroup'; break }
+        '^S-1-5-21-\d+-\d+-\d+-\d+$' {
+            $rid = $SID.Split('-')[-1]
+            switch ($rid) {
+                '500' { 'LocalAdministrator' }
+                '501' { 'LocalGuest' }
+                '512' { 'DomainAdmins' }
+                '513' { 'DomainUsers' }
+                '514' { 'DomainGuests' }
+                '515' { 'DomainComputers' }
+                '516' { 'DomainControllers' }
+                '519' { 'EnterpriseAdmins' }
+                '520' { 'GroupPolicyCreators' }
+                default { if ([int]$rid -ge 1000) { 'DomainUser' } else { 'BuiltIn' } }
+            }
+            break
+        }
+        default { 'Unknown' }
+    }
+    $isLocal  = ($MachineSIDPrefix -and $SID -match ('^' + [regex]::Escape($MachineSIDPrefix) + '-\d+$'))
+    $isDomain = ($SID -match '^S-1-5-21-') -and (-not $isLocal)
+    $isSystem = ($SID -match '^S-1-5-(18|19|20)$')
+    $isAdmin  = ($SID -match '-500$') -or ($SID -eq 'S-1-5-32-544')
+    return @{ SID=$SID; AccountType=$acctType; IsLocal=[bool]$isLocal; IsDomain=[bool]$isDomain; IsSystem=[bool]$isSystem; IsAdmin=[bool]$isAdmin }
+}
+
+Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickerSha256, Get-QuickerSignature, Get-SidMetadata
