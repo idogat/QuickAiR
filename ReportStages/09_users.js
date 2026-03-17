@@ -201,6 +201,17 @@ function buildUserExpand(u) {
       const tip = fl.ProfileFolder || fl.NTUserDat || fl.RegistryKey
         ? `Profile folder: ${fl.ProfileFolder ? fl.ProfileFolder.UTC||'?' : 'N/A'}\nNTUSER.DAT:     ${fl.NTUserDat ? fl.NTUserDat.UTC||'?' : 'N/A'}\nRegistry key:   ${fl.RegistryKey ? fl.RegistryKey.UTC||'?' : 'N/A'}\nConfidence:     ${fl.Confidence||'?'}`
         : '';
+      const pfVal = fl.ProfileFolder ? (fl.ProfileFolder.Value || fl.ProfileFolder.UTC) : null;
+      const ntVal = fl.NTUserDat    ? (fl.NTUserDat.Value    || fl.NTUserDat.UTC)    : null;
+      const rkVal = fl.RegistryKey  ? (fl.RegistryKey.Value  || fl.RegistryKey.UTC)  : null;
+      const srcRow = (pfVal || ntVal || rkVal) ? `
+        <tr><td colspan="6" style="padding:1px 8px 5px 8px;font-size:11px;color:var(--muted)">
+          <span title="${esc(USER_TIPS.ProfileFolder)}">ProfileFolder: <span style="color:${pfVal?'var(--text)':'var(--red)'}">${pfVal ? esc(pfVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
+          &nbsp;&nbsp;
+          <span title="${esc(USER_TIPS.NTUserDat)}">NTUserDat: <span style="color:${ntVal?'var(--text)':'var(--red)'}">${ntVal ? esc(ntVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
+          &nbsp;&nbsp;
+          <span title="${esc(USER_TIPS.RegistryKey)}">RegistryKey: <span style="color:${rkVal?'var(--text)':'var(--red)'}">${rkVal ? esc(rkVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
+        </td></tr>` : '';
       html += `<tr>
         <td>${esc(a.host)}</td>
         <td title="${esc(tip)}">${fmtDate(fl.UTC)}</td>
@@ -208,7 +219,7 @@ function buildUserExpand(u) {
         <td title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(a.LastLogon)}</td>
         <td class="mono" style="font-size:10px">${esc(a.ProfilePath||'—')}</td>
         <td title="${esc(USER_TIPS.IsLoaded)}">${a.IsLoaded ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
-      </tr>`;
+      </tr>${srcRow}`;
       if (fl.TamperedFlag) {
         html += `<tr><td colspan="6" style="color:var(--red);font-size:11px">⚠ TAMPERED: ${esc(fl.TamperedNote||'')}</td></tr>`;
       }

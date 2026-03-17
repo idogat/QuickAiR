@@ -12,7 +12,7 @@
 # ║               group_members=[]     ║
 # ║             }; source="";errors=[]}║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 1.0                    ║
+# ║  Version  : 1.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -97,6 +97,34 @@ $script:USERS_SB = {
         }
     } catch { $r.errors += "Sessions: $($_.Exception.Message)" }
 
+    # ── Registry LastWrite P/Invoke helper (works on all .NET versions) ─────
+    $_rkHelper = $false
+    try { Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class RegLwt {
+    [StructLayout(LayoutKind.Sequential)] struct FT { public uint lo; public uint hi; }
+    const uint HKLM = 0x80000002;
+    const uint KEY_QUERY_VALUE = 1;
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode)]
+    static extern int RegOpenKeyEx(UIntPtr h,string sub,uint opt,uint sam,out UIntPtr phk);
+    [DllImport("advapi32.dll")] static extern int RegCloseKey(UIntPtr h);
+    [DllImport("advapi32.dll")]
+    static extern int RegQueryInfoKey(UIntPtr h,IntPtr a,IntPtr b,IntPtr c,
+        IntPtr d,IntPtr e,IntPtr f,IntPtr g,IntPtr i,IntPtr j,IntPtr k,out FT ft);
+    public static long GetLwt(string subKey) {
+        UIntPtr hk;
+        if (RegOpenKeyEx((UIntPtr)HKLM,subKey,0,KEY_QUERY_VALUE,out hk)!=0) return 0;
+        FT ft;
+        int res=RegQueryInfoKey(hk,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,
+            IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,out ft);
+        RegCloseKey(hk);
+        return res!=0 ? 0 : ((long)ft.hi<<32)|(uint)ft.lo;
+    }
+}
+'@ -ErrorAction Stop } catch {}
+    try { [void][RegLwt]; $_rkHelper = $true } catch {}
+
     # ── COLLECT 2: User profiles ─────────────────────────────────────────────
     try {
         $plRoot = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
@@ -135,28 +163,36 @@ $script:USERS_SB = {
                     }
                 } catch {}
 
-                # NTUSER.DAT creation time
+                # NTUSER.DAT creation time (-Force required: file is hidden/system)
                 $ntRaw = $null; $ntAvail = $false
                 try {
                     if ($profilePath) {
                         $ntPath = Join-Path $profilePath "NTUSER.DAT"
-                        if (Test-Path $ntPath) {
-                            $ntRaw   = (Get-Item $ntPath -ErrorAction Stop).CreationTime.ToString('o')
-                            $ntAvail = $true
-                        }
+                        $ntItem = Get-Item $ntPath -Force -ErrorAction Stop
+                        $ntRaw   = $ntItem.CreationTime.ToString('o')
+                        $ntAvail = $true
                     }
                 } catch {}
 
-                # Registry key LastWrite time (PS 3+ only; silent fail on PS 2)
+                # Registry key LastWrite time (Get-Item; P/Invoke fallback for older .NET)
                 $rkRaw = $null; $rkAvail = $false
                 try {
                     $rki = Get-Item "HKLM:\$plRoot\$sidStr" -ErrorAction Stop
                     $lwt = $rki.LastWriteTime
-                    if ($lwt -ne $null) {
-                        $rkRaw   = $lwt.ToString('o')
+                    if ($lwt -ne $null -and $lwt -gt [DateTime]::MinValue) {
+                        $rkRaw   = $lwt.ToUniversalTime().ToString('o')
                         $rkAvail = $true
                     }
                 } catch {}
+                if (-not $rkAvail -and $_rkHelper) {
+                    try {
+                        $ft = [RegLwt]::GetLwt("$plRoot\$sidStr")
+                        if ($ft -gt 0) {
+                            $rkRaw   = [DateTime]::FromFileTimeUtc($ft).ToString('o')
+                            $rkAvail = $true
+                        }
+                    } catch {}
+                }
 
                 $r.profiles_raw += @{
                     SID         = $sidStr

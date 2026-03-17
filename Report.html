@@ -35,7 +35,7 @@ input::placeholder{color:var(--muted)}
 #topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:100}
 #topbar h1{font-size:14px;color:var(--accent);white-space:nowrap}
 #topbar .sep{color:var(--border);user-select:none}
-#hostSelector{min-width:160px;max-width:260px}
+#hostSelectorWrap{min-width:160px}
 #globalSearch{width:200px}
 .badge{background:var(--bg);border:1px solid var(--border);padding:3px 8px;border-radius:3px;font-size:11px;white-space:nowrap}
 .badge span{color:var(--accent);font-weight:bold}
@@ -195,7 +195,10 @@ input::placeholder{color:var(--muted)}
   <span class="sep">|</span>
   <button id="loadBtn" onclick="triggerLoad()">&#128193; Load JSON</button>
   <input type="file" id="fileInput" multiple accept=".json" style="display:none" onchange="handleFiles(this.files)">
-  <select id="hostSelector" onchange="switchHost(this.value)"><option value="">-- No files loaded --</option></select>
+  <div id="hostSelectorWrap" class="host-selector-wrap">
+    <div id="hostSelectorCurrent" class="host-selector-current" onclick="toggleHostDropdown(event)">-- No files loaded --</div>
+    <div id="hostSelectorDropdown" class="host-dropdown" style="display:none"></div>
+  </div>
   <input type="text" id="globalSearch" placeholder="Global search&hellip;" oninput="onGlobalSearch(this.value)" onkeydown="if(event.key==='Escape'){closeGSearch()}">
   <span class="sep">|</span>
   <span class="badge">Procs <span id="b-procs">0</span></span>
@@ -225,7 +228,7 @@ input::placeholder{color:var(--muted)}
 <script>
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "3.1";
+const ANALYZER_VERSION = "3.2";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -244,6 +247,32 @@ const state = {
     .sort-arrow { color: var(--muted); font-size: 0.8em; }
     .sort-arrow.asc { color: var(--accent); }
     .sort-arrow.desc { color: var(--accent); }
+  `;
+  document.head.appendChild(s);
+})();
+
+(function injectHostSelectorCSS() {
+  const s = document.createElement('style');
+  s.textContent = `
+    .host-selector-wrap{position:relative;display:inline-block;vertical-align:middle}
+    .host-selector-current{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:4px 22px 4px 8px;font-family:inherit;font-size:12px;border-radius:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;min-width:140px;display:inline-block;position:relative}
+    .host-selector-current:after{content:'▾';position:absolute;right:5px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+    .host-selector-current:hover{border-color:var(--accent)}
+    .host-dropdown{position:absolute;top:calc(100% + 2px);left:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:4px;min-width:220px;max-height:300px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+    .host-dropdown-item{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border)}
+    .host-dropdown-item:last-child{border-bottom:none}
+    .host-dropdown-item:hover{background:var(--row-hov)}
+    .host-dropdown-item.active .host-name{color:var(--accent)}
+    .host-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;cursor:pointer}
+    .host-name:hover{color:var(--accent)}
+    .host-rm-btn{background:none!important;border:none!important;color:var(--muted);padding:2px 4px;cursor:pointer;font-size:13px;flex-shrink:0;line-height:1}
+    .host-rm-btn:hover{color:var(--red)!important}
+    .host-rm-confirm{color:var(--red)!important;border-color:var(--red)!important;font-size:10px;padding:1px 5px}
+    .host-rm-cancel{font-size:10px;padding:1px 5px}
+    .fleet-rm-cell{display:flex!important;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:14px}
+    .fleet-rm-cell:hover{color:var(--red)}
+    .fleet-rm-confirm{color:var(--red)!important;border-color:var(--red)!important;font-size:10px;padding:1px 4px}
+    .fleet-rm-cancel{font-size:10px;padding:1px 4px}
   `;
   document.head.appendChild(s);
 })();
@@ -577,15 +606,86 @@ function updateTabVisibility() {
   }
 }
 
+function removeHost(hostname) {
+  if (!state.hosts[hostname]) return;
+  const wasActive = (state.activeHost === hostname);
+  delete state.hosts[hostname];
+  const remaining = Object.keys(state.hosts);
+  rebuildUserIndex();
+  rebuildHostSelector();
+  updateBadges();
+  updateMeta();
+  updateTabVisibility();
+  const dd = el('hostSelectorDropdown');
+  if (dd) dd.style.display = 'none';
+  if (remaining.length === 0) {
+    state.activeHost = null;
+    const ph = document.getElementById('placeholder');
+    if (ph) ph.classList.add('show');
+    renderActiveTab();
+  } else if (wasActive) {
+    switchHost(remaining[0]);
+  } else {
+    renderActiveTab();
+  }
+}
+
 function rebuildHostSelector() {
-  const sel = document.getElementById('hostSelector');
-  sel.innerHTML = '';
-  Object.keys(state.hosts).forEach(h => {
-    const o = document.createElement('option');
-    o.value = h; o.textContent = h;
-    if (h === state.activeHost) o.selected = true;
-    sel.appendChild(o);
-  });
+  const curr = el('hostSelectorCurrent');
+  const dd   = el('hostSelectorDropdown');
+  if (!curr || !dd) return;
+  const hosts = Object.keys(state.hosts);
+  if (hosts.length === 0) {
+    curr.textContent = '-- No files loaded --';
+    dd.innerHTML = '';
+    return;
+  }
+  curr.textContent = state.activeHost || hosts[0];
+  dd.innerHTML = hosts.map(h => `
+    <div class="host-dropdown-item${h === state.activeHost ? ' active' : ''}">
+      <span class="host-name" onclick="selectHostFromDropdown('${esc(h)}')">${esc(h)}</span>
+      <button class="host-rm-btn" onclick="hostDropdownStartRemove(event,'${esc(h)}')" title="Remove host">×</button>
+    </div>`).join('');
+}
+
+function toggleHostDropdown(e) {
+  if (e) e.stopPropagation();
+  const dd = el('hostSelectorDropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' ? '' : 'none';
+}
+
+function selectHostFromDropdown(hostname) {
+  const dd = el('hostSelectorDropdown');
+  if (dd) dd.style.display = 'none';
+  switchHost(hostname);
+}
+
+function hostDropdownStartRemove(e, hostname) {
+  e.stopPropagation();
+  const item = e.target.closest('.host-dropdown-item');
+  if (!item) { removeHost(hostname); return; }
+  if (item._removeTimer) clearTimeout(item._removeTimer);
+  item.innerHTML = `<span class="host-name">${esc(hostname)}</span>
+    <button class="host-rm-confirm" onclick="hostDropdownConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button>
+    <button class="host-rm-cancel" onclick="hostDropdownCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+  item._removeTimer = setTimeout(() => {
+    if (item.isConnected) rebuildHostSelector();
+  }, 3000);
+}
+
+function hostDropdownConfirmRemove(e, hostname) {
+  e.stopPropagation();
+  const item = e.target.closest('.host-dropdown-item');
+  if (item && item._removeTimer) clearTimeout(item._removeTimer);
+  removeHost(hostname);
+}
+
+function hostDropdownCancelRemove(e, hostname) {
+  e.stopPropagation();
+  const item = e.target.closest('.host-dropdown-item');
+  if (item && item._removeTimer) clearTimeout(item._removeTimer);
+  rebuildHostSelector();
 }
 
 function switchHost(h) {
@@ -595,6 +695,7 @@ function switchHost(h) {
   // Reset users view state on every host switch (userIndex is global — do NOT rebuild)
   usersView   = 'peruser';
   usersSearch = '';
+  rebuildHostSelector();
   updateBadges();
   updateMeta();
   updateTabVisibility();
@@ -841,6 +942,9 @@ document.addEventListener('click', e => {
   if (gs && !gs.contains(e.target) && e.target.id !== 'globalSearch') {
     gs.classList.remove('show');
   }
+  const hwrap = el('hostSelectorWrap');
+  const hdd   = el('hostSelectorDropdown');
+  if (hdd && hwrap && !hwrap.contains(e.target)) hdd.style.display = 'none';
 });
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -931,6 +1035,32 @@ window.addEventListener('load', () => {
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
 let fleetSort = { col: 'hostname', dir: 1 };
 
+const _fleetRemoveTimers = {};
+
+function fleetStartRemove(e, hostname) {
+  e.stopPropagation();
+  const cell = e.currentTarget;
+  if (_fleetRemoveTimers[hostname]) clearTimeout(_fleetRemoveTimers[hostname]);
+  cell.innerHTML = `<button class="fleet-rm-confirm" onclick="fleetConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button> <button class="fleet-rm-cancel" onclick="fleetCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+  _fleetRemoveTimers[hostname] = setTimeout(() => {
+    if (cell.isConnected) cell.innerHTML = '×';
+    delete _fleetRemoveTimers[hostname];
+  }, 3000);
+}
+
+function fleetConfirmRemove(e, hostname) {
+  e.stopPropagation();
+  if (_fleetRemoveTimers[hostname]) { clearTimeout(_fleetRemoveTimers[hostname]); delete _fleetRemoveTimers[hostname]; }
+  removeHost(hostname);
+}
+
+function fleetCancelRemove(e, hostname) {
+  e.stopPropagation();
+  if (_fleetRemoveTimers[hostname]) { clearTimeout(_fleetRemoveTimers[hostname]); delete _fleetRemoveTimers[hostname]; }
+  const cell = e.target.closest('.fleet-rm-cell');
+  if (cell) cell.innerHTML = '×';
+}
+
 function renderFleet() {
   const panel = el('panel-fleet');
   const hosts = Object.keys(state.hosts);
@@ -955,8 +1085,9 @@ function renderFleet() {
     return;
   }
 
-  const COLS = '180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px';
+  const COLS = '36px 180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px';
   const headers = [
+    { key:'_remove',            label:''                 },
     { key:'hostname',           label:'Hostname'         },
     { key:'target_os_caption',  label:'OS'               },
     { key:'target_ps_version',  label:'PS'               },
@@ -1008,6 +1139,7 @@ function renderFleet() {
 
   function headerHTML() {
     return headers.map(h => {
+      if (h.key === '_remove') return '<div class="th" style="padding:0"></div>';
       const numeric = /count$|_count$|ps_version$/.test(h.key);
       const arrow = (sortState.tab === 'fleet' && sortState.column === h.key)
         ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
@@ -1033,6 +1165,7 @@ function renderFleet() {
       const nicTip = row._adapter_names.length ? row._adapter_names.join('\n') : '';
       const nicColor = row.nic_count >= 2 ? 'accent' : 'dim';
       return `
+      <div class="td fleet-rm-cell" onclick="fleetStartRemove(event,'${esc(row.hostname)}')">×</div>
       <div class="td">${esc(row.hostname)}</div>
       <div class="td dim">${esc(row.target_os_caption||'')}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
@@ -2145,6 +2278,17 @@ function buildUserExpand(u) {
       const tip = fl.ProfileFolder || fl.NTUserDat || fl.RegistryKey
         ? `Profile folder: ${fl.ProfileFolder ? fl.ProfileFolder.UTC||'?' : 'N/A'}\nNTUSER.DAT:     ${fl.NTUserDat ? fl.NTUserDat.UTC||'?' : 'N/A'}\nRegistry key:   ${fl.RegistryKey ? fl.RegistryKey.UTC||'?' : 'N/A'}\nConfidence:     ${fl.Confidence||'?'}`
         : '';
+      const pfVal = fl.ProfileFolder ? (fl.ProfileFolder.Value || fl.ProfileFolder.UTC) : null;
+      const ntVal = fl.NTUserDat    ? (fl.NTUserDat.Value    || fl.NTUserDat.UTC)    : null;
+      const rkVal = fl.RegistryKey  ? (fl.RegistryKey.Value  || fl.RegistryKey.UTC)  : null;
+      const srcRow = (pfVal || ntVal || rkVal) ? `
+        <tr><td colspan="6" style="padding:1px 8px 5px 8px;font-size:11px;color:var(--muted)">
+          <span title="${esc(USER_TIPS.ProfileFolder)}">ProfileFolder: <span style="color:${pfVal?'var(--text)':'var(--red)'}">${pfVal ? esc(pfVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
+          &nbsp;&nbsp;
+          <span title="${esc(USER_TIPS.NTUserDat)}">NTUserDat: <span style="color:${ntVal?'var(--text)':'var(--red)'}">${ntVal ? esc(ntVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
+          &nbsp;&nbsp;
+          <span title="${esc(USER_TIPS.RegistryKey)}">RegistryKey: <span style="color:${rkVal?'var(--text)':'var(--red)'}">${rkVal ? esc(rkVal.slice(0,19).replace('T',' ')) : 'null'}</span></span>
+        </td></tr>` : '';
       html += `<tr>
         <td>${esc(a.host)}</td>
         <td title="${esc(tip)}">${fmtDate(fl.UTC)}</td>
@@ -2152,7 +2296,7 @@ function buildUserExpand(u) {
         <td title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(a.LastLogon)}</td>
         <td class="mono" style="font-size:10px">${esc(a.ProfilePath||'—')}</td>
         <td title="${esc(USER_TIPS.IsLoaded)}">${a.IsLoaded ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
-      </tr>`;
+      </tr>${srcRow}`;
       if (fl.TamperedFlag) {
         html += `<tr><td colspan="6" style="color:var(--red);font-size:11px">⚠ TAMPERED: ${esc(fl.TamperedNote||'')}</td></tr>`;
       }

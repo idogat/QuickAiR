@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "3.1";
+const ANALYZER_VERSION = "3.2";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -19,6 +19,32 @@ const state = {
     .sort-arrow { color: var(--muted); font-size: 0.8em; }
     .sort-arrow.asc { color: var(--accent); }
     .sort-arrow.desc { color: var(--accent); }
+  `;
+  document.head.appendChild(s);
+})();
+
+(function injectHostSelectorCSS() {
+  const s = document.createElement('style');
+  s.textContent = `
+    .host-selector-wrap{position:relative;display:inline-block;vertical-align:middle}
+    .host-selector-current{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:4px 22px 4px 8px;font-family:inherit;font-size:12px;border-radius:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;min-width:140px;display:inline-block;position:relative}
+    .host-selector-current:after{content:'▾';position:absolute;right:5px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+    .host-selector-current:hover{border-color:var(--accent)}
+    .host-dropdown{position:absolute;top:calc(100% + 2px);left:0;z-index:200;background:var(--surface);border:1px solid var(--border);border-radius:4px;min-width:220px;max-height:300px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,.5)}
+    .host-dropdown-item{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--border)}
+    .host-dropdown-item:last-child{border-bottom:none}
+    .host-dropdown-item:hover{background:var(--row-hov)}
+    .host-dropdown-item.active .host-name{color:var(--accent)}
+    .host-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;cursor:pointer}
+    .host-name:hover{color:var(--accent)}
+    .host-rm-btn{background:none!important;border:none!important;color:var(--muted);padding:2px 4px;cursor:pointer;font-size:13px;flex-shrink:0;line-height:1}
+    .host-rm-btn:hover{color:var(--red)!important}
+    .host-rm-confirm{color:var(--red)!important;border-color:var(--red)!important;font-size:10px;padding:1px 5px}
+    .host-rm-cancel{font-size:10px;padding:1px 5px}
+    .fleet-rm-cell{display:flex!important;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:14px}
+    .fleet-rm-cell:hover{color:var(--red)}
+    .fleet-rm-confirm{color:var(--red)!important;border-color:var(--red)!important;font-size:10px;padding:1px 4px}
+    .fleet-rm-cancel{font-size:10px;padding:1px 4px}
   `;
   document.head.appendChild(s);
 })();
@@ -352,15 +378,86 @@ function updateTabVisibility() {
   }
 }
 
+function removeHost(hostname) {
+  if (!state.hosts[hostname]) return;
+  const wasActive = (state.activeHost === hostname);
+  delete state.hosts[hostname];
+  const remaining = Object.keys(state.hosts);
+  rebuildUserIndex();
+  rebuildHostSelector();
+  updateBadges();
+  updateMeta();
+  updateTabVisibility();
+  const dd = el('hostSelectorDropdown');
+  if (dd) dd.style.display = 'none';
+  if (remaining.length === 0) {
+    state.activeHost = null;
+    const ph = document.getElementById('placeholder');
+    if (ph) ph.classList.add('show');
+    renderActiveTab();
+  } else if (wasActive) {
+    switchHost(remaining[0]);
+  } else {
+    renderActiveTab();
+  }
+}
+
 function rebuildHostSelector() {
-  const sel = document.getElementById('hostSelector');
-  sel.innerHTML = '';
-  Object.keys(state.hosts).forEach(h => {
-    const o = document.createElement('option');
-    o.value = h; o.textContent = h;
-    if (h === state.activeHost) o.selected = true;
-    sel.appendChild(o);
-  });
+  const curr = el('hostSelectorCurrent');
+  const dd   = el('hostSelectorDropdown');
+  if (!curr || !dd) return;
+  const hosts = Object.keys(state.hosts);
+  if (hosts.length === 0) {
+    curr.textContent = '-- No files loaded --';
+    dd.innerHTML = '';
+    return;
+  }
+  curr.textContent = state.activeHost || hosts[0];
+  dd.innerHTML = hosts.map(h => `
+    <div class="host-dropdown-item${h === state.activeHost ? ' active' : ''}">
+      <span class="host-name" onclick="selectHostFromDropdown('${esc(h)}')">${esc(h)}</span>
+      <button class="host-rm-btn" onclick="hostDropdownStartRemove(event,'${esc(h)}')" title="Remove host">×</button>
+    </div>`).join('');
+}
+
+function toggleHostDropdown(e) {
+  if (e) e.stopPropagation();
+  const dd = el('hostSelectorDropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' ? '' : 'none';
+}
+
+function selectHostFromDropdown(hostname) {
+  const dd = el('hostSelectorDropdown');
+  if (dd) dd.style.display = 'none';
+  switchHost(hostname);
+}
+
+function hostDropdownStartRemove(e, hostname) {
+  e.stopPropagation();
+  const item = e.target.closest('.host-dropdown-item');
+  if (!item) { removeHost(hostname); return; }
+  if (item._removeTimer) clearTimeout(item._removeTimer);
+  item.innerHTML = `<span class="host-name">${esc(hostname)}</span>
+    <button class="host-rm-confirm" onclick="hostDropdownConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button>
+    <button class="host-rm-cancel" onclick="hostDropdownCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+  item._removeTimer = setTimeout(() => {
+    if (item.isConnected) rebuildHostSelector();
+  }, 3000);
+}
+
+function hostDropdownConfirmRemove(e, hostname) {
+  e.stopPropagation();
+  const item = e.target.closest('.host-dropdown-item');
+  if (item && item._removeTimer) clearTimeout(item._removeTimer);
+  removeHost(hostname);
+}
+
+function hostDropdownCancelRemove(e, hostname) {
+  e.stopPropagation();
+  const item = e.target.closest('.host-dropdown-item');
+  if (item && item._removeTimer) clearTimeout(item._removeTimer);
+  rebuildHostSelector();
 }
 
 function switchHost(h) {
@@ -370,6 +467,7 @@ function switchHost(h) {
   // Reset users view state on every host switch (userIndex is global — do NOT rebuild)
   usersView   = 'peruser';
   usersSearch = '';
+  rebuildHostSelector();
   updateBadges();
   updateMeta();
   updateTabVisibility();
@@ -616,6 +714,9 @@ document.addEventListener('click', e => {
   if (gs && !gs.contains(e.target) && e.target.id !== 'globalSearch') {
     gs.classList.remove('show');
   }
+  const hwrap = el('hostSelectorWrap');
+  const hdd   = el('hostSelectorDropdown');
+  if (hdd && hwrap && !hwrap.contains(e.target)) hdd.style.display = 'none';
 });
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

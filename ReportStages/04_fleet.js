@@ -1,6 +1,32 @@
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
 let fleetSort = { col: 'hostname', dir: 1 };
 
+const _fleetRemoveTimers = {};
+
+function fleetStartRemove(e, hostname) {
+  e.stopPropagation();
+  const cell = e.currentTarget;
+  if (_fleetRemoveTimers[hostname]) clearTimeout(_fleetRemoveTimers[hostname]);
+  cell.innerHTML = `<button class="fleet-rm-confirm" onclick="fleetConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button> <button class="fleet-rm-cancel" onclick="fleetCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+  _fleetRemoveTimers[hostname] = setTimeout(() => {
+    if (cell.isConnected) cell.innerHTML = '×';
+    delete _fleetRemoveTimers[hostname];
+  }, 3000);
+}
+
+function fleetConfirmRemove(e, hostname) {
+  e.stopPropagation();
+  if (_fleetRemoveTimers[hostname]) { clearTimeout(_fleetRemoveTimers[hostname]); delete _fleetRemoveTimers[hostname]; }
+  removeHost(hostname);
+}
+
+function fleetCancelRemove(e, hostname) {
+  e.stopPropagation();
+  if (_fleetRemoveTimers[hostname]) { clearTimeout(_fleetRemoveTimers[hostname]); delete _fleetRemoveTimers[hostname]; }
+  const cell = e.target.closest('.fleet-rm-cell');
+  if (cell) cell.innerHTML = '×';
+}
+
 function renderFleet() {
   const panel = el('panel-fleet');
   const hosts = Object.keys(state.hosts);
@@ -25,8 +51,9 @@ function renderFleet() {
     return;
   }
 
-  const COLS = '180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px';
+  const COLS = '36px 180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px';
   const headers = [
+    { key:'_remove',            label:''                 },
     { key:'hostname',           label:'Hostname'         },
     { key:'target_os_caption',  label:'OS'               },
     { key:'target_ps_version',  label:'PS'               },
@@ -78,6 +105,7 @@ function renderFleet() {
 
   function headerHTML() {
     return headers.map(h => {
+      if (h.key === '_remove') return '<div class="th" style="padding:0"></div>';
       const numeric = /count$|_count$|ps_version$/.test(h.key);
       const arrow = (sortState.tab === 'fleet' && sortState.column === h.key)
         ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
@@ -103,6 +131,7 @@ function renderFleet() {
       const nicTip = row._adapter_names.length ? row._adapter_names.join('\n') : '';
       const nicColor = row.nic_count >= 2 ? 'accent' : 'dim';
       return `
+      <div class="td fleet-rm-cell" onclick="fleetStartRemove(event,'${esc(row.hostname)}')">×</div>
       <div class="td">${esc(row.hostname)}</div>
       <div class="td dim">${esc(row.target_os_caption||'')}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
