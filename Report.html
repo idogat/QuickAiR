@@ -422,71 +422,63 @@ function reapplyColWidthsFromStorage(tabName, vsEl) {
 // ── CROSS-HOST USER INDEX ─────────────────────────────────────────────────────
 function buildUserIndex(allHosts) {
   const idx = {};
+
   allHosts.forEach(host => {
-    const users = host.Users;
-    if (!users) return;
+    const u = host.Users;
+    if (!u) return;
     const hostname = host.manifest ? host.manifest.hostname : '?';
 
-    // Domain accounts from DC — keyed by SID
-    if (users.domain_accounts) {
-      users.domain_accounts.forEach(u => {
-        if (!u.SID) return;
-        if (!idx[u.SID]) idx[u.SID] = {
-          SID: u.SID, username: u.SamAccountName, displayName: u.DisplayName || u.SamAccountName,
-          domainAccount: null, appearances: [], sessions: [], groups: []
-        };
-        idx[u.SID].domainAccount = {
-          host: hostname, WhenCreated: u.WhenCreatedUTC, LastLogon: u.LastLogonUTC,
-          PasswordLastSet: u.PasswordLastSetUTC, Enabled: u.Enabled,
-          LockedOut: u.LockedOut, BadLogonCount: u.BadLogonCount, Source: u.Source
-        };
-      });
-    }
-
-    // Profiles — keyed by SID
-    if (users.profiles) {
-      users.profiles.forEach(p => {
-        if (!p.SID) return;
-        if (!idx[p.SID]) idx[p.SID] = {
-          SID: p.SID, username: p.Username, displayName: p.Username,
-          domainAccount: null, appearances: [], sessions: [], groups: []
-        };
-        if (!idx[p.SID].username) idx[p.SID].username = p.Username;
-        idx[p.SID].appearances.push({
-          host: hostname, FirstLogon: p.FirstLogon, LastLogon: p.LastUseTimeUTC,
-          AccountType: p.AccountType, ProfilePath: p.ProfilePath,
-          IsLoaded: p.IsLoaded, TimestampMismatch: p.FirstLogon ? p.FirstLogon.TimestampMismatch : false
+    // Index users by SID
+    if (u.users) {
+      u.users.forEach(user => {
+        const key = user.SID;
+        if (!key) return;
+        if (!idx[key]) {
+          idx[key] = {
+            SID:         user.SID,
+            Username:    user.Username,
+            Domain:      user.Domain,
+            AccountType: user.AccountType,
+            SIDMetadata: user.SIDMetadata,
+            domainInfo:  null,
+            machines:    []
+          };
+        }
+        idx[key].machines.push({
+          hostname:        hostname,
+          FirstLogon:      user.FirstLogon,
+          LastLogon:       user.LastLogonUTC,
+          LastLogonSource: user.LastLogonSource,
+          ProfilePath:     user.ProfilePath,
+          IsLoaded:        user.IsLoaded,
+          HasLocalAccount: user.HasLocalAccount,
+          LocalDisabled:   user.LocalDisabled
         });
       });
     }
 
-    // Sessions — keyed by SID
-    if (users.sessions) {
-      users.sessions.forEach(s => {
-        if (!s.SID) return;
-        if (!idx[s.SID]) idx[s.SID] = {
-          SID: s.SID, username: s.Username, displayName: s.Username,
-          domainAccount: null, appearances: [], sessions: [], groups: []
-        };
-        if (!idx[s.SID].username) idx[s.SID].username = s.Username;
-        idx[s.SID].sessions.push({
-          host: hostname, LogonType: s.LogonType, LogonTypeName: s.LogonTypeName,
-          LogonTimeUTC: s.LogonTimeUTC, SessionId: s.LogonId,
-          IsReallyActive: s.IsReallyActive, HasActiveProcesses: s.HasActiveProcesses
-        });
-      });
-    }
-
-    // Group membership — keyed by MemberSID
-    if (users.group_members) {
-      users.group_members.forEach(m => {
-        if (!m.MemberSID) return;
-        if (idx[m.MemberSID]) {
-          idx[m.MemberSID].groups.push({ host: hostname, GroupName: m.GroupName, IsLocal: m.IsLocal });
+    // Enrich with DC domain_accounts by SID
+    if (u.domain_accounts) {
+      u.domain_accounts.forEach(da => {
+        const key = da.SID;
+        if (!key) return;
+        if (idx[key]) {
+          idx[key].domainInfo = {
+            dcHost:          hostname,
+            WhenCreated:     da.WhenCreatedUTC,
+            LastLogonAD:     da.LastLogonUTC,
+            PasswordLastSet: da.PasswordLastSetUTC,
+            Enabled:         da.Enabled,
+            LockedOut:       da.LockedOut,
+            BadLogonCount:   da.BadLogonCount,
+            Source:          da.Source
+          };
+          if (da.SamAccountName) idx[key].Username = da.SamAccountName;
         }
       });
     }
   });
+
   return idx;
 }
 
@@ -2078,69 +2070,81 @@ function dnsSortBy(col) {
 })();
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
-// Cross-host user correlation. Reads window.userIndex (built by buildUserIndex).
+// Unified table — one row per unique SID, cross-host correlation via userIndex.
 
-let usersView  = 'peruser';   // 'peruser' | 'perhost'
-let usersSearch= '';
-let usersData  = [];          // flat array of userIndex entries for virtual scroll
+let usersSearch    = '';
+let usersTypeFilter= 'All';
+let usersConfFilter= 'All';
+let usersNoDcFilter= false;
+let usersData      = [];
 
-// ── Field tooltips ────────────────────────────────────────────────────────────
-const USER_TIPS = {
-  FirstLogon:      "Earliest of: profile folder creation time, NTUSER.DAT creation time, ProfileList registry key write time",
-  ProfileFolder:   "Profile folder CreationTime\n(created on first logon, can be modified)",
-  NTUserDat:       "NTUSER.DAT CreationTime\n(created with profile on first logon)",
-  RegistryKey:     "Registry: HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\<SID>\nLastWrite time — set when profile registered",
-  LastUseTime:     "ProfileList LastUseTime value\n(updated on each logoff)",
-  WhenCreated:     "AD whenCreated attribute\n(set at account creation, DC only)",
-  LastLogonAD:     "AD lastLogonTimestamp\n(replicates every 9-14 days, may be stale)",
-  IsLoaded:        "ProfileList State value\n(1=currently loaded, 0=not loaded)",
-  LogonType:       "Win32_LogonSession LogonType\n2=Interactive 3=Network 4=Batch\n5=Service 7=Unlock 10=RDP 11=Cached",
-  SID:             "ProfileList key name (SID)\nS-1-5-21-<machine>-* = local\nS-1-5-21-<domain>-* = domain",
-  Confidence:      "Cross-check of three sources:\n1. C:\\Users\\<username>\\ CreationTime\n2. C:\\Users\\<username>\\NTUSER.DAT CreationTime\n3. HKLM\\...\\ProfileList\\<SID> LastWrite time\nHIGH=all agree MEDIUM=two agree\nLOW=one source ?=none agree",
-};
+// ── Constants ─────────────────────────────────────────────────────────────────
+const CONF_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2, '?': 3, 'N/A': 4 };
 
 const CONF_BADGE = {
-  HIGH:     '<span style="color:var(--green)">✓ HIGH</span>',
-  MEDIUM:   '<span style="color:var(--amber)">~ MEDIUM</span>',
-  LOW:      '<span style="color:var(--muted)">? LOW</span>',
-  '?':      '<span style="color:var(--amber)">? ?</span>',
-  'N/A':    '<span style="color:var(--muted)">—</span>',
-  TAMPERED: '<span style="color:var(--amber)">? ?</span>',  // legacy compat
+  HIGH:   '<span style="color:var(--green)">&#10003; HIGH</span>',
+  MEDIUM: '<span style="color:var(--amber)">~ MEDIUM</span>',
+  LOW:    '<span style="color:var(--muted)">? LOW</span>',
+  '?':    '<span style="color:var(--amber)">? ?</span>',
+  'N/A':  '<span style="color:var(--muted)">&#8212;</span>',
 };
 
-// Determine IsReallyActive with fallback for older JSON lacking the field
-function sessionIsActive(s) {
-  if (s.IsReallyActive !== undefined && s.IsReallyActive !== null) return s.IsReallyActive;
-  // Legacy fallback: service/batch sessions are always considered active
-  const lt = s.LogonType;
-  return (lt === 4 || lt === 5);
+const USER_TIPS = {
+  FirstLogon:  'Earliest of: profile folder creation time, NTUSER.DAT creation time, ProfileList registry key write time',
+  LastLogon:   'Source: ProfileList LastUseTime\nupdated on each logoff',
+  WhenCreated: 'AD whenCreated attribute\nset at account creation, DC only',
+  LastLogonAD: 'AD lastLogonTimestamp\nreplicates every 9-14 days, may be stale by up to 14 days',
+  IsLoaded:    'ProfileList State flag (1 = currently loaded)',
+  SID:         'S-1-5-21-<machine>-* = local account\nS-1-5-21-<domain>-* = domain account',
+  Confidence:  'Cross-check of three sources:\n1. Profile folder CreationTime\n2. NTUSER.DAT CreationTime\n3. ProfileList registry key LastWrite\nHIGH=all agree  MEDIUM=two agree  LOW=one source  ?=none agree',
+};
+
+const UCOLS = '160px 100px 130px 110px 130px 110px 70px 100px';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function confBadge(c)  { return CONF_BADGE[c] || '<span>' + esc(c || '?') + '</span>'; }
+function fmtDate(s)    { if (!s) return '<span style="color:var(--muted)">&#8212;</span>'; return esc(s.slice(0, 10)); }
+function fmtTs(s)      { if (!s) return '&#8212;'; return esc(s.slice(0, 19).replace('T', ' ')); }
+
+function acctTypeBadge(t) {
+  const styles = {
+    Local:   'background:var(--muted);color:var(--bg)',
+    Domain:  'background:var(--accent);color:var(--bg)',
+    System:  'background:var(--border);color:var(--text)',
+    Service: 'background:var(--border);color:var(--text)',
+  };
+  const s = styles[t] || 'background:var(--border);color:var(--text)';
+  return '<span style="' + s + ';padding:1px 5px;border-radius:3px;font-size:10px">' + esc(t || '?') + '</span>';
 }
 
-const CONF_ORDER = { HIGH: 0, MEDIUM: 1, LOW: 2, '?': 3, 'N/A': 4 };
+function usersGetFirstLogon(u) {
+  let best = null;
+  u.machines.forEach(m => {
+    if (!m.FirstLogon || !m.FirstLogon.UTC) return;
+    if (!best || m.FirstLogon.UTC < best.UTC) best = m.FirstLogon;
+  });
+  return best;
+}
+
+function usersGetLastLogon(u) {
+  let best = null;
+  u.machines.forEach(m => {
+    if (!m.LastLogon) return;
+    if (!best || m.LastLogon > best) best = m.LastLogon;
+  });
+  return best;
+}
 
 function usersGetBestConf(u) {
   let best = 'N/A';
-  u.appearances.forEach(a => {
-    const c = a.FirstLogon ? (a.FirstLogon.Confidence || 'N/A') : 'N/A';
+  u.machines.forEach(m => {
+    const c = m.FirstLogon ? (m.FirstLogon.Confidence || 'N/A') : 'N/A';
     if ((CONF_ORDER[c] ?? 99) < (CONF_ORDER[best] ?? 99)) best = c;
   });
   return best;
 }
 
-function usersGetFirstSeen(u) {
-  return u.appearances.reduce((best, a) => {
-    if (!a.FirstLogon || !a.FirstLogon.UTC) return best;
-    return (!best || a.FirstLogon.UTC < best) ? a.FirstLogon.UTC : best;
-  }, null);
-}
-
-function usersGetLastSeen(u) {
-  return u.appearances.reduce((best, a) => {
-    if (!a.LastLogon) return best;
-    return (!best || a.LastLogon > best) ? a.LastLogon : best;
-  }, null);
-}
-
+// ── Sort ──────────────────────────────────────────────────────────────────────
 function usersSortRows(rows) {
   if (!sortState.tab || sortState.tab !== 'users' || sortState.dir === 'none') return rows;
   const dir = sortState.dir === 'asc' ? 1 : -1;
@@ -2148,16 +2152,18 @@ function usersSortRows(rows) {
   return rows.slice().sort((a, b) => {
     let av, bv;
     switch (col) {
-      case 'username':   av = str(a.username || a.SID); bv = str(b.username || b.SID); break;
-      case 'acctType':   av = str(a.appearances.length > 0 ? a.appearances[0].AccountType : '');
-                         bv = str(b.appearances.length > 0 ? b.appearances[0].AccountType : ''); break;
-      case 'dcCreated':  av = a.domainAccount ? (a.domainAccount.WhenCreated || '') : '';
-                         bv = b.domainAccount ? (b.domainAccount.WhenCreated || '') : ''; break;
-      case 'hosts':      return (a.appearances.length - b.appearances.length) * dir;
-      case 'firstSeen':  av = usersGetFirstSeen(a) || ''; bv = usersGetFirstSeen(b) || ''; break;
-      case 'lastSeen':   av = usersGetLastSeen(a) || ''; bv = usersGetLastSeen(b) || ''; break;
-      case 'active':     av = a.sessions.length > 0 ? 'yes' : ''; bv = b.sessions.length > 0 ? 'yes' : ''; break;
-      case 'domainAcct': av = a.domainAccount ? 'yes' : ''; bv = b.domainAccount ? 'yes' : ''; break;
+      case 'username':   av = str(a.Username); bv = str(b.Username); break;
+      case 'acctType':   av = str(a.AccountType); bv = str(b.AccountType); break;
+      case 'domain':     av = str(a.Domain); bv = str(b.Domain); break;
+      case 'dcCreated':
+        av = a.domainInfo ? (a.domainInfo.WhenCreated || '') : '';
+        bv = b.domainInfo ? (b.domainInfo.WhenCreated || '') : ''; break;
+      case 'firstLogin': {
+        const af = usersGetFirstLogon(a); const bf = usersGetFirstLogon(b);
+        av = af ? af.UTC : ''; bv = bf ? bf.UTC : ''; break;
+      }
+      case 'lastLogin':  av = usersGetLastLogon(a) || ''; bv = usersGetLastLogon(b) || ''; break;
+      case 'machines':   return (a.machines.length - b.machines.length) * dir;
       case 'confidence': {
         const ao = CONF_ORDER[usersGetBestConf(a)] ?? 99;
         const bo = CONF_ORDER[usersGetBestConf(b)] ?? 99;
@@ -2172,66 +2178,26 @@ function usersSortRows(rows) {
   });
 }
 
-function confBadge(c) { return CONF_BADGE[c] || `<span>${esc(c||'?')}</span>`; }
-function fmtDate(s)   { if (!s) return '<span style="color:var(--muted)">—</span>'; return esc(s.slice(0,10)); }
-function fmtTs(s)     { if (!s) return '—'; return s.slice(0,19).replace('T',' '); }
-
-// ── MAIN RENDER ───────────────────────────────────────────────────────────────
-function renderUsers() {
-  const panel = el('panel-users');
-  if (!panel) return;
-
-  const hasAnyUsers = Object.values(state.hosts).some(h => h.Users);
-  if (!hasAnyUsers) {
-    panel.innerHTML = '<div class="solo-notice">No Users data loaded.</div>';
-    return;
-  }
-
-  panel.innerHTML = `
-    <div class="filter-bar" style="margin-bottom:10px">
-      <button id="users-btn-peruser" ${usersView==='peruser'?'class="active"':''} onclick="usersSetView('peruser')">Per User</button>
-      <button id="users-btn-perhost" ${usersView==='perhost'?'class="active"':''} onclick="usersSetView('perhost')">Per Host</button>
-      <span class="sep">|</span>
-      <input type="text" id="users-search" value="${esc(usersSearch)}" placeholder="Search username, SID, group…" style="width:280px"
-             oninput="usersSearch=this.value;usersApplyFilters()">
-      <span id="users-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
-    </div>
-    <div id="users-view-container"></div>`;
-
-  usersApplyFilters();
-  setTimeout(() => addResizeHandles('users-header', 'users'), 0);
-}
-
-function usersSetView(v) {
-  usersView = v;
-  el('users-btn-peruser').classList.toggle('active', v === 'peruser');
-  el('users-btn-perhost').classList.toggle('active', v === 'perhost');
-  usersApplyFilters();
-  setTimeout(() => addResizeHandles('users-header', 'users'), 0);
-}
-
+// ── Filter + render ───────────────────────────────────────────────────────────
 function usersApplyFilters() {
-  const container = el('users-view-container');
-  if (!container) return;
-  if (usersView === 'perhost') { renderUsersPerHost(container); return; }
-  renderUsersPerUser(container);
-}
-
-// ── PER USER VIEW ─────────────────────────────────────────────────────────────
-const UCOLS = '160px 100px 120px 70px 120px 120px 80px 90px 70px';
-
-function renderUsersPerUser(container) {
   const idx = window.userIndex || {};
   const lq  = usersSearch.toLowerCase();
 
   let rows = Object.values(idx).filter(u => {
-    if (!lq) return true;
-    return (str(u.username).includes(lq) || str(u.SID).includes(lq) ||
-            u.groups.some(g => str(g.GroupName).includes(lq)));
+    if (lq && !str(u.Username).toLowerCase().includes(lq) &&
+              !str(u.Domain).toLowerCase().includes(lq) &&
+              !str(u.SID).toLowerCase().includes(lq)) return false;
+    if (usersTypeFilter !== 'All' && u.AccountType !== usersTypeFilter) return false;
+    if (usersConfFilter !== 'All' && usersGetBestConf(u) !== usersConfFilter) return false;
+    if (usersNoDcFilter) {
+      if (u.AccountType !== 'Domain') return false;
+      if (u.domainInfo) return false;
+    }
+    return true;
   });
 
   if (sortState.tab !== 'users' || sortState.dir === 'none') {
-    rows.sort((a, b) => str(a.username).localeCompare(str(b.username)));
+    rows.sort((a, b) => str(a.Username).localeCompare(str(b.Username)));
   } else {
     rows = usersSortRows(rows);
   }
@@ -2240,55 +2206,117 @@ function renderUsersPerUser(container) {
   const cnt = el('users-count');
   if (cnt) cnt.textContent = rows.length + ' users';
 
-  container.innerHTML = `
+  if (state.vsInstances['users']) {
+    state.vsInstances['users'].update(rows);
+  } else {
+    state.vsInstances['users'] = createVS('users-vs', UCOLS, rows, renderUserRow, onUserRowClick, 'users');
+  }
+}
+
+// ── Main render ───────────────────────────────────────────────────────────────
+function renderUsers() {
+  const panel = el('panel-users');
+  if (!panel) return;
+
+  const hasAnyUsers = Object.values(state.hosts).some(h => h.Users);
+  if (!hasAnyUsers) {
+    panel.innerHTML = '<div class="solo-notice">Load a JSON file to see user data.</div>';
+    return;
+  }
+
+  const hasUsersData = Object.values(state.hosts).some(h => h.Users && h.Users.users && h.Users.users.length > 0);
+  if (!hasUsersData) {
+    panel.innerHTML = '<div class="solo-notice">No user data in this JSON.</div>';
+    return;
+  }
+
+  // DC banner: domain users present but no DC JSON loaded
+  const idx = window.userIndex || {};
+  const hasDomainUsers = Object.values(idx).some(u => u.AccountType === 'Domain');
+  const hasDcLoaded    = Object.values(state.hosts).some(h => h.Users && h.Users.is_domain_controller);
+  const showDcBanner   = hasDomainUsers && !hasDcLoaded;
+
+  panel.innerHTML = (showDcBanner ? `
+    <div style="background:rgba(255,180,0,0.1);border:1px solid var(--amber);border-radius:4px;padding:7px 12px;margin-bottom:8px;font-size:12px;color:var(--amber)">
+      Load DC JSON to see account creation dates</div>` : '') + `
+    <div class="filter-bar" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <input type="text" id="users-search" value="${esc(usersSearch)}" placeholder="Search username, domain, SID\u2026" style="width:240px"
+             oninput="usersSearch=this.value;usersApplyFilters()">
+      <select id="users-type-filter" onchange="usersTypeFilter=this.value;usersApplyFilters()">
+        <option value="All">All Types</option>
+        <option value="Local">Local</option>
+        <option value="Domain">Domain</option>
+        <option value="System">System</option>
+        <option value="Service">Service</option>
+      </select>
+      <select id="users-conf-filter" onchange="usersConfFilter=this.value;usersApplyFilters()">
+        <option value="All">All Confidence</option>
+        <option value="HIGH">HIGH</option>
+        <option value="MEDIUM">MEDIUM</option>
+        <option value="LOW">LOW</option>
+        <option value="?">?</option>
+      </select>
+      <label style="font-size:12px;cursor:pointer">
+        <input type="checkbox" id="users-nodc-filter" ${usersNoDcFilter?'checked':''} onchange="usersNoDcFilter=this.checked;usersApplyFilters()">
+        No DC data
+      </label>
+      <span id="users-count" style="color:var(--muted);font-size:11px;margin-left:4px"></span>
+    </div>
     <div class="tbl-wrap">
       <div class="tbl-header" style="grid-template-columns:${UCOLS}" id="users-header">
-        <div class="th sortable-th" onclick="sortTable('users','username',false)">Username <span class="sort-arrow" id="sort-users-username">⇅</span></div>
-        <div class="th sortable-th" onclick="sortTable('users','acctType',false)">Acct Type <span class="sort-arrow" id="sort-users-acctType">⇅</span></div>
-        <div class="th sortable-th" title="${esc(USER_TIPS.WhenCreated)}" onclick="sortTable('users','dcCreated',false)">Created (DC) <span class="sort-arrow" id="sort-users-dcCreated">⇅</span></div>
-        <div class="th sortable-th" onclick="sortTable('users','hosts',true)">Hosts <span class="sort-arrow" id="sort-users-hosts">⇅</span></div>
-        <div class="th sortable-th" title="${esc(USER_TIPS.FirstLogon)}" onclick="sortTable('users','firstSeen',false)">First Seen <span class="sort-arrow" id="sort-users-firstSeen">⇅</span></div>
-        <div class="th sortable-th" title="${esc(USER_TIPS.LastUseTime)}" onclick="sortTable('users','lastSeen',false)">Last Seen <span class="sort-arrow" id="sort-users-lastSeen">⇅</span></div>
-        <div class="th sortable-th" onclick="sortTable('users','active',false)">Active <span class="sort-arrow" id="sort-users-active">⇅</span></div>
-        <div class="th sortable-th" onclick="sortTable('users','domainAcct',false)">Domain Acct <span class="sort-arrow" id="sort-users-domainAcct">⇅</span></div>
-        <div class="th sortable-th" title="${esc(USER_TIPS.Confidence)}" onclick="sortTable('users','confidence',false)">Confidence <span class="sort-arrow" id="sort-users-confidence">⇅</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','username',false)">Username <span class="sort-arrow" id="sort-users-username">&#8645;</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','acctType',false)">Account Type <span class="sort-arrow" id="sort-users-acctType">&#8645;</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','domain',false)">Domain <span class="sort-arrow" id="sort-users-domain">&#8645;</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.WhenCreated)}" onclick="sortTable('users','dcCreated',false)">Created (DC) <span class="sort-arrow" id="sort-users-dcCreated">&#8645;</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.FirstLogon)}" onclick="sortTable('users','firstLogin',false)">First Login <span class="sort-arrow" id="sort-users-firstLogin">&#8645;</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.LastLogon)}" onclick="sortTable('users','lastLogin',false)">Last Login <span class="sort-arrow" id="sort-users-lastLogin">&#8645;</span></div>
+        <div class="th sortable-th" onclick="sortTable('users','machines',true)">Machines <span class="sort-arrow" id="sort-users-machines">&#8645;</span></div>
+        <div class="th sortable-th" title="${esc(USER_TIPS.Confidence)}" onclick="sortTable('users','confidence',false)">Confidence <span class="sort-arrow" id="sort-users-confidence">&#8645;</span></div>
       </div>
       <div id="users-vs"></div>
     </div>`;
 
-  state.vsInstances['users'] = createVS(
-    'users-vs', UCOLS, rows, renderUserRow, onUserRowClick, 'users');
+  // Restore filter dropdowns state
+  const typeSel = el('users-type-filter');
+  if (typeSel) typeSel.value = usersTypeFilter;
+  const confSel = el('users-conf-filter');
+  if (confSel) confSel.value = usersConfFilter;
+
+  state.vsInstances['users'] = null;
+  usersApplyFilters();
+  setTimeout(() => addResizeHandles('users-header', 'users'), 0);
 }
 
+// ── Row render ────────────────────────────────────────────────────────────────
 function renderUserRow(u) {
-  const hasMismatch   = u.appearances.some(a => a.TimestampMismatch);
-  const bestConf      = usersGetBestConf(u);
-  const isActive      = u.sessions.length > 0;
-  const isDomDisabled = u.domainAccount && u.domainAccount.Enabled === false;
+  const bestConf = usersGetBestConf(u);
+  const fl       = usersGetFirstLogon(u);
+  const lastLogon= usersGetLastLogon(u);
+  const dcDate   = u.domainInfo ? fmtDate(u.domainInfo.WhenCreated) : (
+    u.AccountType === 'Local'
+      ? '<span style="color:var(--muted)" title="Local accounts have no AD creation date">?</span>'
+      : '<span style="color:var(--muted)">&#8212;</span>'
+  );
 
-  let rowClass = '';
-  if (hasMismatch && bestConf === '?') rowClass = 'color:var(--amber)';
-  else if (isDomDisabled && u.appearances.length > 0) rowClass = 'color:var(--amber)';
-  else if (isActive) rowClass = 'color:var(--green)';
-
-  const acctType  = u.appearances.length > 0 ? (u.appearances[0].AccountType || '—') : '—';
-  const dcCreated = u.domainAccount ? fmtDate(u.domainAccount.WhenCreated) : '<span style="color:var(--muted)">—</span>';
-  const hostCount = u.appearances.length;
-  const firstSeen = usersGetFirstSeen(u);
-  const lastSeen  = usersGetLastSeen(u);
+  let firstLoginCell;
+  if (fl) {
+    firstLoginCell = fmtDate(fl.UTC) + ' ' + confBadge(fl.Confidence);
+  } else {
+    firstLoginCell = '<span style="color:var(--muted)">&#8212;</span>';
+  }
 
   return `
-    <div class="td mono" style="${rowClass}" title="${esc(USER_TIPS.SID)}\nSID: ${esc(u.SID)}">${esc(u.username||u.SID)}</div>
-    <div class="td dim">${esc(acctType)}</div>
-    <div class="td dim" title="${esc(USER_TIPS.WhenCreated)}">${dcCreated}</div>
-    <div class="td dim">${hostCount || '<span style="color:var(--muted)">—</span>'}</div>
-    <div class="td dim" title="${esc(USER_TIPS.FirstLogon)}">${fmtDate(firstSeen)}</div>
-    <div class="td dim" title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(lastSeen)}</div>
-    <div class="td">${isActive ? '<span style="color:var(--green)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</div>
-    <div class="td dim">${u.domainAccount ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</div>
+    <div class="td mono" title="${esc(USER_TIPS.SID)}\nSID: ${esc(u.SID)}">${esc(u.Username || u.SID)}</div>
+    <div class="td">${acctTypeBadge(u.AccountType)}</div>
+    <div class="td dim">${esc(u.Domain || '&#8212;')}</div>
+    <div class="td dim" title="${esc(USER_TIPS.WhenCreated)}">${dcDate}</div>
+    <div class="td dim" title="${esc(USER_TIPS.FirstLogon)}">${firstLoginCell}</div>
+    <div class="td dim" title="${esc(USER_TIPS.LastLogon)}">${fmtDate(lastLogon)}</div>
+    <div class="td dim" style="text-align:center">${u.machines.length || '<span style="color:var(--muted)">&#8212;</span>'}</div>
     <div class="td">${confBadge(bestConf)}</div>`;
 }
 
+// ── Row click ─────────────────────────────────────────────────────────────────
 function onUserRowClick(i, u, rowEl) {
   const vs   = state.vsInstances['users'];
   const prev = state.expandedRows['users'];
@@ -2300,266 +2328,114 @@ function onUserRowClick(i, u, rowEl) {
   if (vs) vs.expand(i, expand);
 }
 
+// ── Row expand ────────────────────────────────────────────────────────────────
 function buildUserExpand(u) {
-  let html = '';
+  let html = '<div style="padding:10px 14px">';
 
-  // ── Section 1: Domain account ──
-  if (u.domainAccount) {
-    const da = u.domainAccount;
-    const src = da.Source || '?';
+  // ── SECTION 1: IDENTITY ──
+  html += `
+    <h4 style="margin:0 0 6px">Identity</h4>
+    <div class="kv-grid" style="margin-bottom:12px">
+      <span class="k" title="${esc(USER_TIPS.SID)}">SID</span>
+        <span class="v mono" style="font-size:11px;cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(u.SID)}')" title="Click to copy">${esc(u.SID)}</span>
+      <span class="k">Account Type</span>
+        <span class="v">${acctTypeBadge(u.AccountType)}</span>
+      <span class="k">Domain</span>
+        <span class="v">${esc(u.Domain || '&#8212;')}</span>`;
+
+  if (u.SIDMetadata && u.SIDMetadata.WellKnown) {
+    html += `
+      <span class="k">Well-Known</span>
+        <span class="v" style="color:var(--amber)">${esc(u.SIDMetadata.Description)}</span>`;
+  }
+  if (u.HasLocalAccount) {
+    const disStr = u.LocalDisabled === true ? ' <span style="color:var(--amber)">(disabled)</span>' : '';
+    html += `
+      <span class="k">Local Account</span>
+        <span class="v" style="color:var(--green)">&#10003; exists${disStr}</span>`;
+  }
+  html += '</div>';
+
+  // ── SECTION 2: DOMAIN INFO ──
+  if (u.domainInfo) {
+    const di  = u.domainInfo;
+    const src = di.Source || '?';
     const srcColor = src === 'Get-ADUser' ? 'var(--green)' : 'var(--accent)';
     html += `
-      <h4 style="margin-bottom:6px">Domain Account
-        <span style="background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:1px 6px;border-radius:3px;font-size:10px;color:${srcColor};margin-left:8px">${esc(src)}</span>
+      <h4 style="margin:0 0 6px">Domain Info
+        <span style="background:rgba(0,0,0,.3);border:1px solid var(--border);padding:1px 6px;border-radius:3px;font-size:10px;color:${srcColor};margin-left:8px">${esc(src)}</span>
+        <span style="color:var(--muted);font-size:11px;margin-left:6px">From DC: ${esc(di.dcHost)}</span>
       </h4>
-      <div class="kv-grid" style="margin-bottom:10px">
+      <div class="kv-grid" style="margin-bottom:12px">
         <span class="k" title="${esc(USER_TIPS.WhenCreated)}">Created</span>
-          <span class="v">${esc(fmtTs(da.WhenCreated))}</span>
+          <span class="v">${fmtTs(di.WhenCreated)}</span>
         <span class="k" title="${esc(USER_TIPS.LastLogonAD)}">Last Logon (AD)</span>
-          <span class="v">${esc(fmtTs(da.LastLogon))}</span>
+          <span class="v">${fmtTs(di.LastLogonAD)}</span>
         <span class="k">Password Last Set</span>
-          <span class="v">${esc(fmtTs(da.PasswordLastSet))}</span>
+          <span class="v">${fmtTs(di.PasswordLastSet)}</span>
         <span class="k">Enabled</span>
-          <span class="v" style="color:${da.Enabled?'var(--green)':'var(--red)'}">${da.Enabled?'yes':'no'}</span>
+          <span class="v" style="color:${di.Enabled?'var(--green)':'var(--red)'}">${di.Enabled ? '&#10003;' : '&#10007;'}</span>
         <span class="k">Locked Out</span>
-          <span class="v" style="color:${da.LockedOut?'var(--red)':'var(--muted)'}">${da.LockedOut?'YES':'no'}</span>
+          <span class="v" style="color:${di.LockedOut?'var(--red)':'var(--muted)'}">${di.LockedOut ? 'YES' : '&#8212;'}</span>
         <span class="k">Bad Logon Count</span>
-          <span class="v" style="color:${(da.BadLogonCount>0)?'var(--amber)':'var(--muted)'}">${da.BadLogonCount||0}</span>
-        <span class="k">DC Host</span>
-          <span class="v">${esc(da.host)}</span>
+          <span class="v" style="color:${(di.BadLogonCount>0)?'var(--amber)':'var(--muted)'}">${di.BadLogonCount || 0}</span>
       </div>`;
+  } else if (u.AccountType === 'Domain') {
+    html += `
+      <div style="background:rgba(255,180,0,.08);border:1px solid var(--amber);border-radius:4px;padding:7px 10px;margin-bottom:12px;font-size:12px;color:var(--amber)">
+        No DC data &#8212; load DC JSON to see account creation date</div>`;
+  } else if (u.AccountType === 'Local') {
+    html += `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:7px 10px;margin-bottom:12px;font-size:12px;color:var(--muted)">
+        Local account &#8212; no AD data available</div>`;
   }
 
-  // ── Section 2: Appearances per host ──
-  if (u.appearances.length > 0) {
-    html += `<h4 style="margin-bottom:6px">Profile Appearances (${u.appearances.length} host${u.appearances.length!==1?'s':''})</h4>
+  // ── SECTION 3: MACHINE APPEARANCES ──
+  if (u.machines.length > 0) {
+    html += `
+      <h4 style="margin:0 0 6px">Machine Appearances (${u.machines.length})</h4>
       <table class="expand-tbl" style="margin-bottom:10px">
         <tr>
-          <th>Host</th><th title="${esc(USER_TIPS.FirstLogon)}">First Logon</th>
+          <th>Machine</th>
+          <th title="${esc(USER_TIPS.FirstLogon)}">First Login</th>
           <th title="${esc(USER_TIPS.Confidence)}">Confidence</th>
-          <th title="${esc(USER_TIPS.LastUseTime)}">Last Logon</th>
-          <th>Profile Path</th><th title="${esc(USER_TIPS.IsLoaded)}">Loaded</th>
+          <th title="${esc(USER_TIPS.LastLogon)}">Last Login</th>
+          <th>Profile Path</th>
+          <th title="${esc(USER_TIPS.IsLoaded)}">Loaded</th>
         </tr>`;
-    u.appearances.forEach(a => {
-      const fl  = a.FirstLogon || {};
-      const tip = fl.ProfileFolder || fl.NTUserDat || fl.RegistryKey
-        ? `Profile folder: ${fl.ProfileFolder ? fl.ProfileFolder.UTC||'?' : 'N/A'}\nNTUSER.DAT:     ${fl.NTUserDat ? fl.NTUserDat.UTC||'?' : 'N/A'}\nRegistry key:   ${fl.RegistryKey ? fl.RegistryKey.UTC||'?' : 'N/A'}\nConfidence:     ${fl.Confidence||'?'}`
-        : '';
+
+    u.machines.forEach(m => {
+      const fl  = m.FirstLogon || {};
+      const pf  = fl.ProfileFolder || {};
+      const nt  = fl.NTUserDat || {};
+      const rk  = fl.RegistryKey || {};
+      const tip = 'Profile folder:\n  ' + (pf.Value || 'N/A') +
+                  '\nNTUSER.DAT:\n  ' + (nt.Value || 'N/A') +
+                  '\nProfileList key\n  (' + (rk.KeyPath || 'HKLM\\...\\ProfileList\\<SID>') + '):\n  ' + (rk.Value || 'N/A') +
+                  '\nConfidence: ' + (fl.Confidence || '?');
+      const lastTip = 'Source: ' + (m.LastLogonSource || 'ProfileList LastUseTime') + '\nupdated on each logoff';
+      const profPathFull = m.ProfilePath || '';
+      const profPathShort= profPathFull.length > 38 ? '&#8230;' + esc(profPathFull.slice(-36)) : esc(profPathFull || '&#8212;');
+
       html += `<tr>
-        <td>${esc(a.host)}</td>
-        <td title="${esc(tip)}">${fmtDate(fl.UTC)}</td>
+        <td>${esc(m.hostname)}</td>
+        <td title="${esc(tip)}">${fl.UTC ? esc(fl.UTC.slice(0,10)) : '<span style="color:var(--muted)">&#8212;</span>'} ${confBadge(fl.Confidence)}</td>
         <td title="${esc(USER_TIPS.Confidence)}">${confBadge(fl.Confidence)}</td>
-        <td title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(a.LastLogon)}</td>
-        <td class="mono" style="font-size:10px">${esc(a.ProfilePath||'—')}</td>
-        <td title="${esc(USER_TIPS.IsLoaded)}">${a.IsLoaded ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
+        <td title="${esc(lastTip)}">${m.LastLogon ? esc(m.LastLogon.slice(0,10)) : '<span style="color:var(--muted)">&#8212;</span>'}</td>
+        <td class="mono" style="font-size:10px" title="${esc(profPathFull)}">${profPathShort}</td>
+        <td style="text-align:center">${m.IsLoaded ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--muted)">&#8212;</span>'}</td>
       </tr>`;
+
       if (fl.TimestampMismatch) {
-        html += `<tr><td colspan="6" style="color:var(--amber);font-size:11px" title="${esc(fl.TamperedNote||'')}">? Timestamp mismatch: ${esc(fl.TamperedNote||'')}</td></tr>`;
+        html += `<tr><td colspan="6" style="color:var(--amber);font-size:11px">? Timestamp mismatch across sources</td></tr>`;
       }
     });
+
     html += '</table>';
   }
 
-  // ── Section 3: Active sessions ──
-  if (u.sessions.length > 0) {
-    const sortedSessions = u.sessions.slice().sort((a, b) => (sessionIsActive(b) ? 1 : 0) - (sessionIsActive(a) ? 1 : 0));
-    html += `<h4 style="margin-bottom:6px">Active Sessions (${u.sessions.length})</h4>
-      <table class="expand-tbl" style="margin-bottom:10px">
-        <tr><th>Host</th><th title="${esc(USER_TIPS.LogonType)}">Type</th><th>Type Name</th><th>Logon Time</th><th>Session ID</th><th>Active</th></tr>`;
-    sortedSessions.forEach(s => {
-      const activeCell = sessionIsActive(s)
-        ? '<span style="color:var(--green)">✓</span>'
-        : `<span style="color:var(--amber)" title="No running processes found in this session. May be disconnected or stale.">✗</span>`;
-      html += `<tr>
-        <td>${esc(s.host)}</td>
-        <td title="${esc(USER_TIPS.LogonType)}">${s.LogonType||'—'}</td>
-        <td>${esc(s.LogonTypeName||'—')}</td>
-        <td>${esc(fmtTs(s.LogonTimeUTC))}</td>
-        <td class="mono">${esc(s.SessionId||'—')}</td>
-        <td style="text-align:center">${activeCell}</td>
-      </tr>`;
-    });
-    html += '</table>';
-  }
-
-  // ── Section 4: Group membership ──
-  if (u.groups.length > 0) {
-    html += `<h4 style="margin-bottom:6px">Group Membership (${u.groups.length})</h4>
-      <table class="expand-tbl" style="margin-bottom:10px">
-        <tr><th>Group</th><th>Host</th><th>Local Group</th></tr>`;
-    u.groups.forEach(g => {
-      html += `<tr>
-        <td style="color:var(--amber)">${esc(g.GroupName)}</td>
-        <td>${esc(g.host)}</td>
-        <td>${g.IsLocal ? '<span style="color:var(--accent)">yes</span>' : '<span style="color:var(--muted)">—</span>'}</td>
-      </tr>`;
-    });
-    html += '</table>';
-  }
-
-  if (!html) html = '<div style="color:var(--muted);padding:8px">No detail available.</div>';
+  html += '</div>';
   return html;
-}
-
-// ── PER HOST VIEW ─────────────────────────────────────────────────────────────
-function renderUsersPerHost(container) {
-  const lq = usersSearch.toLowerCase();
-  let totalRows = 0;
-
-  // Per Host shows selected host only
-  const hostname = state.activeHost;
-  const hostData = state.hosts[hostname];
-  if (!hostData || !hostData.Users) {
-    container.innerHTML = '<div class="solo-notice">No Users data for selected host.</div>';
-    return;
-  }
-
-  let html = '';
-  (function() {
-    const u = hostData.Users;
-    if (!u) return;
-
-    html += `<div style="margin-bottom:20px">
-      <div style="padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:4px 4px 0 0;font-size:12px;color:var(--muted)">
-        <span style="color:var(--accent)">${esc(hostname)}</span>
-        ${u.is_domain_controller ? ' <span style="color:var(--amber);font-size:10px">DC</span>' : ''}
-        &nbsp;·&nbsp; domain: ${esc(u.domain_name||'?')}
-        &nbsp;·&nbsp; machine_sid: <span class="mono" style="font-size:10px">${esc(u.machine_sid||'?')}</span>
-      </div>
-      <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;padding:10px 16px">`;
-
-    // Sessions
-    const sessions = (u.sessions || [])
-      .filter(s => !lq || str(s.Username).includes(lq) || str(s.SID).includes(lq))
-      .sort((a, b) => (sessionIsActive(b) ? 1 : 0) - (sessionIsActive(a) ? 1 : 0));
-    if (sessions.length) {
-      html += `<h4 style="margin-bottom:6px">Active Sessions (${sessions.length})</h4>
-        <table class="expand-tbl" style="margin-bottom:10px">
-          <tr><th>Username</th><th>Domain</th><th title="${esc(USER_TIPS.LogonType)}">Type</th><th>Type Name</th><th>Logon Time</th><th title="${esc(USER_TIPS.SID)}">SID</th><th>Active</th></tr>`;
-      sessions.forEach(s => {
-        const activeCell = sessionIsActive(s)
-          ? '<span style="color:var(--green)">✓</span>'
-          : `<span style="color:var(--amber)" title="No running processes found in this session. May be disconnected or stale.">✗</span>`;
-        html += `<tr>
-          <td class="mono">${esc(s.Username||'—')}</td>
-          <td>${esc(s.Domain||'—')}</td>
-          <td title="${esc(USER_TIPS.LogonType)}">${s.LogonType||'—'}</td>
-          <td>${esc(s.LogonTypeName||'—')}</td>
-          <td title="${esc(USER_TIPS.LastUseTime)}">${esc(fmtTs(s.LogonTimeUTC))}</td>
-          <td class="mono" style="font-size:10px" title="${esc(USER_TIPS.SID)}">${esc(s.SID||'—')}</td>
-          <td style="text-align:center">${activeCell}</td>
-        </tr>`;
-      });
-      html += '</table>';
-      totalRows += sessions.length;
-    }
-
-    // Profiles
-    const profiles = (u.profiles || []).filter(p => !lq || str(p.Username).includes(lq) || str(p.SID).includes(lq));
-    if (profiles.length) {
-      html += `<h4 style="margin-bottom:6px">User Profiles (${profiles.length})</h4>
-        <table class="expand-tbl" style="margin-bottom:10px">
-          <tr>
-            <th>Username</th><th title="${esc(USER_TIPS.SID)}">SID</th><th>Type</th>
-            <th title="${esc(USER_TIPS.FirstLogon)}">First Logon</th>
-            <th title="${esc(USER_TIPS.Confidence)}">Confidence</th>
-            <th title="${esc(USER_TIPS.LastUseTime)}">Last Use</th>
-            <th title="${esc(USER_TIPS.IsLoaded)}">Loaded</th>
-          </tr>`;
-      profiles.forEach(p => {
-        const fl = p.FirstLogon || {};
-        const tip = `Profile folder: ${fl.ProfileFolder?fl.ProfileFolder.UTC||'?':'N/A'}\nNTUSER.DAT: ${fl.NTUserDat?fl.NTUserDat.UTC||'?':'N/A'}\nRegistry key: ${fl.RegistryKey?fl.RegistryKey.UTC||'?':'N/A'}`;
-        const tamperStyle = fl.TimestampMismatch ? 'border-left:3px solid var(--amber)' : '';
-        html += `<tr style="${tamperStyle}">
-          <td class="mono">${esc(p.Username||'—')}</td>
-          <td class="mono" style="font-size:10px" title="${esc(USER_TIPS.SID)}">${esc(p.SID||'—')}</td>
-          <td>${esc(p.AccountType||'—')}</td>
-          <td title="${esc(tip)}">${fmtDate(fl.UTC)}</td>
-          <td title="${esc(USER_TIPS.Confidence)}">${confBadge(fl.Confidence)}</td>
-          <td title="${esc(USER_TIPS.LastUseTime)}">${fmtDate(p.LastUseTimeUTC)}</td>
-          <td title="${esc(USER_TIPS.IsLoaded)}">${p.IsLoaded?'<span style="color:var(--accent)">yes</span>':'—'}</td>
-        </tr>`;
-      });
-      html += '</table>';
-      totalRows += profiles.length;
-    }
-
-    // Local accounts
-    const locals = (u.local_accounts || []).filter(a => !lq || str(a.Name).includes(lq) || str(a.SID).includes(lq));
-    if (locals.length) {
-      html += `<h4 style="margin-bottom:6px">Local Accounts (${locals.length})</h4>
-        <table class="expand-tbl" style="margin-bottom:10px">
-          <tr><th>Name</th><th title="${esc(USER_TIPS.SID)}">SID</th><th>Disabled</th><th>Pwd Required</th><th>Has Profile</th><th>Description</th></tr>`;
-      locals.forEach(a => {
-        const disStyle = a.Disabled ? 'color:var(--muted)' : '';
-        html += `<tr style="${disStyle}">
-          <td class="mono">${esc(a.Name||'—')}</td>
-          <td class="mono" style="font-size:10px" title="${esc(USER_TIPS.SID)}">${esc(a.SID||'—')}</td>
-          <td style="color:${a.Disabled?'var(--amber)':'var(--muted)'}">${a.Disabled?'yes':'—'}</td>
-          <td>${a.PasswordRequired?'yes':'—'}</td>
-          <td>${a.HasProfile?'<span style="color:var(--accent)">yes</span>':'—'}</td>
-          <td style="color:var(--muted)">${esc(a.Description||'')}</td>
-        </tr>`;
-      });
-      html += '</table>';
-      totalRows += locals.length;
-    }
-
-    // Group members
-    const members = (u.group_members || []).filter(m => !lq || str(m.MemberName).includes(lq) || str(m.GroupName).includes(lq));
-    if (members.length) {
-      html += `<h4 style="margin-bottom:6px">Privileged Group Members (${members.length})</h4>
-        <table class="expand-tbl" style="margin-bottom:10px">
-          <tr><th>Group</th><th>Member</th><th>Domain</th><th title="${esc(USER_TIPS.SID)}">SID</th><th>Local</th></tr>`;
-      members.forEach(m => {
-        html += `<tr>
-          <td style="color:var(--amber)">${esc(m.GroupName||'—')}</td>
-          <td class="mono">${esc(m.MemberName||'—')}</td>
-          <td>${esc(m.MemberDomain||'—')}</td>
-          <td class="mono" style="font-size:10px" title="${esc(USER_TIPS.SID)}">${esc(m.MemberSID||'—')}</td>
-          <td>${m.IsLocal?'<span style="color:var(--accent)">yes</span>':'—'}</td>
-        </tr>`;
-      });
-      html += '</table>';
-      totalRows += members.length;
-    }
-
-    // DC domain accounts
-    if (u.is_domain_controller && u.domain_accounts && u.domain_accounts.length) {
-      const das = u.domain_accounts.filter(a => !lq || str(a.SamAccountName).includes(lq) || str(a.SID).includes(lq));
-      if (das.length) {
-        html += `<h4 style="margin-bottom:6px">Domain Accounts — DC (${das.length})</h4>
-          <table class="expand-tbl" style="margin-bottom:10px">
-            <tr>
-              <th>SAMAccountName</th><th>Display</th><th title="${esc(USER_TIPS.WhenCreated)}">Created</th>
-              <th title="${esc(USER_TIPS.LastLogonAD)}">Last Logon</th><th>Enabled</th><th>Locked</th>
-              <th>Bad Pwd</th><th>Source</th>
-            </tr>`;
-        das.forEach(a => {
-          const enStyle = a.Enabled ? '' : 'color:var(--muted)';
-          html += `<tr style="${enStyle}">
-            <td class="mono">${esc(a.SamAccountName||'—')}</td>
-            <td>${esc(a.DisplayName||'—')}</td>
-            <td title="${esc(USER_TIPS.WhenCreated)}">${fmtDate(a.WhenCreatedUTC)}</td>
-            <td title="${esc(USER_TIPS.LastLogonAD)}">${fmtDate(a.LastLogonUTC)}</td>
-            <td style="color:${a.Enabled?'var(--green)':'var(--red)'}">${a.Enabled?'yes':'no'}</td>
-            <td style="color:${a.LockedOut?'var(--red)':'var(--muted)'}">${a.LockedOut?'YES':'—'}</td>
-            <td style="color:${(a.BadLogonCount>0)?'var(--amber)':'var(--muted)'}">${a.BadLogonCount||0}</td>
-            <td style="color:var(--muted);font-size:10px">${esc(a.Source||'—')}</td>
-          </tr>`;
-        });
-        html += '</table>';
-        totalRows += das.length;
-      }
-    }
-
-    html += '</div></div>';
-  })();
-
-  if (!html) html = '<div class="solo-notice">No Users data matches filter.</div>';
-  container.innerHTML = html;
-  const cnt = el('users-count');
-  if (cnt) cnt.textContent = totalRows + ' records';
 }
 </script>
 </body>

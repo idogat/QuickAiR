@@ -194,71 +194,63 @@ function reapplyColWidthsFromStorage(tabName, vsEl) {
 // ── CROSS-HOST USER INDEX ─────────────────────────────────────────────────────
 function buildUserIndex(allHosts) {
   const idx = {};
+
   allHosts.forEach(host => {
-    const users = host.Users;
-    if (!users) return;
+    const u = host.Users;
+    if (!u) return;
     const hostname = host.manifest ? host.manifest.hostname : '?';
 
-    // Domain accounts from DC — keyed by SID
-    if (users.domain_accounts) {
-      users.domain_accounts.forEach(u => {
-        if (!u.SID) return;
-        if (!idx[u.SID]) idx[u.SID] = {
-          SID: u.SID, username: u.SamAccountName, displayName: u.DisplayName || u.SamAccountName,
-          domainAccount: null, appearances: [], sessions: [], groups: []
-        };
-        idx[u.SID].domainAccount = {
-          host: hostname, WhenCreated: u.WhenCreatedUTC, LastLogon: u.LastLogonUTC,
-          PasswordLastSet: u.PasswordLastSetUTC, Enabled: u.Enabled,
-          LockedOut: u.LockedOut, BadLogonCount: u.BadLogonCount, Source: u.Source
-        };
-      });
-    }
-
-    // Profiles — keyed by SID
-    if (users.profiles) {
-      users.profiles.forEach(p => {
-        if (!p.SID) return;
-        if (!idx[p.SID]) idx[p.SID] = {
-          SID: p.SID, username: p.Username, displayName: p.Username,
-          domainAccount: null, appearances: [], sessions: [], groups: []
-        };
-        if (!idx[p.SID].username) idx[p.SID].username = p.Username;
-        idx[p.SID].appearances.push({
-          host: hostname, FirstLogon: p.FirstLogon, LastLogon: p.LastUseTimeUTC,
-          AccountType: p.AccountType, ProfilePath: p.ProfilePath,
-          IsLoaded: p.IsLoaded, TimestampMismatch: p.FirstLogon ? p.FirstLogon.TimestampMismatch : false
+    // Index users by SID
+    if (u.users) {
+      u.users.forEach(user => {
+        const key = user.SID;
+        if (!key) return;
+        if (!idx[key]) {
+          idx[key] = {
+            SID:         user.SID,
+            Username:    user.Username,
+            Domain:      user.Domain,
+            AccountType: user.AccountType,
+            SIDMetadata: user.SIDMetadata,
+            domainInfo:  null,
+            machines:    []
+          };
+        }
+        idx[key].machines.push({
+          hostname:        hostname,
+          FirstLogon:      user.FirstLogon,
+          LastLogon:       user.LastLogonUTC,
+          LastLogonSource: user.LastLogonSource,
+          ProfilePath:     user.ProfilePath,
+          IsLoaded:        user.IsLoaded,
+          HasLocalAccount: user.HasLocalAccount,
+          LocalDisabled:   user.LocalDisabled
         });
       });
     }
 
-    // Sessions — keyed by SID
-    if (users.sessions) {
-      users.sessions.forEach(s => {
-        if (!s.SID) return;
-        if (!idx[s.SID]) idx[s.SID] = {
-          SID: s.SID, username: s.Username, displayName: s.Username,
-          domainAccount: null, appearances: [], sessions: [], groups: []
-        };
-        if (!idx[s.SID].username) idx[s.SID].username = s.Username;
-        idx[s.SID].sessions.push({
-          host: hostname, LogonType: s.LogonType, LogonTypeName: s.LogonTypeName,
-          LogonTimeUTC: s.LogonTimeUTC, SessionId: s.LogonId,
-          IsReallyActive: s.IsReallyActive, HasActiveProcesses: s.HasActiveProcesses
-        });
-      });
-    }
-
-    // Group membership — keyed by MemberSID
-    if (users.group_members) {
-      users.group_members.forEach(m => {
-        if (!m.MemberSID) return;
-        if (idx[m.MemberSID]) {
-          idx[m.MemberSID].groups.push({ host: hostname, GroupName: m.GroupName, IsLocal: m.IsLocal });
+    // Enrich with DC domain_accounts by SID
+    if (u.domain_accounts) {
+      u.domain_accounts.forEach(da => {
+        const key = da.SID;
+        if (!key) return;
+        if (idx[key]) {
+          idx[key].domainInfo = {
+            dcHost:          hostname,
+            WhenCreated:     da.WhenCreatedUTC,
+            LastLogonAD:     da.LastLogonUTC,
+            PasswordLastSet: da.PasswordLastSetUTC,
+            Enabled:         da.Enabled,
+            LockedOut:       da.LockedOut,
+            BadLogonCount:   da.BadLogonCount,
+            Source:          da.Source
+          };
+          if (da.SamAccountName) idx[key].Username = da.SamAccountName;
         }
       });
     }
   });
+
   return idx;
 }
 

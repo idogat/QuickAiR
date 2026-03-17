@@ -1,18 +1,19 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
 # ║  Quicker — Users.psm1               ║
-# ║  User account and session collection║
+# ║  User account collection            ║
 # ╠══════════════════════════════════════╣
 # ║  Exports  : Invoke-Collector        ║
 # ║  Output   : @{ data=@{             ║
-# ║               sessions=[],         ║
-# ║               profiles=[],         ║
-# ║               local_accounts=[],   ║
-# ║               domain_accounts=[],  ║
-# ║               group_members=[]     ║
+# ║               is_domain_controller, ║
+# ║               domain_name,         ║
+# ║               machine_name,        ║
+# ║               machine_sid,         ║
+# ║               users=[],            ║
+# ║               domain_accounts=[]   ║
 # ║             }; source="";errors=[]}║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 1.3                    ║
+# ║  Version  : 2.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -21,17 +22,15 @@ $ErrorActionPreference = 'Continue'
 # ── PS 2.0-compatible scriptblock — runs ON the target ──────────────────────
 $script:USERS_SB = {
     $r = @{
-        is_dc            = $false
-        domain_name      = ''
-        machine_name     = ''
-        machine_sid      = $null
-        sessions_raw     = @()
-        profiles_raw     = @()
+        is_dc              = $false
+        domain_name        = ''
+        machine_name       = ''
+        machine_sid        = $null
+        profiles_raw       = @()
         local_accounts_raw = @()
-        group_members_raw= @()
-        dc_domain_raw    = @()
-        dc_source        = $null
-        errors           = @()
+        dc_domain_raw      = @()
+        dc_source          = $null
+        errors             = @()
     }
 
     # ── System info ──────────────────────────────────────────────────────────
@@ -53,65 +52,6 @@ $script:USERS_SB = {
 
     $machineName      = $r.machine_name
     $machineSIDPrefix = $r.machine_sid
-
-    # ── COLLECT 1: Logon sessions ────────────────────────────────────────────
-    try {
-        $wmiSessions = Get-WmiObject Win32_LogonSession
-        $wmiLoggedOn = Get-WmiObject Win32_LoggedOnUser
-
-        $userMap = @{}
-        foreach ($lo in $wmiLoggedOn) {
-            $logonId = $null; $uName = $null; $uDomain = $null
-            if ($lo.Dependent  -match 'LogonId="([^"]+)"') { $logonId = $Matches[1] }
-            if ($lo.Antecedent -match 'Name="([^"]+)"')    { $uName   = $Matches[1] }
-            if ($lo.Antecedent -match 'Domain="([^"]+)"')  { $uDomain = $Matches[1] }
-            if ($logonId) { $userMap[$logonId] = @{ N=$uName; D=$uDomain } }
-        }
-
-        foreach ($s in $wmiSessions) {
-            $lid = [string]$s.LogonId
-            $ui  = if ($userMap.ContainsKey($lid)) { $userMap[$lid] } else { @{N=$null;D=$null} }
-            $un  = $ui.N; $ud = $ui.D
-            $sid = $null
-            if ($un -and $ud) {
-                try {
-                    $sid = (New-Object System.Security.Principal.NTAccount($ud,$un)).Translate(
-                        [System.Security.Principal.SecurityIdentifier]).Value
-                } catch {
-                    try {
-                        $wua = Get-WmiObject Win32_UserAccount `
-                            -Filter "Name='$un' AND Domain='$ud'" | Select-Object -First 1
-                        if ($wua) { $sid = $wua.SID }
-                    } catch {}
-                }
-            }
-            $r.sessions_raw += @{
-                LogonId            = $lid
-                LogonType          = [int]$s.LogonType
-                StartTime_raw      = [string]$s.StartTime
-                UserName           = $un
-                UserDomain         = $ud
-                SID                = $sid
-                IsLocal            = ($ud -and ($ud -ieq $machineName))
-                HasActiveProcesses = $false
-                IsReallyActive     = $false
-            }
-        }
-
-        # Cross-check sessions against running processes
-        $activeSessionIds = @{}
-        try {
-            Get-WmiObject Win32_Process | ForEach-Object {
-                $activeSessionIds[[string]$_.SessionId] = $true
-            }
-        } catch {}
-        foreach ($s in $r.sessions_raw) {
-            $hasProc = $activeSessionIds.ContainsKey([string]$s.LogonId)
-            $isSvc   = ($s.LogonType -eq 4 -or $s.LogonType -eq 5)
-            $s.HasActiveProcesses = $hasProc
-            $s.IsReallyActive     = $hasProc -or $isSvc
-        }
-    } catch { $r.errors += "Sessions: $($_.Exception.Message)" }
 
     # ── Registry LastWrite P/Invoke helper (works on all .NET versions) ─────
     $_rkHelper = $false
@@ -141,7 +81,7 @@ public class RegLwt {
 '@ -ErrorAction Stop } catch {}
     try { [void][RegLwt]; $_rkHelper = $true } catch {}
 
-    # ── COLLECT 2: User profiles ─────────────────────────────────────────────
+    # ── COLLECT 1: User profiles ─────────────────────────────────────────────
     try {
         $plRoot = "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
         $hklm   = [Microsoft.Win32.Registry]::LocalMachine
@@ -225,53 +165,39 @@ public class RegLwt {
         }
     } catch { $r.errors += "Profiles: $($_.Exception.Message)" }
 
-    # ── COLLECT 3: Local accounts ────────────────────────────────────────────
+    # ── COLLECT 2: Local accounts ────────────────────────────────────────────
     try {
-        $profileSIDSet = @{}
-        foreach ($p in $r.profiles_raw) { $profileSIDSet[[string]$p.SID] = $p.LastUseRaw }
-
         $localUsers = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True"
         foreach ($u in $localUsers) {
-            $sidStr    = [string]$u.SID
-            $hasProf   = $profileSIDSet.ContainsKey($sidStr)
-            $lastLogon = if ($hasProf) { $profileSIDSet[$sidStr] } else { $null }
             $r.local_accounts_raw += @{
-                Name             = [string]$u.Name
-                SID              = $sidStr
-                Disabled         = [bool]$u.Disabled
-                PasswordRequired = [bool]$u.PasswordRequired
-                PasswordExpires  = -not [bool]$u.PasswordChangeable
-                AccountType      = [int]$u.AccountType
-                Description      = [string]$u.Description
-                HasProfile       = $hasProf
-                LastLogonUTC     = $lastLogon
+                Name     = [string]$u.Name
+                SID      = [string]$u.SID
+                Disabled = [bool]$u.Disabled
             }
         }
     } catch { $r.errors += "LocalAccounts: $($_.Exception.Message)" }
 
-    # ── COLLECT 4: Domain accounts (DC only) ─────────────────────────────────
+    # ── COLLECT 3: Domain accounts (DC only) ─────────────────────────────────
     if ($r.is_dc) {
         try {
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
                 $adUsers = Get-ADUser -Filter * -Properties `
-                    Created,LastLogonDate,PasswordLastSet,PasswordNeverExpires,
-                    Enabled,DistinguishedName,BadLogonCount,LockedOut
+                    Created,LastLogonDate,PasswordLastSet,
+                    Enabled,BadLogonCount,LockedOut
                 $r.dc_source = 'Get-ADUser'
                 foreach ($u in $adUsers) {
                     $r.dc_domain_raw += @{
-                        SamAccountName      = [string]$u.SamAccountName
-                        DisplayName         = [string]$u.Name
-                        SID                 = if ($u.SID) { $u.SID.Value } else { $null }
-                        Enabled             = [bool]$u.Enabled
-                        WhenCreated         = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
-                        LastLogon           = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
-                        PasswordLastSet     = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('o')} else { $null }
-                        PasswordNeverExpires= [bool]$u.PasswordNeverExpires
-                        LockedOut           = [bool]$u.LockedOut
-                        BadLogonCount       = [int]$u.BadLogonCount
-                        DistinguishedName   = [string]$u.DistinguishedName
-                        Source              = 'Get-ADUser'
+                        SamAccountName  = [string]$u.SamAccountName
+                        DisplayName     = [string]$u.Name
+                        SID             = if ($u.SID) { $u.SID.Value } else { $null }
+                        Enabled         = [bool]$u.Enabled
+                        WhenCreated     = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
+                        LastLogon       = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
+                        PasswordLastSet = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('o')} else { $null }
+                        LockedOut       = [bool]$u.LockedOut
+                        BadLogonCount   = [int]$u.BadLogonCount
+                        Source          = 'Get-ADUser'
                     }
                 }
             } catch {
@@ -283,7 +209,7 @@ public class RegLwt {
                 $searcher.PropertiesToLoad.AddRange(@(
                     "samaccountname","displayname","objectsid","whencreated",
                     "lastlogontimestamp","pwdlastset","useraccountcontrol",
-                    "distinguishedname","badpwdcount","lockouttime"
+                    "badpwdcount","lockouttime"
                 ))
                 $results = $searcher.FindAll()
                 foreach ($entry in $results) {
@@ -309,65 +235,22 @@ public class RegLwt {
                     $bpc = 0
                     try { $bpc = [int]$p["badpwdcount"][0] } catch {}
                     $r.dc_domain_raw += @{
-                        SamAccountName      = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
-                        DisplayName         = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
-                        SID                 = $sidVal
-                        Enabled             = -not [bool]($uac -band 2)
-                        WhenCreated         = $wc
-                        LastLogon           = $ll
-                        PasswordLastSet     = $pls
-                        PasswordNeverExpires= [bool]($uac -band 0x10000)
-                        LockedOut           = $locked
-                        BadLogonCount       = $bpc
-                        DistinguishedName   = if ($p["distinguishedname"].Count -gt 0) { [string]$p["distinguishedname"][0] } else { $null }
-                        Source              = 'ADSI'
+                        SamAccountName  = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
+                        DisplayName     = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
+                        SID             = $sidVal
+                        Enabled         = -not [bool]($uac -band 2)
+                        WhenCreated     = $wc
+                        LastLogon       = $ll
+                        PasswordLastSet = $pls
+                        LockedOut       = $locked
+                        BadLogonCount   = $bpc
+                        Source          = 'ADSI'
                     }
                 }
                 try { $results.Dispose() } catch {}
             }
         } catch { $r.errors += "DomainAccounts: $($_.Exception.Message)" }
     }
-
-    # ── COLLECT 5: Group membership ───────────────────────────────────────────
-    try {
-        $TARGET_GROUPS = @('Administrators','Remote Desktop Users',
-                           'Remote Management Users','Backup Operators','Power Users')
-        $wmiGU     = Get-WmiObject Win32_GroupUser
-        $wmiGroups = Get-WmiObject Win32_Group -Filter "LocalAccount=True"
-        $validGrps = @{}
-        foreach ($g in $wmiGroups) {
-            foreach ($tg in $TARGET_GROUPS) { if ($g.Name -ieq $tg) { $validGrps[$g.Name] = $true } }
-        }
-
-        foreach ($gu in $wmiGU) {
-            $grpName = $null; $memName = $null; $memDomain = $null
-            if ($gu.GroupComponent -match 'Name="([^"]+)"')  { $grpName   = $Matches[1] }
-            if (-not $validGrps.ContainsKey($grpName))       { continue }
-            if ($gu.PartComponent  -match 'Name="([^"]+)"')  { $memName   = $Matches[1] }
-            if ($gu.PartComponent  -match 'Domain="([^"]+)"'){ $memDomain = $Matches[1] }
-
-            $memSID = $null
-            if ($memName -and $memDomain) {
-                try {
-                    $memSID = (New-Object System.Security.Principal.NTAccount($memDomain,$memName)).Translate(
-                        [System.Security.Principal.SecurityIdentifier]).Value
-                } catch {
-                    try {
-                        $wua = Get-WmiObject Win32_UserAccount `
-                            -Filter "Name='$memName' AND Domain='$memDomain'" | Select-Object -First 1
-                        if ($wua) { $memSID = $wua.SID }
-                    } catch {}
-                }
-            }
-            $r.group_members_raw += @{
-                GroupName    = $grpName
-                MemberName   = $memName
-                MemberDomain = $memDomain
-                MemberSID    = $memSID
-                IsLocal      = ($memDomain -and ($memDomain -ieq $machineName))
-            }
-        }
-    } catch { $r.errors += "GroupMembers: $($_.Exception.Message)" }
 
     return $r
 }
@@ -389,7 +272,6 @@ function script:ComputeFirstLogonConfidence {
     $firstUTC          = if ($pfUTC) { $pfUTC } elseif ($ntUTC) { $ntUTC } else { $rkUTC }
     $confidence        = 'LOW'
     $timestampMismatch = $false
-    $note              = ''
 
     function _agree24($a,$b) {
         if (-not $a -or -not $b) { return $false }
@@ -408,25 +290,13 @@ function script:ComputeFirstLogonConfidence {
 
         if ($available -contains 'PF' -and $available -contains 'NT') {
             if (_agree24 $pfDt $ntDt) { $confidence = 'MEDIUM'; $firstUTC = $pfUTC }
-            else {
-                $confidence = '?'; $timestampMismatch = $true
-                $note = "Profile folder: $pfUTC`nNTUSER.DAT: $ntUTC"
-                $firstUTC = $pfUTC
-            }
+            else { $confidence = '?'; $timestampMismatch = $true; $firstUTC = $pfUTC }
         } elseif ($available -contains 'PF' -and $available -contains 'RK') {
             if (_agree24 $pfDt $rkDt) { $confidence = 'MEDIUM'; $firstUTC = $pfUTC }
-            else {
-                $confidence = '?'; $timestampMismatch = $true
-                $note = "Profile folder: $pfUTC`nProfileList key: $rkUTC"
-                $firstUTC = $pfUTC
-            }
+            else { $confidence = '?'; $timestampMismatch = $true; $firstUTC = $pfUTC }
         } else {
             if (_agree24 $ntDt $rkDt) { $confidence = 'MEDIUM'; $firstUTC = $ntUTC }
-            else {
-                $confidence = '?'; $timestampMismatch = $true
-                $note = "NTUSER.DAT: $ntUTC`nProfileList key: $rkUTC"
-                $firstUTC = $ntUTC
-            }
+            else { $confidence = '?'; $timestampMismatch = $true; $firstUTC = $ntUTC }
         }
     } else {
         # 3 sources
@@ -442,13 +312,9 @@ function script:ComputeFirstLogonConfidence {
             $confidence = 'HIGH'; $firstUTC = $pfUTC
         } elseif ($pfNtAgree -or $pfRkAgree -or $ntRkAgree) {
             $confidence = 'MEDIUM'
-            if ($pfNtAgree)     { $firstUTC = $pfUTC; $note = 'RegistryKey differs' }
-            elseif ($pfRkAgree) { $firstUTC = $pfUTC; $note = 'NTUserDat differs' }
-            else                { $firstUTC = $ntUTC; $note = 'ProfileFolder differs' }
+            $firstUTC = if ($pfNtAgree -or $pfRkAgree) { $pfUTC } else { $ntUTC }
         } else {
-            $confidence = '?'; $timestampMismatch = $true
-            $note = "Profile folder: $pfUTC`nNTUSER.DAT: $ntUTC`nProfileList key: $rkUTC"
-            $firstUTC = $pfUTC
+            $confidence = '?'; $timestampMismatch = $true; $firstUTC = $pfUTC
         }
     }
 
@@ -456,20 +322,43 @@ function script:ComputeFirstLogonConfidence {
         UTC               = $firstUTC
         Confidence        = $confidence
         TimestampMismatch = $timestampMismatch
-        TamperedNote      = $note
     }
 }
 
-function script:SidAccountType($sidStr, $machineSIDPrefix) {
-    if (-not $sidStr) { return 'Unknown' }
-    if ($sidStr -eq 'S-1-5-18')  { return 'SYSTEM' }
-    if ($sidStr -eq 'S-1-5-19')  { return 'LocalService' }
-    if ($sidStr -eq 'S-1-5-20')  { return 'NetworkService' }
+function script:GetSidAccountType($sidStr, $machineSIDPrefix) {
+    if (-not $sidStr) { return 'Local' }
+    if ($sidStr -eq 'S-1-5-18') { return 'System' }
+    if ($sidStr -eq 'S-1-5-19') { return 'Service' }
+    if ($sidStr -eq 'S-1-5-20') { return 'Service' }
     if ($machineSIDPrefix -and $sidStr -match ('^' + [regex]::Escape($machineSIDPrefix) + '-\d+$')) {
         return 'Local'
     }
     if ($sidStr -match '^S-1-5-21-') { return 'Domain' }
-    return 'Unknown'
+    if ($sidStr -match '^S-1-5-8[0-9]-') { return 'Service' }
+    return 'Local'
+}
+
+function script:GetSidDomain($accountType, $machineName, $domainName) {
+    switch ($accountType) {
+        'System'  { return 'NT AUTHORITY' }
+        'Service' { return 'NT AUTHORITY' }
+        'Domain'  { return $domainName }
+        default   { return $machineName }
+    }
+}
+
+function script:GetSidMetadata($sidStr) {
+    $known = @{
+        'S-1-5-18' = 'Local System'
+        'S-1-5-19' = 'Local Service'
+        'S-1-5-20' = 'Network Service'
+    }
+    if ($known.ContainsKey($sidStr)) {
+        return @{ WellKnown=$true; Description=$known[$sidStr] }
+    }
+    if ($sidStr -match '-500$') { return @{ WellKnown=$true; Description='Built-in Administrator' } }
+    if ($sidStr -match '-501$') { return @{ WellKnown=$true; Description='Guest' } }
+    return @{ WellKnown=$false; Description='' }
 }
 
 # ── Invoke-Collector ─────────────────────────────────────────────────────────
@@ -491,7 +380,7 @@ function Invoke-Collector {
         return @{
             data   = @{
                 is_domain_controller=$false; domain_name=$null; machine_name=$null; machine_sid=$null
-                sessions=@(); profiles=@(); local_accounts=@(); domain_accounts=@(); group_members=@()
+                users=@(); domain_accounts=@()
             }
             source = 'error'
             errors = $errors
@@ -506,114 +395,117 @@ function Invoke-Collector {
     }
 
     $machineSIDPrefix = [string]$raw.machine_sid
+    $machineName      = [string]$raw.machine_name
+    $domainName       = [string]$raw.domain_name
+    $plRoot           = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList"
 
-    $logonTypeMap = @{
-        2='Interactive'; 3='Network'; 4='Batch'; 5='Service'
-        7='Unlock'; 10='RemoteInteractive (RDP)'; 11='CachedInteractive'
+    # Build local account lookup by SID
+    $localAccountMap = @{}
+    foreach ($u in @($raw.local_accounts_raw)) {
+        if (-not $u) { continue }
+        $localAccountMap[[string]$u.SID] = @{ Disabled=[bool]$u.Disabled; Name=[string]$u.Name }
     }
 
-    # Sessions
-    $sessions = @()
-    foreach ($s in @($raw.sessions_raw)) {
-        if (-not $s) { continue }
-        $lt = [int]$s.LogonType
-        $typeName = if ($logonTypeMap.ContainsKey($lt)) { $logonTypeMap[$lt] } else { "Type$lt" }
-        $sessions += @{
-            Username           = $s.UserName
-            Domain             = $s.UserDomain
-            LogonId            = $s.LogonId
-            LogonType          = $lt
-            LogonTypeName      = $typeName
-            LogonTimeUTC       = ConvertTo-UtcIso -Value $s.StartTime_raw
-            LogonTimeLocal     = $s.StartTime_raw
-            IsLocal            = [bool]$s.IsLocal
-            SID                = $s.SID
-            HasActiveProcesses = [bool]$s.HasActiveProcesses
-            IsReallyActive     = [bool]$s.IsReallyActive
-            Source             = 'Win32_LogonSession+Win32_LoggedOnUser'
-        }
-    }
+    # Build users[] — source = ProfileList, enriched with local account data
+    $userMap = @{}
 
-    # Profiles
-    $profiles = @()
     foreach ($p in @($raw.profiles_raw)) {
         if (-not $p) { continue }
         $sidStr  = [string]$p.SID
-        $acctType= script:SidAccountType $sidStr $machineSIDPrefix
+        $acctType= script:GetSidAccountType $sidStr $machineSIDPrefix
+        $domain  = script:GetSidDomain $acctType $machineName $domainName
+        $sidMeta = script:GetSidMetadata $sidStr
         $isLoaded= $false
         try { $isLoaded = [bool](([int]$p.State) -band 1) } catch {}
+
         $fl = script:ComputeFirstLogonConfidence `
             $p.PFRaw $p.PFAvail $p.NTRaw $p.NTAvail $p.RKRaw $p.RKAvail
-        $profiles += @{
-            SID            = $sidStr
-            Username       = $p.Username
-            AccountType    = $acctType
-            ProfilePath    = $p.ProfilePath
-            LastUseTimeUTC = $p.LastUseRaw
-            IsLoaded       = $isLoaded
-            FirstLogon     = @{
-                UTC          = $fl.UTC
-                Confidence   = $fl.Confidence
-                ProfileFolder= @{ Value=$p.PFRaw; UTC=$p.PFRaw; Available=[bool]$p.PFAvail }
-                NTUserDat    = @{ Value=$p.NTRaw; UTC=$p.NTRaw; Available=[bool]$p.NTAvail }
-                RegistryKey  = @{ Value=$p.RKRaw; UTC=$p.RKRaw; Available=[bool]$p.RKAvail }
+
+        $hasLocal = $localAccountMap.ContainsKey($sidStr)
+        $localDis = if ($hasLocal) { $localAccountMap[$sidStr].Disabled } else { $null }
+
+        $userMap[$sidStr] = @{
+            SID             = $sidStr
+            Username        = $p.Username
+            Domain          = $domain
+            AccountType     = $acctType
+            SIDMetadata     = $sidMeta
+            HasLocalAccount = $hasLocal
+            LocalDisabled   = $localDis
+            FirstLogon      = @{
+                UTC           = $fl.UTC
+                Confidence    = $fl.Confidence
+                ProfileFolder = @{ Value=$p.PFRaw; Available=[bool]$p.PFAvail }
+                NTUserDat     = @{ Value=$p.NTRaw; Available=[bool]$p.NTAvail }
+                RegistryKey   = @{
+                    Value     = $p.RKRaw
+                    Available = [bool]$p.RKAvail
+                    KeyPath   = "$plRoot\$sidStr"
+                }
                 TimestampMismatch = $fl.TimestampMismatch
-                TamperedNote      = $fl.TamperedNote
             }
+            LastLogonUTC    = $p.LastUseRaw
+            LastLogonLocal  = $p.LastUseRaw
+            LastLogonSource = 'ProfileList LastUseTime'
+            ProfilePath     = $p.ProfilePath
+            IsLoaded        = $isLoaded
         }
     }
 
-    # Local accounts
-    $localAccounts = @()
+    # Add local accounts with no profile
     foreach ($u in @($raw.local_accounts_raw)) {
         if (-not $u) { continue }
-        $localAccounts += @{
-            Name             = $u.Name
-            SID              = $u.SID
-            Disabled         = [bool]$u.Disabled
-            PasswordRequired = [bool]$u.PasswordRequired
-            PasswordExpires  = [bool]$u.PasswordExpires
-            AccountType      = $u.AccountType
-            Description      = $u.Description
-            HasProfile       = [bool]$u.HasProfile
-            LastLogonUTC     = $u.LastLogonUTC
-            Source           = 'Win32_UserAccount'
+        $sidStr = [string]$u.SID
+        if ($userMap.ContainsKey($sidStr)) {
+            $userMap[$sidStr].HasLocalAccount = $true
+            $userMap[$sidStr].LocalDisabled   = [bool]$u.Disabled
+            continue
+        }
+        $acctType = script:GetSidAccountType $sidStr $machineSIDPrefix
+        $domain   = script:GetSidDomain $acctType $machineName $domainName
+        $sidMeta  = script:GetSidMetadata $sidStr
+        $userMap[$sidStr] = @{
+            SID             = $sidStr
+            Username        = $u.Name
+            Domain          = $domain
+            AccountType     = $acctType
+            SIDMetadata     = $sidMeta
+            HasLocalAccount = $true
+            LocalDisabled   = [bool]$u.Disabled
+            FirstLogon      = @{
+                UTC           = $null
+                Confidence    = 'N/A'
+                ProfileFolder = @{ Value=$null; Available=$false }
+                NTUserDat     = @{ Value=$null; Available=$false }
+                RegistryKey   = @{ Value=$null; Available=$false; KeyPath="$plRoot\$sidStr" }
+                TimestampMismatch = $false
+            }
+            LastLogonUTC    = $null
+            LastLogonLocal  = $null
+            LastLogonSource = 'ProfileList LastUseTime'
+            ProfilePath     = $null
+            IsLoaded        = $false
         }
     }
+
+    $users = @($userMap.Values)
 
     # Domain accounts
     $domainAccounts = @()
     foreach ($u in @($raw.dc_domain_raw)) {
         if (-not $u) { continue }
         $domainAccounts += @{
-            SamAccountName      = $u.SamAccountName
-            DisplayName         = $u.DisplayName
-            SID                 = $u.SID
-            Enabled             = [bool]$u.Enabled
-            WhenCreatedUTC      = $u.WhenCreated
-            WhenCreatedLocal    = $u.WhenCreated
-            LastLogonUTC        = $u.LastLogon
-            LastLogonLocal      = $u.LastLogon
-            PasswordLastSetUTC  = $u.PasswordLastSet
-            PasswordNeverExpires= [bool]$u.PasswordNeverExpires
-            LockedOut           = [bool]$u.LockedOut
-            BadLogonCount       = [int]$u.BadLogonCount
-            DistinguishedName   = $u.DistinguishedName
-            Source              = $u.Source
-        }
-    }
-
-    # Group members
-    $groupMembers = @()
-    foreach ($m in @($raw.group_members_raw)) {
-        if (-not $m) { continue }
-        $groupMembers += @{
-            GroupName    = $m.GroupName
-            MemberName   = $m.MemberName
-            MemberDomain = $m.MemberDomain
-            MemberSID    = $m.MemberSID
-            IsLocal      = [bool]$m.IsLocal
-            Source       = 'Win32_GroupUser'
+            SamAccountName    = $u.SamAccountName
+            DisplayName       = $u.DisplayName
+            SID               = $u.SID
+            Enabled           = [bool]$u.Enabled
+            WhenCreatedUTC    = $u.WhenCreated
+            WhenCreatedLocal  = $u.WhenCreated
+            LastLogonUTC      = $u.LastLogon
+            PasswordLastSetUTC= $u.PasswordLastSet
+            LockedOut         = [bool]$u.LockedOut
+            BadLogonCount     = [int]$u.BadLogonCount
+            Source            = $u.Source
         }
     }
 
@@ -625,11 +517,8 @@ function Invoke-Collector {
             domain_name          = [string]$raw.domain_name
             machine_name         = [string]$raw.machine_name
             machine_sid          = [string]$raw.machine_sid
-            sessions             = $sessions
-            profiles             = $profiles
-            local_accounts       = $localAccounts
+            users                = $users
             domain_accounts      = $domainAccounts
-            group_members        = $groupMembers
         }
         source = $src
         errors = $errors

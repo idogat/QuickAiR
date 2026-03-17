@@ -1,0 +1,6 @@
+*.png
+*.jpg
+playwright-report/
+test-results/
+.playwright-mcp/
+DFIROutput/

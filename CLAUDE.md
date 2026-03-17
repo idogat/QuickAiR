@@ -94,4 +94,40 @@ Current order: 01_head, 02_shell, 03_core, 04_fleet, 05_processes,
   06_network, 06b_dlls, 07_dns, 08_manifest, 09_users, 10_close.
 New stages must be named so they sort before 10_close.html.
 
+## Playwright Rule
+Take screenshot → analyze → delete immediately.
+Never commit screenshot files to repo.
+Clean all .png files at end of every session.
+```
+
+One-time cleanup prompt for right now:
+```
+Clean all Playwright files left on disk.
+All decisions yours. No questions.
+
+Delete all screenshot and temp files:
+  Get-ChildItem C:\DFIRLab\ -Recurse
+    -Filter *.png | Remove-Item -Force
+  Get-ChildItem C:\DFIRLab\repo\ -Recurse
+    -Filter *.png | Remove-Item -Force
+  Get-ChildItem $env:TEMP -Filter playwright* |
+    Remove-Item -Force -Recurse
+  Get-ChildItem $env:TEMP -Filter ms-playwright* |
+    Remove-Item -Force -Recurse
+
+List deleted files count.
+Verify no .png files remain in repo:
+  git status — should show no .png files
+If any .png tracked by git:
+  git rm --cached *.png
+  git commit -m "Remove screenshot files"
+  git push origin main
+
+Add to .gitignore:
+  *.png
+  *.jpg
+  playwright-report/
+  test-results/
+Commit .gitignore update.
+
 
