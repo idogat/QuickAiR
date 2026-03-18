@@ -57,6 +57,34 @@ Collector must handle any Windows target dynamically:
 - PS 2.0 compatible on target-side paths
 - No downloads, no external dependencies
 
+## Time and Datetime Rule
+ALL datetimes everywhere — collection, JSON output,
+and HTML display — must be UTC. No exceptions.
+
+Collection (PowerShell):
+  Always convert to UTC before storing:
+    $dt.ToUniversalTime().ToString("o")
+  Never store local time as primary value.
+  Never use Get-Date without .ToUniversalTime()
+  FILETIME conversion must use FromFileTimeUtc()
+    not FromFileTime()
+
+JSON output:
+  All datetime fields end in Z (UTC indicator)
+  Field names end in UTC (e.g. LastLogonUTC)
+  Format: ISO 8601 — "2026-01-15T14:30:00Z"
+
+HTML display:
+  Always use fmtUTC() formatter
+  Never use toLocaleDateString()
+  Never use toLocaleString()
+  Never use toLocaleTimeString()
+  Display format: YYYY-MM-DD HH:mm:ss UTC
+
+If you find any datetime not in UTC anywhere
+in any file — fix it immediately before
+proceeding with the task.
+
 ## Efficiency Rules
 - Read file headers before reading full file
 - Use str_replace for edits, never full rewrites
