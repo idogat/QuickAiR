@@ -1,0 +1,176 @@
+#Requires -Version 2.0
+# ╔══════════════════════════════════════╗
+# ║  Quicker — WMI.psm1                 ║
+# ║  Remote executor via WMI only.      ║
+# ║  No file transfer — binary must     ║
+# ║  already exist on target.           ║
+# ╠══════════════════════════════════════╣
+# ║  Exports   : Invoke-Executor        ║
+# ║  Inputs    : ComputerName           ║
+# ║              Credential             ║
+# ║              LocalBinaryPath        ║
+# ║              RemoteDestPath         ║
+# ║              Arguments              ║
+# ║              AliveCheckSeconds      ║
+# ║  Output    : result object          ║
+# ║  Depends   : none                   ║
+# ║  PS compat : 2.0+ (analyst machine) ║
+# ║  Version   : 1.0                    ║
+# ╚══════════════════════════════════════╝
+
+Set-StrictMode -Off
+$ErrorActionPreference = 'Continue'
+
+# WMI Win32_Process.Create return code mapping
+$script:WMI_RETURN_CODES = @{
+    0  = "Success"
+    2  = "Access denied"
+    3  = "Insufficient privilege"
+    8  = "Unknown failure"
+    9  = "Path not found"
+    21 = "Invalid parameter"
+}
+
+function Invoke-Executor {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]  [string]$ComputerName,
+        [Parameter(Mandatory=$false)] [System.Management.Automation.PSCredential]$Credential,
+        [Parameter(Mandatory=$true)]  [string]$LocalBinaryPath,
+        [Parameter(Mandatory=$true)]  [string]$RemoteDestPath,
+        [Parameter(Mandatory=$false)] [string]$Arguments = "",
+        [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10
+    )
+
+    $startTime = [System.DateTime]::UtcNow
+    $result = [ordered]@{
+        ExecutionId   = [System.Guid]::NewGuid().ToString()
+        ComputerName  = $ComputerName
+        Method        = "WMI"
+        LocalBinary   = $LocalBinaryPath
+        RemoteDest    = $RemoteDestPath
+        Arguments     = $Arguments
+        StartTimeUTC  = $startTime.ToString("o")
+        EndTimeUTC    = $null
+        States        = @()
+        FinalState    = $null
+        PID           = $null
+        Error         = $null
+    }
+
+    function Add-State {
+        param([string]$State, [string]$Detail = "")
+        $result.States += [ordered]@{
+            State   = $State
+            TimeUTC = [System.DateTime]::UtcNow.ToString("o")
+            Detail  = $Detail
+        }
+        $result.FinalState = $State
+    }
+
+    try {
+        # Step 1 — Verify local binary path provided (WMI skips transfer; note it)
+        # We still validate that LocalBinaryPath is non-empty; actual existence is on target.
+        if (-not $LocalBinaryPath) {
+            Add-State "CONNECTION_FAILED" "LocalBinaryPath not specified"
+            $result.Error = "LocalBinaryPath not specified"
+            $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+            return [PSCustomObject]$result
+        }
+
+        # Step 2 — Verify WMI connectivity to target
+        try {
+            $wmiParams = @{
+                Class       = 'Win32_OperatingSystem'
+                ComputerName = $ComputerName
+                ErrorAction = 'Stop'
+            }
+            if ($Credential) { $wmiParams['Credential'] = $Credential }
+            Get-WmiObject @wmiParams | Out-Null
+        } catch {
+            Add-State "CONNECTION_FAILED" $_.Exception.Message
+            $result.Error = $_.Exception.Message
+            $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+            return [PSCustomObject]$result
+        }
+
+        # Step 3 — Transfer skipped (WMI cannot transfer files)
+        Add-State "TRANSFERRED" "Skipped — binary must exist on target"
+
+        # Step 4 — Launch via Win32_Process.Create
+        $commandLine = if ($Arguments) { "`"$RemoteDestPath`" $Arguments" } else { "`"$RemoteDestPath`"" }
+
+        try {
+            $wmiScopeParams = @{ ComputerName = $ComputerName }
+            if ($Credential) { $wmiScopeParams['Credential'] = $Credential }
+
+            $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
+            if ($Credential) {
+                $scope.Options.Username = $Credential.UserName
+                $scope.Options.Password = $Credential.GetNetworkCredential().Password
+            }
+            $scope.Connect()
+
+            $classObj = New-Object System.Management.ManagementClass($scope, "Win32_Process", $null)
+            $inParams  = $classObj.GetMethodParameters("Create")
+            $inParams["CommandLine"] = $commandLine
+
+            $outParams = $classObj.InvokeMethod("Create", $inParams, $null)
+            $rc        = [int]$outParams["ReturnValue"]
+
+            if ($rc -ne 0) {
+                $msg = if ($script:WMI_RETURN_CODES.ContainsKey($rc)) {
+                    $script:WMI_RETURN_CODES[$rc]
+                } else {
+                    "WMI return code $rc"
+                }
+                throw "Win32_Process.Create failed: $msg (code=$rc)"
+            }
+
+            $launchPID = [int]$outParams["ProcessId"]
+        } catch {
+            Add-State "LAUNCH_FAILED" $_.Exception.Message
+            $result.Error = $_.Exception.Message
+            $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+            return [PSCustomObject]$result
+        }
+
+        $result.PID = $launchPID
+        Add-State "LAUNCHED" "PID=$launchPID"
+
+        # Step 5 — Alive check
+        Start-Sleep -Seconds $AliveCheckSeconds
+
+        $stillAlive = $false
+        try {
+            $aliveParams = @{
+                Class       = 'Win32_Process'
+                ComputerName = $ComputerName
+                Filter      = "ProcessId=$launchPID"
+                ErrorAction = 'Stop'
+            }
+            if ($Credential) { $aliveParams['Credential'] = $Credential }
+            $proc = Get-WmiObject @aliveParams
+            $stillAlive = ($null -ne $proc)
+        } catch { $stillAlive = $false }
+
+        if ($stillAlive) {
+            Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+        } else {
+            Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
+            $result.Error = "Process not found after alive check"
+        }
+
+    } catch {
+        if (-not $result.FinalState) {
+            Add-State "CONNECTION_FAILED" $_.Exception.Message
+            $result.Error = $_.Exception.Message
+        }
+    } finally {
+        $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+    }
+
+    return [PSCustomObject]$result
+}
+
+Export-ModuleMember -Function Invoke-Executor

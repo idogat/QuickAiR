@@ -1,6 +1,41 @@
 # Quicker — DFIR Volatile Artifact Collector
 https://github.com/idogat/quicker
 
+## Think Before Acting
+Before executing any task:
+
+1. READ first — read all relevant file headers
+   before reading full files. Read full files
+   only if headers are insufficient.
+
+2. PLAN before writing — state your plan in
+   agent.log before touching any file:
+     - What files will be changed
+     - What the change achieves
+     - What could break
+     - How you will verify
+
+3. ONE CHANGE AT A TIME — make one logical
+   change, verify it works, then proceed.
+   Never make multiple unrelated changes
+   in one step.
+
+4. VERIFY before moving on — every change
+   must be verified before the next change
+   starts. A broken step is never skipped.
+
+5. DIAGNOSE before fixing — when something
+   fails, read the error fully, identify root
+   cause, then fix. Never guess-and-patch.
+
+6. STOP if uncertain — if the right approach
+   is unclear, log the uncertainty and the
+   options considered, then pick the most
+   conservative option.
+
+Never start writing code before completing
+steps 1 and 2.
+
 ## Structure
 Collector.ps1          — orchestrator, entry point
 Report.html            — offline single-file GUI (do not edit directly)
@@ -11,7 +46,9 @@ Modules\Core\          — Connection, DateTime, Output
 Modules\Collectors\    — Processes, Network, Users (+ future plugins)
 Modules\Collectors\Users.psm1  — user accounts, sessions, profiles,
                                  DC domain enumeration (Get-ADUser / ADSI)
-Tests\                 — T01-T08 per-module test files
+Executor.ps1           — remote tool execution orchestrator
+Modules\Executors\     — WinRM.psm1, WMI.psm1
+Tests\                 — T01-T09 per-module test files
 
 ## Cross-Host User Correlation
 Report.html builds window.userIndex from all loaded host JSONs.
@@ -126,36 +163,15 @@ New stages must be named so they sort before 10_close.html.
 Take screenshot → analyze → delete immediately.
 Never commit screenshot files to repo.
 Clean all .png files at end of every session.
-```
 
-One-time cleanup prompt for right now:
-```
-Clean all Playwright files left on disk.
-All decisions yours. No questions.
-
-Delete all screenshot and temp files:
-  Get-ChildItem C:\DFIRLab\ -Recurse
-    -Filter *.png | Remove-Item -Force
-  Get-ChildItem C:\DFIRLab\repo\ -Recurse
-    -Filter *.png | Remove-Item -Force
-  Get-ChildItem $env:TEMP -Filter playwright* |
-    Remove-Item -Force -Recurse
-  Get-ChildItem $env:TEMP -Filter ms-playwright* |
-    Remove-Item -Force -Recurse
-
-List deleted files count.
-Verify no .png files remain in repo:
-  git status — should show no .png files
-If any .png tracked by git:
-  git rm --cached *.png
-  git commit -m "Remove screenshot files"
-  git push origin main
-
-Add to .gitignore:
-  *.png
-  *.jpg
-  playwright-report/
-  test-results/
-Commit .gitignore update.
+## Executor Module Contract
+Exports: Invoke-Executor
+Params: ComputerName, Credential,
+  LocalBinaryPath, RemoteDestPath,
+  Arguments, AliveCheckSeconds
+Returns: ExecutionId, ComputerName, Method,
+  States[], FinalState, PID, Error
+WinRM: transfers binary then executes
+WMI: executes only, no transfer
 
 

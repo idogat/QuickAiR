@@ -1,0 +1,27 @@
+## Plan — Remote Executor (2026-03-18)
+
+### Files to create/modify:
+1. Modules\Executors\WinRM.psm1 — WinRM-based executor (transfer + launch)
+2. Modules\Executors\WMI.psm1   — WMI-based executor (launch only)
+3. Executor.ps1                 — thin orchestrator
+4. Tests\T09_Executor.ps1       — T24-T28 tests
+5. CLAUDE.md                    — add structure + contract sections
+
+### What each change achieves:
+- WinRM.psm1: Invoke-Executor via WinRM PSSession: verify binary, connect,
+  base64 transfer (SMB fallback), SHA256 verify, launch via Process, alive check
+- WMI.psm1: Invoke-Executor via WMI: skip transfer, launch via Win32_Process.Create,
+  alive check via Get-WmiObject, map return codes to messages
+- Executor.ps1: prompts for missing params, imports correct module by Method,
+  Auto tries WinRM then WMI, writes JSON result, console with UTC timestamps
+- T09_Executor.ps1: import tests, bad-IP connection failure, missing binary,
+  localhost notepad.exe smoke test with cleanup
+
+### What could break:
+- TrustedHosts conflict if test host not whitelisted (handled in executor)
+- localhost WinRM may need PSSessionOption SkipCACheck even for loopback
+
+### Verification:
+- Run .\TestSuite.ps1 → T24-T28 pass
+- Manual: localhost WinRM/WMI notepad.exe, auto method, bad IP < 35s
+- Clean temp files and notepad processes after tests
