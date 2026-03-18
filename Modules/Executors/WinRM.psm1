@@ -14,11 +14,20 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.2                    ║
+# ║  Version   : 1.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
+
+# Load Output.psm1 for Get-BinaryType / Write-Log
+$_outputMod = Join-Path (Split-Path -Parent $PSScriptRoot) "Core\Output.psm1"
+if (-not $PSScriptRoot) {
+    $_outputMod = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\Core\Output.psm1"
+}
+if (Test-Path $_outputMod) {
+    Import-Module $_outputMod -Force -ErrorAction SilentlyContinue
+}
 
 function Invoke-Executor {
     [CmdletBinding()]
@@ -28,7 +37,8 @@ function Invoke-Executor {
         [Parameter(Mandatory=$true)]  [string]$LocalBinaryPath,
         [Parameter(Mandatory=$true)]  [string]$RemoteDestPath,
         [Parameter(Mandatory=$false)] [string]$Arguments = "",
-        [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10
+        [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10,
+        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null
     )
 
     $startTime = [System.DateTime]::UtcNow
@@ -44,6 +54,7 @@ function Invoke-Executor {
         States        = @()
         FinalState    = $null
         PID           = $null
+        BinaryType    = $null
         Error         = $null
     }
 
@@ -240,48 +251,102 @@ function Invoke-Executor {
             Add-State "TRANSFERRED" $transferDetail
         }
 
-        # Step 4 — Launch binary on target
-        $launchPID = $null
-        try {
-            $launchResult = Invoke-OnTarget -ScriptBlock {
-                param($exePath, $exeArgs)
-                $psi = New-Object System.Diagnostics.ProcessStartInfo
-                $psi.FileName        = $exePath
-                $psi.Arguments       = $exeArgs
-                $psi.UseShellExecute = $true
-                $proc = [System.Diagnostics.Process]::Start($psi)
-                if (-not $proc) { throw "Process.Start returned null" }
-                return $proc.Id
-            } -ArgumentList @($RemoteDestPath, $Arguments)
-
-            $launchPID = [int]$launchResult
-        } catch {
-            Add-State "LAUNCH_FAILED" $_.Exception.Message
-            $result.Error = $_.Exception.Message
-            return [PSCustomObject]$result
+        # Step 4a — BinaryType detection
+        if ($BinaryTypeOverride -ne $null) {
+            $result.BinaryType = $BinaryTypeOverride
+        } else {
+            $result.BinaryType = Get-BinaryType -Path $LocalBinaryPath
         }
 
-        $result.PID = $launchPID
-        Add-State "LAUNCHED" "PID=$launchPID"
+        $isSFX = $result.BinaryType -and $result.BinaryType.IsSFX
 
-        # Step 5 — Alive check
-        Start-Sleep -Seconds $AliveCheckSeconds
+        if ($isSFX) {
+            # SFX flow: launch and wait for exit (up to 120s), check exit code
+            $sfxType = $result.BinaryType.SFXType
+            Add-State "LAUNCHED" "SFX type=$sfxType detected; using exit code check"
 
-        $stillAlive = $false
-        try {
-            $stillAlive = Invoke-OnTarget -ScriptBlock {
-                param($checkPid)
-                $p = Get-Process -Id $checkPid -ErrorAction SilentlyContinue
-                return ($null -ne $p)
-            } -ArgumentList @($launchPID)
-        } catch { $stillAlive = $false }
-        $stillAlive = [bool]$stillAlive
+            try {
+                $sfxResult = Invoke-OnTarget -ScriptBlock {
+                    param($exePath, $exeArgs)
+                    $psi = New-Object System.Diagnostics.ProcessStartInfo
+                    $psi.FileName               = $exePath
+                    $psi.Arguments              = $exeArgs
+                    $psi.UseShellExecute        = $false
+                    $psi.RedirectStandardOutput = $false
+                    $psi.RedirectStandardError  = $false
+                    $proc = [System.Diagnostics.Process]::Start($psi)
+                    if (-not $proc) { throw "Process.Start returned null" }
+                    $pid_ = $proc.Id
+                    $exited = $proc.WaitForExit(120000)
+                    if (-not $exited) {
+                        try { $proc.Kill() } catch { }
+                        return [PSCustomObject]@{ TimedOut=$true; ExitCode=$null; PID=$pid_ }
+                    }
+                    return [PSCustomObject]@{ TimedOut=$false; ExitCode=$proc.ExitCode; PID=$pid_ }
+                } -ArgumentList @($RemoteDestPath, $Arguments)
+            } catch {
+                Add-State "LAUNCH_FAILED" $_.Exception.Message
+                $result.Error = $_.Exception.Message
+                return [PSCustomObject]$result
+            }
 
-        if ($stillAlive) {
-            Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+            $result.PID = [int]$sfxResult.PID
+
+            if ([bool]$sfxResult.TimedOut) {
+                Add-State "LAUNCH_FAILED" "SFX timed out after 120s"
+                $result.Error = "SFX timed out after 120s"
+            } elseif ([int]$sfxResult.ExitCode -eq 0) {
+                Add-State "SFX_LAUNCHED" "SFX exited with code 0"
+            } else {
+                $ec = $sfxResult.ExitCode
+                Add-State "LAUNCH_FAILED" "SFX exited with code $ec"
+                $result.Error = "SFX exit code $ec"
+            }
+
         } else {
-            Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
-            $result.Error = "Process not found after alive check"
+            # Step 4b — Normal launch
+            $launchPID = $null
+            try {
+                $launchResult = Invoke-OnTarget -ScriptBlock {
+                    param($exePath, $exeArgs)
+                    $psi = New-Object System.Diagnostics.ProcessStartInfo
+                    $psi.FileName        = $exePath
+                    $psi.Arguments       = $exeArgs
+                    $psi.UseShellExecute = $true
+                    $proc = [System.Diagnostics.Process]::Start($psi)
+                    if (-not $proc) { throw "Process.Start returned null" }
+                    return $proc.Id
+                } -ArgumentList @($RemoteDestPath, $Arguments)
+
+                $launchPID = [int]$launchResult
+            } catch {
+                Add-State "LAUNCH_FAILED" $_.Exception.Message
+                $result.Error = $_.Exception.Message
+                return [PSCustomObject]$result
+            }
+
+            $result.PID = $launchPID
+            Add-State "LAUNCHED" "PID=$launchPID"
+
+            # Step 5 — Alive check
+            Start-Sleep -Seconds $AliveCheckSeconds
+
+            $stillAlive = $false
+            try {
+                $stillAlive = Invoke-OnTarget -ScriptBlock {
+                    param($checkPid)
+                    $p = Get-Process -Id $checkPid -ErrorAction SilentlyContinue
+                    return ($null -ne $p)
+                } -ArgumentList @($launchPID)
+            } catch { $stillAlive = $false }
+            $stillAlive = [bool]$stillAlive
+
+            if ($stillAlive) {
+                Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+            } else {
+                Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
+                $result.Error = "Process not found after alive check"
+            }
         }
 
     } finally {

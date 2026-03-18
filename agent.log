@@ -53,3 +53,33 @@ HOW TO VERIFY: .\TestSuite.ps1 after fix, check T24-T28 pass.
 - Run .\TestSuite.ps1 → T24-T28 pass
 - Manual: localhost WinRM/WMI notepad.exe, auto method, bad IP < 35s
 - Clean temp files and notepad processes after tests
+[2026-03-18T00:00:00Z] PLAN SFX Detection and Handling
+Files to change:
+  1. Modules\Core\Output.psm1 — add Get-BinaryType function + export
+  2. Modules\Executors\WinRM.psm1 — import Output.psm1, call Get-BinaryType after TRANSFERRED, branch on IsSFX
+  3. Modules\Executors\WMI.psm1 — same as WinRM
+  4. Executor.ps1 — add SFX_LAUNCHED to -Help states table
+  5. Tests\T09_Executor.ps1 — add T29-T33
+
+Get-BinaryType logic:
+  - Read file bytes; parse PE optional header to get SizeOfImage
+  - Actual PE end = file offset of PE header + PE header size + SizeOfImage (approximate)
+  - Better: use IMAGE_OPTIONAL_HEADER SizeOfHeaders + sum of section raw sizes
+  - Simplest reliable approach: find end of PE sections via section table
+  - Check magic bytes after PE end for ZIP/RAR/7z/GZIP/appended PE
+  - Check PE version info strings for SFX keywords
+  - Check NSIS markers
+
+What could break:
+  - Corrupt/non-PE files — caught by try/catch, IsSFX=false
+  - WinRM/WMI: importing Output.psm1 from executor module context — use $PSScriptRoot
+
+Verify: run T09 test suite after each change.
+
+[2026-03-18T14:20:00Z] DONE SFX Detection and Handling
+  Get-BinaryType: already implemented in Output.psm1 v2.1
+  WinRM.psm1 v1.4: BinaryTypeOverride param + SFX flow (WaitForExit 120s, exit code check)
+  WMI.psm1 v1.1: Output.psm1 import, BinaryType in result, BinaryTypeOverride, SFX flow (poll exit)
+  Executor.ps1 v1.2: SFX_LAUNCHED added to -Help states table
+  T09_Executor.ps1: T29-T33 added and all pass
+  TestSuite: T24-T33 all PASS

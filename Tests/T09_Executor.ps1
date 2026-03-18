@@ -6,6 +6,11 @@
 #   T26 Unreachable IP returns CONNECTION_FAILED
 #   T27 Missing local binary returns CONNECTION_FAILED
 #   T28 localhost notepad.exe smoke test
+#   T29 Get-BinaryType on regular binary: IsSFX=false
+#   T30 Get-BinaryType on nonexistent path: IsSFX=false
+#   T31 Byte pattern detection: ZIP magic appended → IsSFX=true
+#   T32 SFX flow exit code 0 → FinalState=SFX_LAUNCHED
+#   T33 SFX flow exit code 1 → FinalState=LAUNCH_FAILED
 # =============================================
 #   Inputs    : -JsonPath -HtmlPath (unused, for suite compat)
 #   Output    : @{ Passed=@();
@@ -188,6 +193,173 @@ try {
     if (Test-Path -LiteralPath $t28TempFile) {
         Remove-Item -LiteralPath $t28TempFile -Force -ErrorAction SilentlyContinue
     }
+}
+
+# ---------------------------------------------------------------
+# T29 — Get-BinaryType on regular Windows binary: IsSFX=false, no exception
+# ---------------------------------------------------------------
+try {
+    $outputMod = Join-Path $repoDir "Modules\Core\Output.psm1"
+    Import-Module $outputMod -Force -ErrorAction Stop
+
+    $bt29 = Get-BinaryType -Path "C:\Windows\System32\cmd.exe"
+    $t29Details = @()
+    if ($bt29.IsSFX -ne $false) { $t29Details += "IsSFX should be false, got $($bt29.IsSFX)" }
+    if ($null -eq $bt29.FileSizeBytes) { $t29Details += "FileSizeBytes is null" }
+    if ($t29Details.Count -eq 0) {
+        Add-R "T29" $true "Get-BinaryType on cmd.exe: IsSFX=false, no exception"
+    } else {
+        Add-R "T29" $false "Get-BinaryType on regular binary failed" $t29Details
+    }
+} catch {
+    Add-R "T29" $false "T29 threw exception" @($_.Exception.Message)
+}
+
+# ---------------------------------------------------------------
+# T30 — Get-BinaryType on nonexistent path: IsSFX=false, no exception
+# ---------------------------------------------------------------
+try {
+    $outputMod = Join-Path $repoDir "Modules\Core\Output.psm1"
+    Import-Module $outputMod -Force -ErrorAction SilentlyContinue
+
+    $bt30 = Get-BinaryType -Path "C:\NonExistent\no_such_file_xyz.exe"
+    $t30Details = @()
+    if ($bt30.IsSFX -ne $false) { $t30Details += "IsSFX should be false, got $($bt30.IsSFX)" }
+    if ($t30Details.Count -eq 0) {
+        Add-R "T30" $true "Get-BinaryType on nonexistent path: IsSFX=false, no exception"
+    } else {
+        Add-R "T30" $false "Get-BinaryType on nonexistent path failed" $t30Details
+    }
+} catch {
+    Add-R "T30" $false "T30 threw exception" @($_.Exception.Message)
+}
+
+# ---------------------------------------------------------------
+# T31 — Byte pattern detection: file with ZIP magic appended
+#        No valid PE needed — testing byte detection only.
+#        PASS: IsSFX=true, SFXType="ZIP"
+# ---------------------------------------------------------------
+$t31TempFile = [System.IO.Path]::GetTempFileName()
+try {
+    $outputMod = Join-Path $repoDir "Modules\Core\Output.psm1"
+    Import-Module $outputMod -Force -ErrorAction SilentlyContinue
+
+    # Build a minimal fake PE + ZIP magic appended:
+    # DOS header (64 bytes), e_lfanew=0x3C pointing to offset 64=0x40
+    # PE sig at 0x40, COFF header (20 bytes), no optional header (optHdrSize=0)
+    # No sections → PE ends at section table start = 0x40+4+20+0 = 0x58
+    # Then append ZIP magic: 50 4B 03 04
+    $peBytes = New-Object byte[] 100
+    # MZ header
+    $peBytes[0] = 0x4D; $peBytes[1] = 0x5A  # MZ
+    # e_lfanew at offset 0x3C = 64 = 0x40
+    $peBytes[0x3C] = 0x40; $peBytes[0x3D] = 0x00; $peBytes[0x3E] = 0x00; $peBytes[0x3F] = 0x00
+    # PE signature at offset 0x40
+    $peBytes[0x40] = 0x50; $peBytes[0x41] = 0x45; $peBytes[0x42] = 0x00; $peBytes[0x43] = 0x00
+    # COFF: Machine(2) Sections(2)=0 TimeDateStamp(4) SymTablePtr(4) SymCount(4) OptHdrSize(2)=0 Chars(2)
+    # All zeros → 0 sections, optHdrSize=0 → sectionTable at 0x40+4+20=0x58
+    # PE end computed as 0 (no sections) → falls through to $peEnd=$fileSize path
+    # Append ZIP magic at end: bytes 96-99
+    $peBytes[96] = 0x50; $peBytes[97] = 0x4B; $peBytes[98] = 0x03; $peBytes[99] = 0x04
+    [System.IO.File]::WriteAllBytes($t31TempFile, $peBytes)
+
+    $bt31 = Get-BinaryType -Path $t31TempFile
+    $t31Details = @()
+    if ($bt31.IsSFX -ne $true)    { $t31Details += "IsSFX should be true, got $($bt31.IsSFX)" }
+    if ($bt31.SFXType -ne "ZIP")  { $t31Details += "SFXType should be ZIP, got $($bt31.SFXType)" }
+    if ($t31Details.Count -eq 0) {
+        Add-R "T31" $true "Byte pattern detection: ZIP magic → IsSFX=true, SFXType=ZIP"
+    } else {
+        Add-R "T31" $false "Byte pattern detection failed" $t31Details
+    }
+} catch {
+    Add-R "T31" $false "T31 threw exception" @($_.Exception.Message)
+} finally {
+    if (Test-Path -LiteralPath $t31TempFile) {
+        Remove-Item -LiteralPath $t31TempFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------------
+# T32 — SFX flow exit code 0: cmd.exe /C exit 0, IsSFX overridden
+#        PASS: FinalState=SFX_LAUNCHED
+#        PASS: States[] contains no ALIVE state
+#        PASS: BinaryType.IsSFX=true in result
+# ---------------------------------------------------------------
+try {
+    Import-Module $winrmMod -Force -ErrorAction Stop
+
+    $mockBT32 = [PSCustomObject]@{ IsSFX=$true; SFXType='ZIP'; DetectionMethod='Test'; FileSizeBytes=0; PESizeBytes=0; AppendedBytes=0 }
+    $r32 = Invoke-Executor `
+        -ComputerName "localhost" `
+        -LocalBinaryPath "C:\Windows\System32\cmd.exe" `
+        -RemoteDestPath "C:\Windows\Temp\quicker_sfx_t32_$(Get-Random).exe" `
+        -Arguments "/C exit 0" `
+        -AliveCheckSeconds 1 `
+        -BinaryTypeOverride $mockBT32
+
+    $t32Details = @()
+    if ($r32.FinalState -ne "SFX_LAUNCHED") {
+        $t32Details += "Expected FinalState=SFX_LAUNCHED, got $($r32.FinalState). Error=$($r32.Error)"
+    }
+    $hasAlive = @($r32.States | Where-Object { $_.State -eq "ALIVE" })
+    if ($hasAlive.Count -gt 0) {
+        $t32Details += "States[] should not contain ALIVE state"
+    }
+    if (-not $r32.BinaryType -or $r32.BinaryType.IsSFX -ne $true) {
+        $t32Details += "BinaryType.IsSFX should be true in result"
+    }
+    if ($t32Details.Count -eq 0) {
+        Add-R "T32" $true "SFX exit code 0: FinalState=SFX_LAUNCHED, no ALIVE state, BinaryType.IsSFX=true"
+    } else {
+        Add-R "T32" $false "SFX exit code 0 flow failed" $t32Details
+    }
+
+    # Cleanup temp file if it exists
+    if ($r32.RemoteDest -and (Test-Path -LiteralPath $r32.RemoteDest)) {
+        Remove-Item -LiteralPath $r32.RemoteDest -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Add-R "T32" $false "T32 threw exception" @($_.Exception.Message)
+}
+
+# ---------------------------------------------------------------
+# T33 — SFX flow exit code non-zero: cmd.exe /C exit 1, IsSFX overridden
+#        PASS: FinalState=LAUNCH_FAILED
+#        PASS: detail contains exit code value
+# ---------------------------------------------------------------
+try {
+    Import-Module $winrmMod -Force -ErrorAction Stop
+
+    $mockBT33 = [PSCustomObject]@{ IsSFX=$true; SFXType='ZIP'; DetectionMethod='Test'; FileSizeBytes=0; PESizeBytes=0; AppendedBytes=0 }
+    $r33 = Invoke-Executor `
+        -ComputerName "localhost" `
+        -LocalBinaryPath "C:\Windows\System32\cmd.exe" `
+        -RemoteDestPath "C:\Windows\Temp\quicker_sfx_t33_$(Get-Random).exe" `
+        -Arguments "/C exit 1" `
+        -AliveCheckSeconds 1 `
+        -BinaryTypeOverride $mockBT33
+
+    $t33Details = @()
+    if ($r33.FinalState -ne "LAUNCH_FAILED") {
+        $t33Details += "Expected FinalState=LAUNCH_FAILED, got $($r33.FinalState). Error=$($r33.Error)"
+    }
+    $failState = @($r33.States | Where-Object { $_.State -eq "LAUNCH_FAILED" }) | Select-Object -First 1
+    if (-not $failState -or $failState.Detail -notmatch '1') {
+        $t33Details += "LAUNCH_FAILED detail should contain exit code 1. Detail=$($failState.Detail)"
+    }
+    if ($t33Details.Count -eq 0) {
+        Add-R "T33" $true "SFX exit code 1: FinalState=LAUNCH_FAILED, detail contains exit code"
+    } else {
+        Add-R "T33" $false "SFX exit code non-zero flow failed" $t33Details
+    }
+
+    # Cleanup temp file if it exists
+    if ($r33.RemoteDest -and (Test-Path -LiteralPath $r33.RemoteDest)) {
+        Remove-Item -LiteralPath $r33.RemoteDest -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Add-R "T33" $false "T33 threw exception" @($_.Exception.Message)
 }
 
 return @{

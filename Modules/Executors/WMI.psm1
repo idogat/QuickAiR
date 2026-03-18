@@ -15,11 +15,20 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.0                    ║
+# ║  Version   : 1.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
+
+# Load Output.psm1 for Get-BinaryType / Write-Log
+$_outputMod = Join-Path (Split-Path -Parent $PSScriptRoot) "Core\Output.psm1"
+if (-not $PSScriptRoot) {
+    $_outputMod = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\Core\Output.psm1"
+}
+if (Test-Path $_outputMod) {
+    Import-Module $_outputMod -Force -ErrorAction SilentlyContinue
+}
 
 # WMI Win32_Process.Create return code mapping
 $script:WMI_RETURN_CODES = @{
@@ -39,7 +48,8 @@ function Invoke-Executor {
         [Parameter(Mandatory=$true)]  [string]$LocalBinaryPath,
         [Parameter(Mandatory=$true)]  [string]$RemoteDestPath,
         [Parameter(Mandatory=$false)] [string]$Arguments = "",
-        [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10
+        [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10,
+        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null
     )
 
     $startTime = [System.DateTime]::UtcNow
@@ -55,6 +65,7 @@ function Invoke-Executor {
         States        = @()
         FinalState    = $null
         PID           = $null
+        BinaryType    = $null
         Error         = $null
     }
 
@@ -97,9 +108,19 @@ function Invoke-Executor {
         # Step 3 — Transfer skipped (WMI cannot transfer files)
         Add-State "TRANSFERRED" "Skipped — binary must exist on target"
 
+        # Step 3a — BinaryType detection (on LocalBinaryPath if accessible locally)
+        if ($BinaryTypeOverride -ne $null) {
+            $result.BinaryType = $BinaryTypeOverride
+        } elseif (Get-Command Get-BinaryType -ErrorAction SilentlyContinue) {
+            $result.BinaryType = Get-BinaryType -Path $LocalBinaryPath
+        }
+
+        $isSFX = $result.BinaryType -and $result.BinaryType.IsSFX
+
         # Step 4 — Launch via Win32_Process.Create
         $commandLine = if ($Arguments) { "`"$RemoteDestPath`" $Arguments" } else { "`"$RemoteDestPath`"" }
 
+        $launchPID = $null
         try {
             $wmiScopeParams = @{ ComputerName = $ComputerName }
             if ($Credential) { $wmiScopeParams['Credential'] = $Credential }
@@ -136,29 +157,61 @@ function Invoke-Executor {
         }
 
         $result.PID = $launchPID
-        Add-State "LAUNCHED" "PID=$launchPID"
 
-        # Step 5 — Alive check
-        Start-Sleep -Seconds $AliveCheckSeconds
+        if ($isSFX) {
+            # SFX flow: poll for process exit (WMI cannot retrieve exit code)
+            $sfxType = $result.BinaryType.SFXType
+            Add-State "LAUNCHED" "SFX type=$sfxType detected; using exit code check"
 
-        $stillAlive = $false
-        try {
-            $aliveParams = @{
-                Class       = 'Win32_Process'
-                ComputerName = $ComputerName
-                Filter      = "ProcessId=$launchPID"
-                ErrorAction = 'Stop'
+            $sfxDeadline = [System.DateTime]::UtcNow.AddSeconds(120)
+            $sfxExited   = $false
+            while ([System.DateTime]::UtcNow -lt $sfxDeadline) {
+                Start-Sleep -Seconds 2
+                $checkParams = @{
+                    Class        = 'Win32_Process'
+                    ComputerName = $ComputerName
+                    Filter       = "ProcessId=$launchPID"
+                    ErrorAction  = 'Stop'
+                }
+                if ($Credential) { $checkParams['Credential'] = $Credential }
+                try {
+                    $p = Get-WmiObject @checkParams
+                    if ($null -eq $p) { $sfxExited = $true; break }
+                } catch { $sfxExited = $true; break }
             }
-            if ($Credential) { $aliveParams['Credential'] = $Credential }
-            $proc = Get-WmiObject @aliveParams
-            $stillAlive = ($null -ne $proc)
-        } catch { $stillAlive = $false }
 
-        if ($stillAlive) {
-            Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+            if ($sfxExited) {
+                Add-State "SFX_LAUNCHED" "SFX exited within 120s (exit code unavailable via WMI)"
+            } else {
+                Add-State "LAUNCH_FAILED" "SFX timed out after 120s"
+                $result.Error = "SFX timed out after 120s"
+            }
+
         } else {
-            Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
-            $result.Error = "Process not found after alive check"
+            Add-State "LAUNCHED" "PID=$launchPID"
+
+            # Step 5 — Alive check
+            Start-Sleep -Seconds $AliveCheckSeconds
+
+            $stillAlive = $false
+            try {
+                $aliveParams = @{
+                    Class        = 'Win32_Process'
+                    ComputerName = $ComputerName
+                    Filter       = "ProcessId=$launchPID"
+                    ErrorAction  = 'Stop'
+                }
+                if ($Credential) { $aliveParams['Credential'] = $Credential }
+                $proc = Get-WmiObject @aliveParams
+                $stillAlive = ($null -ne $proc)
+            } catch { $stillAlive = $false }
+
+            if ($stillAlive) {
+                Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+            } else {
+                Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
+                $result.Error = "Process not found after alive check"
+            }
         }
 
     } catch {

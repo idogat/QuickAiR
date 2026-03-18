@@ -9,13 +9,14 @@
 # ║              Get-FileSha256         ║
 # ║              Write-JsonOutput       ║
 # ║              Build-Manifest         ║
+# ║              Get-BinaryType         ║
 # ║  Inputs    : path, data, hostname,  ║
 # ║              caps, sources          ║
 # ║  Output    : @{Path; Hash} (JSON)   ║
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -203,4 +204,171 @@ function Get-SidMetadata {
     return @{ SID=$SID; AccountType=$acctType; IsLocal=[bool]$isLocal; IsDomain=[bool]$isDomain; IsSystem=[bool]$isSystem; IsAdmin=[bool]$isAdmin }
 }
 
-Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickerSha256, Get-QuickerSignature, Get-SidMetadata
+function Get-BinaryType {
+    param([string]$Path)
+    $empty = [PSCustomObject]@{
+        IsSFX            = $false
+        SFXType          = $null
+        DetectionMethod  = $null
+        FileSizeBytes    = $null
+        PESizeBytes      = $null
+        AppendedBytes    = $null
+    }
+    try {
+        if (-not $Path -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+            Write-Log "WARN" "Get-BinaryType: path not found or empty: $Path"
+            return $empty
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
+        $fileSize = $bytes.Length
+        $empty.FileSizeBytes = $fileSize
+
+        # Locate PE header
+        if ($fileSize -lt 64) { return $empty }
+        # e_lfanew at offset 0x3C (4 bytes LE)
+        $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+        if ($peOffset -lt 0 -or ($peOffset + 24) -ge $fileSize) { return $empty }
+        # PE signature: "PE\0\0"
+        if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset+1] -ne 0x45 -or
+            $bytes[$peOffset+2] -ne 0x00 -or $bytes[$peOffset+3] -ne 0x00) {
+            return $empty
+        }
+
+        # COFF header: Machine(2) Sections(2) TimeDateStamp(4) SymTablePtr(4) SymCount(4) OptHdrSize(2) Chars(2)
+        $coffOffset      = $peOffset + 4
+        if (($coffOffset + 20) -ge $fileSize) { return $empty }
+        $numSections     = [BitConverter]::ToUInt16($bytes, $coffOffset + 2)
+        $optHdrSize      = [BitConverter]::ToUInt16($bytes, $coffOffset + 16)
+
+        # Optional header starts at coffOffset+20
+        $optOffset = $coffOffset + 20
+        if ($optOffset -ge $fileSize) { return $empty }
+
+        # Section table starts after optional header
+        $sectionTableOffset = $optOffset + $optHdrSize
+        if ($sectionTableOffset -ge $fileSize) { return $empty }
+
+        # Each section header: 40 bytes. Find the highest (rawOffset + rawSize).
+        $peEnd = 0
+        for ($i = 0; $i -lt $numSections; $i++) {
+            $secOff = $sectionTableOffset + ($i * 40)
+            if (($secOff + 40) -gt $fileSize) { break }
+            $rawOffset = [BitConverter]::ToUInt32($bytes, $secOff + 20)
+            $rawSize   = [BitConverter]::ToUInt32($bytes, $secOff + 16)
+            $secEnd    = [int]$rawOffset + [int]$rawSize
+            if ($secEnd -gt $peEnd) { $peEnd = $secEnd }
+        }
+
+        if ($peEnd -le 0 -or $peEnd -ge $fileSize) {
+            # No appended data detectable via sections; still check version info
+            $peEnd = $fileSize
+        }
+
+        $appendedBytes = $fileSize - $peEnd
+        $empty.PESizeBytes    = $peEnd
+        $empty.AppendedBytes  = $appendedBytes
+
+        # --- Magic byte detection on appended data ---
+        $sfxType   = $null
+        $sfxMethod = $null
+
+        if ($appendedBytes -ge 4) {
+            $a = $peEnd  # start of appended region
+            # Scan for magic bytes within appended region (up to first 256 bytes offset)
+            $scanEnd = [Math]::Min($a + 256, $fileSize - 4)
+            for ($j = $a; $j -le $scanEnd; $j++) {
+                if ($j + 3 -ge $fileSize) { break }
+                $b0 = $bytes[$j]; $b1 = $bytes[$j+1]; $b2 = $bytes[$j+2]; $b3 = $bytes[$j+3]
+                # ZIP: 50 4B 03 04
+                if ($b0 -eq 0x50 -and $b1 -eq 0x4B -and $b2 -eq 0x03 -and $b3 -eq 0x04) {
+                    $sfxType = "ZIP"; $sfxMethod = "AppendedMagic:ZIP"; break
+                }
+                # RAR: 52 61 72 21
+                if ($b0 -eq 0x52 -and $b1 -eq 0x61 -and $b2 -eq 0x72 -and $b3 -eq 0x21) {
+                    $sfxType = "RAR"; $sfxMethod = "AppendedMagic:RAR"; break
+                }
+                # 7-zip: 37 7A BC AF 27 1C
+                if ($b0 -eq 0x37 -and $b1 -eq 0x7A -and $b2 -eq 0xBC -and $b3 -eq 0xAF) {
+                    $sfxType = "7zip"; $sfxMethod = "AppendedMagic:7zip"; break
+                }
+                # GZIP: 1F 8B
+                if ($b0 -eq 0x1F -and $b1 -eq 0x8B) {
+                    $sfxType = "GZIP"; $sfxMethod = "AppendedMagic:GZIP"; break
+                }
+                # Appended PE: 4D 5A
+                if ($b0 -eq 0x4D -and $b1 -eq 0x5A) {
+                    $sfxType = "PE"; $sfxMethod = "AppendedMagic:PE"; break
+                }
+            }
+        }
+
+        # Also scan full file bytes for magic if not found yet (handles embedded archives)
+        if (-not $sfxType -and $fileSize -ge 4) {
+            $scanEnd2 = [Math]::Min($fileSize - 4, $peEnd)
+            for ($j = 0; $j -le $scanEnd2; $j++) {
+                $b0 = $bytes[$j]; $b1 = $bytes[$j+1]
+                if ($j + 3 -ge $fileSize) { break }
+                $b2 = $bytes[$j+2]; $b3 = $bytes[$j+3]
+                if ($b0 -eq 0x50 -and $b1 -eq 0x4B -and $b2 -eq 0x03 -and $b3 -eq 0x04) {
+                    $sfxType = "ZIP"; $sfxMethod = "EmbeddedMagic:ZIP"; break
+                }
+                if ($b0 -eq 0x52 -and $b1 -eq 0x61 -and $b2 -eq 0x72 -and $b3 -eq 0x21) {
+                    $sfxType = "RAR"; $sfxMethod = "EmbeddedMagic:RAR"; break
+                }
+                if ($b0 -eq 0x37 -and $b1 -eq 0x7A -and $b2 -eq 0xBC -and $b3 -eq 0xAF) {
+                    $sfxType = "7zip"; $sfxMethod = "EmbeddedMagic:7zip"; break
+                }
+            }
+        }
+
+        # --- NSIS marker: "Nullsoft" string in PE ---
+        if (-not $sfxType) {
+            $nsisSig = [System.Text.Encoding]::ASCII.GetBytes("Nullsoft")
+            $found = $false
+            for ($j = 0; $j -le ($fileSize - $nsisSig.Length); $j++) {
+                $match = $true
+                for ($k = 0; $k -lt $nsisSig.Length; $k++) {
+                    if ($bytes[$j+$k] -ne $nsisSig[$k]) { $match = $false; break }
+                }
+                if ($match) { $found = $true; break }
+            }
+            if ($found) { $sfxType = "NSIS"; $sfxMethod = "NSISMarker" }
+        }
+
+        # --- PE version info keywords (ASCII scan) ---
+        if (-not $sfxType) {
+            $keywords = @("Self-Extractor","SFX","NSIS","Inno Setup")
+            $peBytes  = if ($peEnd -lt $fileSize) { $bytes[0..($peEnd-1)] } else { $bytes }
+            $peText   = [System.Text.Encoding]::ASCII.GetString($peBytes)
+            foreach ($kw in $keywords) {
+                if ($peText.IndexOf($kw, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                    $sfxType = switch -Regex ($kw) {
+                        'NSIS|Nullsoft' { "NSIS" }
+                        'Inno'          { "ZIP"  }
+                        default         { "Unknown" }
+                    }
+                    $sfxMethod = "VersionInfoKeyword:$kw"
+                    break
+                }
+            }
+        }
+
+        if ($sfxType) {
+            return [PSCustomObject]@{
+                IsSFX           = $true
+                SFXType         = $sfxType
+                DetectionMethod = $sfxMethod
+                FileSizeBytes   = $fileSize
+                PESizeBytes     = $peEnd
+                AppendedBytes   = $appendedBytes
+            }
+        }
+        return $empty
+    } catch {
+        Write-Log "WARN" "Get-BinaryType error on '$Path': $($_.Exception.Message)"
+        return $empty
+    }
+}
+
+Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickerSha256, Get-QuickerSignature, Get-SidMetadata, Get-BinaryType

@@ -20,7 +20,7 @@
 # ║  Depends   : Executors\WinRM.psm1  ║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.1                    ║
+# ║  Version   : 1.2                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -39,7 +39,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.1"
+$EXECUTOR_VERSION = "1.2"
 
 #region --- Help ---
 if ($Help) {
@@ -83,6 +83,7 @@ if ($Help) {
     Write-Host "  LAUNCHED            Process started; PID captured"
     Write-Host "  LAUNCH_FAILED       Process did not start or exited before alive check"
     Write-Host "  ALIVE               Process still running after AliveCheck seconds"
+    Write-Host "  SFX_LAUNCHED        SFX exited cleanly. Extraction and execution initiated on target."
     Write-Host ""
     exit 0
 }
