@@ -14,7 +14,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.4                    ║
+# ║  Version   : 1.7                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -172,25 +172,50 @@ function Invoke-Executor {
                 return [PSCustomObject]$result
             }
         } else {
-            # Remote: primary base64, fallback SMB
+            # Remote: chunked base64 transfer (PS 2.0 compat, avoids WinRM envelope size limit)
             try {
-                $bytes    = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
-                $b64      = [System.Convert]::ToBase64String($bytes)
-                $dest     = $RemoteDestPath
+                $fileBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
+                $dest      = $RemoteDestPath
+                # 96 KB binary chunks → ~128 KB base64, well under WinRM 2.0 500 KB envelope limit
+                $chunkSize = 98304
+                $offset    = 0
+                $isFirst   = $true
 
-                Invoke-Command -Session $session -ScriptBlock {
-                    param($b64Data, $destPath)
-                    $dir = Split-Path -Parent $destPath
-                    if ($dir -and -not (Test-Path $dir)) {
-                        New-Item -ItemType Directory -Path $dir -Force | Out-Null
-                    }
-                    $decoded = [System.Convert]::FromBase64String($b64Data)
-                    [System.IO.File]::WriteAllBytes($destPath, $decoded)
-                } -ArgumentList $b64, $dest -ErrorAction Stop
+                while ($offset -lt $fileBytes.Length) {
+                    $len = [Math]::Min($chunkSize, $fileBytes.Length - $offset)
+                    $chunk = [byte[]]::new($len)
+                    [Array]::Copy($fileBytes, $offset, $chunk, 0, $len)
+                    $b64Chunk = [System.Convert]::ToBase64String($chunk)
+                    $isFirstChunk = $isFirst
+
+                    Invoke-Command -Session $session -ScriptBlock {
+                        param($b64Data, $destPath, $firstChunk)
+                        $decoded = [System.Convert]::FromBase64String($b64Data)
+                        if ($firstChunk) {
+                            $dir = Split-Path -Parent $destPath
+                            if ($dir -and -not (Test-Path $dir)) {
+                                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+                            }
+                            [System.IO.File]::WriteAllBytes($destPath, $decoded)
+                        } else {
+                            $stream = [System.IO.File]::OpenWrite($destPath)
+                            [void]$stream.Seek(0, [System.IO.SeekOrigin]::End)
+                            $stream.Write($decoded, 0, $decoded.Length)
+                            $stream.Close()
+                        }
+                    } -ArgumentList $b64Chunk, $dest, $isFirstChunk -ErrorAction Stop
+
+                    $offset  += $len
+                    $isFirst  = $false
+                }
 
                 $remoteHash = Invoke-Command -Session $session -ScriptBlock {
                     param($path)
-                    (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+                    $sha  = [System.Security.Cryptography.SHA256]::Create()
+                    $data = [System.IO.File]::ReadAllBytes($path)
+                    $h    = $sha.ComputeHash($data)
+                    try { $sha.Dispose() } catch { }
+                    return ([BitConverter]::ToString($h) -replace '-','')
                 } -ArgumentList $dest -ErrorAction Stop
 
                 if ($remoteHash -ne $localHash) {
@@ -231,7 +256,10 @@ function Invoke-Executor {
 
                     $remoteHash2 = Invoke-Command -Session $session -ScriptBlock {
                         param($path)
-                        (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+                        $sha  = [System.Security.Cryptography.SHA256]::Create()
+                        $data = [System.IO.File]::ReadAllBytes($path)
+                        $h    = $sha.ComputeHash($data); $sha.Dispose()
+                        return ([BitConverter]::ToString($h) -replace '-','')
                     } -ArgumentList $RemoteDestPath -ErrorAction Stop
 
                     if ($remoteHash2 -ne $localHash) {

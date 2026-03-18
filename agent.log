@@ -83,3 +83,31 @@ Verify: run T09 test suite after each change.
   Executor.ps1 v1.2: SFX_LAUNCHED added to -Help states table
   T09_Executor.ps1: T29-T33 added and all pass
   TestSuite: T24-T33 all PASS
+
+[2026-03-18T14:30:00Z] PLAN Real-tool integration test matrix
+Files to change: none (testing only; fix modules if tests fail)
+Tools: memory-collector.exe (regular, stays alive), tools-test.exe (RAR SFX)
+Detection verified: regular=IsSFX:false, SFX=IsSFX:true SFXType:RAR
+Targets: localhost(no cred), 192.168.1.250, 192.168.1.100, 192.168.1.236
+Method: Auto for all (WinRM→WMI fallback)
+For WMI targets: SMB pre-copy needed since WMI skips transfer
+Cleanup: kill PID + delete remote file after each test
+Could break: 192.168.1.236 WinRM PSSession (PS2.0 target); SFX timeout if extraction slow
+
+[2026-03-18T17:00:00Z] DONE Real-tool integration testing
+Fixes applied to WinRM.psm1:
+  1. Remote SHA256: replaced Get-FileHash (PS4.0+) with SHA256Managed (PS2.0 compat)
+  2. Chunked base64 transfer: 96KB chunks to stay under WinRM 2.0 150KB envelope limit
+  3. SHA256Managed.Dispose(): wrapped in try/catch for PS2.0 compatibility
+  v1.5 → v1.6 → v1.7
+
+Root causes found:
+  192.168.1.250 | regular: Defender blocking — disabled RT protection before test
+  192.168.1.236 | both: Get-FileHash not available on PS2.0 + WinRM envelope size limit
+  localhost | SFX: SFX extracts and launches disk-collector.exe + Autoruns64.exe as
+    child processes. Second run blocked because these exes were still running and
+    locked (can't be overwritten). Fix: kill setup processes before each SFX test.
+  localhost | SFX: confirmed SFX configuration (Silent=1, Overwrite=1, Path=.\,
+    Setup=Autoruns64.exe, Setup=disk-collector.exe)
+
+All 8 target+tool combinations: PASS
