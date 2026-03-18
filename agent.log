@@ -111,3 +111,20 @@ Root causes found:
     Setup=Autoruns64.exe, Setup=disk-collector.exe)
 
 All 8 target+tool combinations: PASS
+
+[2026-03-18T18:00:00Z] PLAN Execution UI - verify and ship
+State: HTML/CSS/JS already present (exec dialog, fleet btn, network btns).
+Plan: build_report.ps1 → Playwright verify 7 screenshots → commit.
+Files: no code changes expected; build only.
+
+[2026-03-18T18:30:00Z] PLAN EXECUTE tab implementation
+Files changing:
+  - ReportStages/02_shell.html: add EXECUTE tab btn+panel, remove exec-modal dialog
+  - ReportStages/03_core.js: add execute to renderActiveTab, updateBadges calls updateExecuteBadge; remove EXECUTION DIALOG block (lines 794-927)
+  - ReportStages/04_fleet.js: remove _execute column+button; add collection failure banners below table
+  - ReportStages/06_network.js: remove Collect Memory/Collect Disk buttons from expand
+  - ReportStages/09b_execute.js (NEW): full EXECUTE tab — host status panel, launcher, badge logic
+Naming: 09b_execute.js (sorts before 10_close.html per CLAUDE.md rule)
+What changes achieve: dedicated EXECUTE tab replaces scattered dialog buttons
+What could break: openExecDialog callers removed — must verify no remaining callers
+Verification: build_report.ps1 then Playwright screenshots
