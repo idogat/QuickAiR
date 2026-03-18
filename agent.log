@@ -1,3 +1,31 @@
+============================================================
+2026-03-18 — Integration testing for remote executor
+============================================================
+
+ANALYSIS:
+  WinRM.psm1 is missing CONNECTED state after session establishment.
+  Task requires CONNECTED→TRANSFERRED→LAUNCHED→ALIVE sequence.
+
+ISSUE:
+  Neither local nor remote path in WinRM.psm1 emits "CONNECTED" state.
+
+PLAN:
+  Step 1: Fix WinRM.psm1 — add CONNECTED state
+    - Localhost: add Add-State "CONNECTED" after binary check passes
+    - Remote: add Add-State "CONNECTED" after New-PSSession succeeds
+    - Bump version to 1.2
+  Step 2: Run TestSuite T24-T28
+  Step 3: Run integration tests 1-6 from task
+  Step 4: Full workflow simulation via Playwright
+  Step 5: Commit
+
+WHAT COULD BREAK:
+  T27 (missing binary) still returns CONNECTION_FAILED before CONNECTED — correct.
+  T28 checks States non-empty, not specific count — still passes.
+
+HOW TO VERIFY: .\TestSuite.ps1 after fix, check T24-T28 pass.
+============================================================
+
 ## Plan — Remote Executor (2026-03-18)
 
 ### Files to create/modify:

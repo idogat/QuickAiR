@@ -20,7 +20,7 @@
 # ║  Depends   : Executors\WinRM.psm1  ║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.0                    ║
+# ║  Version   : 1.1                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -39,15 +39,15 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.0"
+$EXECUTOR_VERSION = "1.1"
 
 #region --- Help ---
 if ($Help) {
     Write-Host ""
-    Write-Host "════════════════════════════════════════════════════════" -ForegroundColor Cyan
-    Write-Host "  Quicker — Executor.ps1 v$EXECUTOR_VERSION" -ForegroundColor Cyan
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host "  Quicker - Executor.ps1 v$EXECUTOR_VERSION" -ForegroundColor Cyan
     Write-Host "  Remote Tool Launcher" -ForegroundColor Cyan
-    Write-Host "════════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "DESCRIPTION" -ForegroundColor Yellow
     Write-Host "  Transfers a binary to a remote Windows target and launches"
@@ -76,7 +76,7 @@ if ($Help) {
     Write-Host ""
     Write-Host "STATES" -ForegroundColor Yellow
     Write-Host "  State               Meaning"
-    Write-Host "  ─────────────────   ──────────────────────────────────────────────"
+    Write-Host "  -----------------   ------------------------------------------"
     Write-Host "  CONNECTION_FAILED   Could not reach target or binary not found locally"
     Write-Host "  TRANSFERRED         Binary copied to target and SHA256 verified"
     Write-Host "  TRANSFER_FAILED     Binary copy or SHA256 check failed"
@@ -195,7 +195,7 @@ if ($Method -eq "WinRM" -or $Method -eq "Auto") {
     }
 
     if ($Method -eq "Auto" -and $result.FinalState -eq "CONNECTION_FAILED") {
-        Write-Ts "WinRM CONNECTION_FAILED — falling back to WMI" "Yellow"
+        Write-Ts "WinRM CONNECTION_FAILED - falling back to WMI" "Yellow"
         Import-Module "$executorDir\WMI.psm1" -Force
         $result = Invoke-Executor @execParams
 

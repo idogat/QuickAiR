@@ -14,7 +14,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.1                    ║
+# ║  Version   : 1.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -81,7 +81,9 @@ function Invoke-Executor {
         }
 
         # Step 2 — Establish WinRM PSSession (remote only)
-        if (-not $isLocal) {
+        if ($isLocal) {
+            Add-State "CONNECTED" "Local execution (no PSSession needed)"
+        } else {
             try {
                 $soParams = @{
                     SkipCACheck      = $true
@@ -108,6 +110,7 @@ function Invoke-Executor {
                 } catch { }
 
                 $session = New-PSSession @sessParams
+                Add-State "CONNECTED" "PSSession established to $ComputerName"
             } catch {
                 Add-State "CONNECTION_FAILED" $_.Exception.Message
                 $result.Error = $_.Exception.Message
@@ -134,6 +137,24 @@ function Invoke-Executor {
                 }
                 $transferred   = $true
                 $transferDetail = "SHA256=$localHash"
+                # Copy companion .mui resource files if present (e.g. notepad.exe.mui)
+                $srcDir  = Split-Path -Parent $LocalBinaryPath
+                $srcName = Split-Path -Leaf  $LocalBinaryPath
+                $dstDir  = Split-Path -Parent $RemoteDestPath
+                $dstName = Split-Path -Leaf  $RemoteDestPath
+                try {
+                    Get-ChildItem $srcDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        $muiSrc = Join-Path $_.FullName "$srcName.mui"
+                        if (Test-Path $muiSrc) {
+                            $muiDestDir = Join-Path $dstDir $_.Name
+                            $muiDest    = Join-Path $muiDestDir "$dstName.mui"
+                            if (-not (Test-Path $muiDestDir)) {
+                                New-Item -ItemType Directory -Path $muiDestDir -Force | Out-Null
+                            }
+                            Copy-Item -LiteralPath $muiSrc -Destination $muiDest -Force -ErrorAction Stop
+                        }
+                    }
+                } catch { }
             } catch {
                 Add-State "TRANSFER_FAILED" $_.Exception.Message
                 $result.Error = $_.Exception.Message
@@ -166,6 +187,31 @@ function Invoke-Executor {
                 }
                 $transferred   = $true
                 $transferDetail = "SHA256=$localHash"
+                # Transfer companion .mui resource files if present
+                $srcDir2  = Split-Path -Parent $LocalBinaryPath
+                $srcName2 = Split-Path -Leaf  $LocalBinaryPath
+                $dstDir2  = Split-Path -Parent $dest
+                $dstName2 = Split-Path -Leaf  $dest
+                try {
+                    Get-ChildItem $srcDir2 -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        $muiSrc2 = Join-Path $_.FullName "$srcName2.mui"
+                        if (Test-Path $muiSrc2) {
+                            $muiB64 = [System.Convert]::ToBase64String(
+                                [System.IO.File]::ReadAllBytes($muiSrc2))
+                            $muiDestDir2 = Join-Path $dstDir2 $_.Name
+                            $muiDest2    = Join-Path $muiDestDir2 "$dstName2.mui"
+                            Invoke-Command -Session $session -ScriptBlock {
+                                param($b64Data, $destPath)
+                                $d = Split-Path -Parent $destPath
+                                if ($d -and -not (Test-Path $d)) {
+                                    New-Item -ItemType Directory -Path $d -Force | Out-Null
+                                }
+                                [System.IO.File]::WriteAllBytes($destPath,
+                                    [System.Convert]::FromBase64String($b64Data))
+                            } -ArgumentList $muiB64, $muiDest2 -ErrorAction Stop
+                        }
+                    }
+                } catch { }
             } catch {
                 # Fallback: SMB Copy-Item
                 try {
@@ -208,7 +254,7 @@ function Invoke-Executor {
                 return $proc.Id
             } -ArgumentList @($RemoteDestPath, $Arguments)
 
-            $launchPID = $launchResult
+            $launchPID = [int]$launchResult
         } catch {
             Add-State "LAUNCH_FAILED" $_.Exception.Message
             $result.Error = $_.Exception.Message
@@ -229,6 +275,7 @@ function Invoke-Executor {
                 return ($null -ne $p)
             } -ArgumentList @($launchPID)
         } catch { $stillAlive = $false }
+        $stillAlive = [bool]$stillAlive
 
         if ($stillAlive) {
             Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
