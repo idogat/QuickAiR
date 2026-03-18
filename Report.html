@@ -2090,21 +2090,35 @@ const CONF_BADGE = {
 };
 
 const USER_TIPS = {
-  FirstLogon:  'Earliest of: profile folder creation time, NTUSER.DAT creation time, ProfileList registry key write time',
-  LastLogon:   'Source: ProfileList LastUseTime\nupdated on each logoff',
-  WhenCreated: 'AD whenCreated attribute\nset at account creation, DC only',
-  LastLogonAD: 'AD lastLogonTimestamp\nreplicates every 9-14 days, may be stale by up to 14 days',
-  IsLoaded:    'ProfileList State flag (1 = currently loaded)',
-  SID:         'S-1-5-21-<machine>-* = local account\nS-1-5-21-<domain>-* = domain account',
-  Confidence:  'Cross-check of three sources:\n1. Profile folder CreationTime\n2. NTUSER.DAT CreationTime\n3. ProfileList registry key LastWrite\nHIGH=all agree  MEDIUM=two agree  LOW=one source  ?=none agree',
+  FirstLogon:      'Earliest first logon across all machines. Source: best available of \u2014 profile folder CreationTime, NTUSER.DAT CreationTime, ProfileList registry key LastWrite time.',
+  LastLogon:       'Most recent logon across all machines. Source: ProfileList LastUseTime value. Updated on each logoff.',
+  WhenCreated:     'Source: Active Directory whenCreated attribute. Set when account was created on DC. Only available when DC JSON is loaded.',
+  WhenCreatedDC:   'Source: AD whenCreated attribute. Accurate \u2014 set once at account creation.',
+  LastLogonAD:     'Source: AD lastLogonTimestamp. Warning: replicates every 9\u201314 days. May be stale by up to 14 days.',
+  PasswordLastSet: 'Source: AD pwdLastSet attribute.',
+  IsLoaded:        'ProfileList State flag (1 = currently loaded)',
+  SID:             'S-1-5-21-<machine>-* = local account\nS-1-5-21-<domain>-* = domain account',
+  Confidence:      'Cross-check of three sources:\n1. Profile folder CreationTime\n2. NTUSER.DAT CreationTime\n3. ProfileList registry key LastWrite\nHIGH=all agree  MEDIUM=two agree  LOW=one source  ?=none agree',
 };
 
-const UCOLS = '160px 100px 130px 110px 130px 110px 70px 100px';
+const UCOLS = '160px 100px 130px 110px 130px 110px 100px';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function confBadge(c)  { return CONF_BADGE[c] || '<span>' + esc(c || '?') + '</span>'; }
-function fmtDate(s)    { if (!s) return '<span style="color:var(--muted)">&#8212;</span>'; return esc(s.slice(0, 10)); }
-function fmtTs(s)      { if (!s) return '&#8212;'; return esc(s.slice(0, 19).replace('T', ' ')); }
+function fmtUTC(s) {
+  if (!s) return '<span style="color:var(--muted)">&#8212;</span>';
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return '<span style="color:var(--muted)">&#8212;</span>';
+    const pad = n => String(n).padStart(2, '0');
+    return esc(d.getUTCFullYear() + '-' +
+      pad(d.getUTCMonth() + 1) + '-' +
+      pad(d.getUTCDate()) + ' ' +
+      pad(d.getUTCHours()) + ':' +
+      pad(d.getUTCMinutes()) + ':' +
+      pad(d.getUTCSeconds()) + ' UTC');
+  } catch(e) { return '<span style="color:var(--muted)">&#8212;</span>'; }
+}
 
 function acctTypeBadge(t) {
   const styles = {
@@ -2163,7 +2177,6 @@ function usersSortRows(rows) {
         av = af ? af.UTC : ''; bv = bf ? bf.UTC : ''; break;
       }
       case 'lastLogin':  av = usersGetLastLogon(a) || ''; bv = usersGetLastLogon(b) || ''; break;
-      case 'machines':   return (a.machines.length - b.machines.length) * dir;
       case 'confidence': {
         const ao = CONF_ORDER[usersGetBestConf(a)] ?? 99;
         const bo = CONF_ORDER[usersGetBestConf(b)] ?? 99;
@@ -2270,7 +2283,6 @@ function renderUsers() {
         <div class="th sortable-th" title="${esc(USER_TIPS.WhenCreated)}" onclick="sortTable('users','dcCreated',false)">Created (DC) <span class="sort-arrow" id="sort-users-dcCreated">&#8645;</span></div>
         <div class="th sortable-th" title="${esc(USER_TIPS.FirstLogon)}" onclick="sortTable('users','firstLogin',false)">First Login <span class="sort-arrow" id="sort-users-firstLogin">&#8645;</span></div>
         <div class="th sortable-th" title="${esc(USER_TIPS.LastLogon)}" onclick="sortTable('users','lastLogin',false)">Last Login <span class="sort-arrow" id="sort-users-lastLogin">&#8645;</span></div>
-        <div class="th sortable-th" onclick="sortTable('users','machines',true)">Machines <span class="sort-arrow" id="sort-users-machines">&#8645;</span></div>
         <div class="th sortable-th" title="${esc(USER_TIPS.Confidence)}" onclick="sortTable('users','confidence',false)">Confidence <span class="sort-arrow" id="sort-users-confidence">&#8645;</span></div>
       </div>
       <div id="users-vs"></div>
@@ -2292,7 +2304,7 @@ function renderUserRow(u) {
   const bestConf = usersGetBestConf(u);
   const fl       = usersGetFirstLogon(u);
   const lastLogon= usersGetLastLogon(u);
-  const dcDate   = u.domainInfo ? fmtDate(u.domainInfo.WhenCreated) : (
+  const dcDate   = u.domainInfo ? fmtUTC(u.domainInfo.WhenCreated) : (
     u.AccountType === 'Local'
       ? '<span style="color:var(--muted)" title="Local accounts have no AD creation date">?</span>'
       : '<span style="color:var(--muted)">&#8212;</span>'
@@ -2300,7 +2312,7 @@ function renderUserRow(u) {
 
   let firstLoginCell;
   if (fl) {
-    firstLoginCell = fmtDate(fl.UTC) + ' ' + confBadge(fl.Confidence);
+    firstLoginCell = fmtUTC(fl.UTC) + ' ' + confBadge(fl.Confidence);
   } else {
     firstLoginCell = '<span style="color:var(--muted)">&#8212;</span>';
   }
@@ -2311,8 +2323,7 @@ function renderUserRow(u) {
     <div class="td dim">${esc(u.Domain || '&#8212;')}</div>
     <div class="td dim" title="${esc(USER_TIPS.WhenCreated)}">${dcDate}</div>
     <div class="td dim" title="${esc(USER_TIPS.FirstLogon)}">${firstLoginCell}</div>
-    <div class="td dim" title="${esc(USER_TIPS.LastLogon)}">${fmtDate(lastLogon)}</div>
-    <div class="td dim" style="text-align:center">${u.machines.length || '<span style="color:var(--muted)">&#8212;</span>'}</div>
+    <div class="td dim" title="${esc(USER_TIPS.LastLogon)}">${fmtUTC(lastLogon)}</div>
     <div class="td">${confBadge(bestConf)}</div>`;
 }
 
@@ -2367,12 +2378,12 @@ function buildUserExpand(u) {
         <span style="color:var(--muted);font-size:11px;margin-left:6px">From DC: ${esc(di.dcHost)}</span>
       </h4>
       <div class="kv-grid" style="margin-bottom:12px">
-        <span class="k" title="${esc(USER_TIPS.WhenCreated)}">Created</span>
-          <span class="v">${fmtTs(di.WhenCreated)}</span>
+        <span class="k" title="${esc(USER_TIPS.WhenCreatedDC)}">Created</span>
+          <span class="v" title="${esc(USER_TIPS.WhenCreatedDC)}">${fmtUTC(di.WhenCreated)}</span>
         <span class="k" title="${esc(USER_TIPS.LastLogonAD)}">Last Logon (AD)</span>
-          <span class="v">${fmtTs(di.LastLogonAD)}</span>
-        <span class="k">Password Last Set</span>
-          <span class="v">${fmtTs(di.PasswordLastSet)}</span>
+          <span class="v" title="${esc(USER_TIPS.LastLogonAD)}">${fmtUTC(di.LastLogonAD)}</span>
+        <span class="k" title="${esc(USER_TIPS.PasswordLastSet)}">Password Last Set</span>
+          <span class="v" title="${esc(USER_TIPS.PasswordLastSet)}">${fmtUTC(di.PasswordLastSet)}</span>
         <span class="k">Enabled</span>
           <span class="v" style="color:${di.Enabled?'var(--green)':'var(--red)'}">${di.Enabled ? '&#10003;' : '&#10007;'}</span>
         <span class="k">Locked Out</span>
@@ -2409,19 +2420,19 @@ function buildUserExpand(u) {
       const pf  = fl.ProfileFolder || {};
       const nt  = fl.NTUserDat || {};
       const rk  = fl.RegistryKey || {};
-      const tip = 'Profile folder:\n  ' + (pf.Value || 'N/A') +
-                  '\nNTUSER.DAT:\n  ' + (nt.Value || 'N/A') +
-                  '\nProfileList key\n  (' + (rk.KeyPath || 'HKLM\\...\\ProfileList\\<SID>') + '):\n  ' + (rk.Value || 'N/A') +
+      const tip = 'Profile folder CreationTime:\n  ' + (pf.Value || 'N/A') +
+                  '\nNTUSER.DAT CreationTime:\n  ' + (nt.Value || 'N/A') +
+                  '\nProfileList key LastWrite\n  (' + (rk.KeyPath || 'HKLM\\...\\ProfileList\\<SID>') + '):\n  ' + (rk.Value || 'N/A') +
                   '\nConfidence: ' + (fl.Confidence || '?');
-      const lastTip = 'Source: ' + (m.LastLogonSource || 'ProfileList LastUseTime') + '\nupdated on each logoff';
+      const lastTip = 'Source: ProfileList LastUseTime.\nPath: HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\' + (u.SID || '<SID>') + '\\LastUseTime\nUpdated on each logoff.';
       const profPathFull = m.ProfilePath || '';
       const profPathShort= profPathFull.length > 38 ? '&#8230;' + esc(profPathFull.slice(-36)) : esc(profPathFull || '&#8212;');
 
       html += `<tr>
         <td>${esc(m.hostname)}</td>
-        <td title="${esc(tip)}">${fl.UTC ? esc(fl.UTC.slice(0,10)) : '<span style="color:var(--muted)">&#8212;</span>'} ${confBadge(fl.Confidence)}</td>
+        <td title="${esc(tip)}">${fl.UTC ? fmtUTC(fl.UTC) : '<span style="color:var(--muted)">&#8212;</span>'} ${confBadge(fl.Confidence)}</td>
         <td title="${esc(USER_TIPS.Confidence)}">${confBadge(fl.Confidence)}</td>
-        <td title="${esc(lastTip)}">${m.LastLogon ? esc(m.LastLogon.slice(0,10)) : '<span style="color:var(--muted)">&#8212;</span>'}</td>
+        <td title="${esc(lastTip)}">${fmtUTC(m.LastLogon)}</td>
         <td class="mono" style="font-size:10px" title="${esc(profPathFull)}">${profPathShort}</td>
         <td style="text-align:center">${m.IsLoaded ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--muted)">&#8212;</span>'}</td>
       </tr>`;

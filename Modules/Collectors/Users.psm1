@@ -13,7 +13,7 @@
 # ║               domain_accounts=[]   ║
 # ║             }; source="";errors=[]}║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.0                    ║
+# ║  Version  : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -114,7 +114,7 @@ public class RegLwt {
                 $pfRaw = $null; $pfAvail = $false
                 try {
                     if ($profilePath -and (Test-Path $profilePath)) {
-                        $pfRaw   = (Get-Item $profilePath -ErrorAction Stop).CreationTime.ToString('o')
+                        $pfRaw   = (Get-Item $profilePath -ErrorAction Stop).CreationTime.ToUniversalTime().ToString('o')
                         $pfAvail = $true
                     }
                 } catch {}
@@ -125,7 +125,7 @@ public class RegLwt {
                     if ($profilePath) {
                         $ntPath = Join-Path $profilePath "NTUSER.DAT"
                         $ntItem = Get-Item $ntPath -Force -ErrorAction Stop
-                        $ntRaw   = $ntItem.CreationTime.ToString('o')
+                        $ntRaw   = $ntItem.CreationTime.ToUniversalTime().ToString('o')
                         $ntAvail = $true
                     }
                 } catch {}
@@ -224,10 +224,10 @@ public class RegLwt {
                         $wc = ([datetime]$p["whencreated"][0]).ToUniversalTime().ToString('o') } } catch {}
                     $ll = $null
                     try { $llFt = [Int64]$p["lastlogontimestamp"][0]
-                        if ($llFt -gt 0) { $ll = [DateTime]::FromFileTime($llFt).ToUniversalTime().ToString('o') } } catch {}
+                        if ($llFt -gt 0) { $ll = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
                     $pls = $null
                     try { $plsFt = [Int64]$p["pwdlastset"][0]
-                        if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTime($plsFt).ToUniversalTime().ToString('o') } } catch {}
+                        if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
                     $uac = 0
                     try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
                     $locked = $false

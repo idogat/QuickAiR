@@ -38,3 +38,292 @@
 2026-03-17T13:48:15Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260317134814.json | SHA256: 34BB231E65C10CFD954B56F36B87F8EAA8469BB0C4C8EA8228AA639CED694AD9
 2026-03-17T13:48:15Z INFO Target complete | elapsed=99s | processes=139 | connections=44 | dns=18 | errors=0
 2026-03-17T13:48:15Z INFO Collection start | target=192.168.100
+2026-03-17T19:41:53Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:41:53Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:41:53Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:41:53Z INFO Starting collection. Targets: 1
+2026-03-17T19:41:53Z INFO Collection start | target=localhost
+2026-03-17T19:41:54Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:41:54Z INFO Running collector: DLLs
+2026-03-17T19:44:32Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:44:32Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:44:32Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:44:32Z INFO Starting collection. Targets: 1
+2026-03-17T19:44:32Z INFO Collection start | target=192.168.1.100
+2026-03-17T19:44:33Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:44:33Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:44:33Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:44:33Z INFO Starting collection. Targets: 1
+2026-03-17T19:44:33Z INFO Collection start | target=192.168.1.250
+2026-03-17T19:44:33Z INFO Capability probe OK | PS=4 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:44:34Z INFO Remote session created for 192.168.1.100
+2026-03-17T19:44:34Z INFO Running collector: DLLs
+2026-03-17T19:44:34Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:44:34Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:44:34Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:44:34Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:44:34Z INFO Remote session created for 192.168.1.250
+2026-03-17T19:44:34Z INFO Running collector: DLLs
+2026-03-17T19:44:34Z INFO Starting collection. Targets: 1
+2026-03-17T19:44:34Z INFO Collection start | target=192.168.1.236
+2026-03-17T19:44:35Z INFO Capability probe OK | PS=2 | CIM=False | NetCIM=False | DnsCIM=False
+2026-03-17T19:44:36Z INFO Remote session created for 192.168.1.236
+2026-03-17T19:44:36Z INFO Running collector: DLLs
+2026-03-17T19:44:37Z INFO Collector DLLs complete
+2026-03-17T19:44:37Z INFO Running collector: Network
+2026-03-17T19:44:38Z INFO Collector Network complete
+2026-03-17T19:44:38Z INFO Running collector: Processes
+2026-03-17T19:44:39Z INFO Collector Processes complete
+2026-03-17T19:44:39Z INFO Running collector: Users
+2026-03-17T19:44:39Z WARN Collector Users failed: Method invocation failed because [System.Collections.Specialized.OrderedDictionary] does not contain a method named 'ContainsKey'.
+2026-03-17T19:44:39Z INFO Output hostname: WIN-J2G2IRL3K8L
+2026-03-17T19:44:39Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-J2G2IRL3K8L\WIN-J2G2IRL3K8L_20260317194439.json | SHA256: F942803B07C455497F2D185A645BAEF85832C80A447EEB08332865F23B9C2BF2
+2026-03-17T19:44:39Z INFO Target complete | elapsed=5s | processes=45 | connections=23 | dns=0 | errors=1
+2026-03-17T19:44:39Z INFO All targets complete | elapsed=5s
+2026-03-17T19:45:13Z INFO Collector DLLs complete
+2026-03-17T19:45:13Z INFO Running collector: Network
+2026-03-17T19:45:14Z INFO Collector Network complete
+2026-03-17T19:45:14Z INFO Running collector: Processes
+2026-03-17T19:45:15Z INFO Collector Processes complete
+2026-03-17T19:45:15Z INFO Running collector: Users
+2026-03-17T19:45:16Z INFO Collector Users complete
+2026-03-17T19:45:16Z INFO Output hostname: WIN-497ODI0A5CH.server2012.local
+2026-03-17T19:45:16Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-497ODI0A5CH.server2012.local\WIN-497ODI0A5CH.server2012.local_20260317194516.json | SHA256: 076AEDA4FA6778294388BDEEFF4674B02E76BF460952D62F10809F4EF5C00E1C
+2026-03-17T19:45:16Z INFO Target complete | elapsed=44s | processes=43 | connections=69 | dns=6 | errors=0
+2026-03-17T19:45:16Z INFO All targets complete | elapsed=44s
+2026-03-17T19:46:47Z INFO Collector DLLs complete
+2026-03-17T19:46:47Z INFO Running collector: Network
+2026-03-17T19:46:57Z INFO Collector Network complete
+2026-03-17T19:46:57Z INFO Running collector: Processes
+2026-03-17T19:47:04Z INFO Collector Processes complete
+2026-03-17T19:47:04Z INFO Running collector: Users
+2026-03-17T19:47:04Z WARN Collector Users failed: Method invocation failed because [System.Collections.Specialized.OrderedDictionary] does not contain a method named 'ContainsKey'.
+2026-03-17T19:47:04Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-17T19:47:04Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260317194704.json | SHA256: A251F372A0FF6D65B2CAB2A753DD4FFFC56E930C487520FD539EAA7ACC72A194
+2026-03-17T19:47:04Z INFO Target complete | elapsed=311s | processes=180 | connections=58 | dns=3 | errors=1
+2026-03-17T19:47:04Z INFO All targets complete | elapsed=311s
+2026-03-17T19:47:13Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:47:13Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:47:13Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:47:13Z INFO Starting collection. Targets: 1
+2026-03-17T19:47:13Z INFO Collection start | target=localhost
+2026-03-17T19:47:13Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:47:13Z INFO Running collector: DLLs
+2026-03-17T19:47:14Z INFO Collector DLLs complete
+2026-03-17T19:47:14Z INFO Running collector: Network
+2026-03-17T19:47:18Z INFO Collector Network complete
+2026-03-17T19:47:18Z INFO Running collector: Processes
+2026-03-17T19:47:20Z INFO Collector Processes complete
+2026-03-17T19:47:20Z INFO Running collector: Users
+2026-03-17T19:47:20Z INFO Collector Users complete
+2026-03-17T19:47:22Z WARN DNS resolution failed for 192.168.1.250, using IP as fallback: Exception calling "GetHostEntry" with "1" argument(s): "No such host is known"
+2026-03-17T19:47:22Z INFO Output hostname: 192.168.1.250
+2026-03-17T19:47:22Z INFO Output: C:\DFIRLab\repo\DFIROutput\192.168.1.250\192.168.1.250_20260317194722.json | SHA256: 668F95DD825486EC6FFE542076BD979A4BDCDEA331ED50C63F5A7C128EE44CEB
+2026-03-17T19:47:22Z INFO Target complete | elapsed=169s | processes=131 | connections=35 | dns=0 | errors=0
+2026-03-17T19:47:22Z INFO All targets complete | elapsed=169s
+2026-03-17T19:51:17Z INFO Collector DLLs complete
+2026-03-17T19:51:17Z INFO Running collector: Network
+2026-03-17T19:51:25Z INFO Collector Network complete
+2026-03-17T19:51:25Z INFO Running collector: Processes
+2026-03-17T19:51:34Z INFO Collector Processes complete
+2026-03-17T19:51:34Z INFO Running collector: Users
+2026-03-17T19:51:34Z INFO Collector Users complete
+2026-03-17T19:51:34Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-17T19:51:35Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260317195134.json | SHA256: BFF903125F3A9BE9AA1D9AF77429B24C681723392DD4A07694D172EE3A105C49
+2026-03-17T19:51:35Z INFO Target complete | elapsed=261s | processes=172 | connections=51 | dns=7 | errors=0
+2026-03-17T19:51:35Z INFO All targets complete | elapsed=261s
+2026-03-17T19:51:42Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:51:42Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:51:42Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:51:42Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:51:42Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:51:42Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:51:42Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:51:42Z INFO Starting collection. Targets: 1
+2026-03-17T19:51:42Z INFO Collection start | target=192.168.1.250
+2026-03-17T19:51:42Z INFO Starting collection. Targets: 1
+2026-03-17T19:51:42Z INFO Collection start | target=192.168.1.100
+2026-03-17T19:51:42Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:51:42Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:51:42Z INFO Starting collection. Targets: 1
+2026-03-17T19:51:42Z INFO Collection start | target=192.168.1.236
+2026-03-17T19:51:42Z INFO Capability probe OK | PS=4 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:51:42Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:51:42Z INFO Capability probe OK | PS=2 | CIM=False | NetCIM=False | DnsCIM=False
+2026-03-17T19:51:42Z INFO Remote session created for 192.168.1.250
+2026-03-17T19:51:42Z INFO Remote session created for 192.168.1.100
+2026-03-17T19:51:42Z INFO Running collector: DLLs
+2026-03-17T19:51:42Z INFO Running collector: DLLs
+2026-03-17T19:51:42Z INFO Remote session created for 192.168.1.236
+2026-03-17T19:51:42Z INFO Running collector: DLLs
+2026-03-17T19:51:43Z INFO Collector DLLs complete
+2026-03-17T19:51:43Z INFO Running collector: Network
+2026-03-17T19:51:44Z INFO Collector Network complete
+2026-03-17T19:51:44Z INFO Running collector: Processes
+2026-03-17T19:51:44Z INFO Collector Processes complete
+2026-03-17T19:51:44Z INFO Running collector: Users
+2026-03-17T19:51:44Z INFO Collector Users complete
+2026-03-17T19:51:44Z INFO Output hostname: WIN-J2G2IRL3K8L
+2026-03-17T19:51:44Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-J2G2IRL3K8L\WIN-J2G2IRL3K8L_20260317195144.json | SHA256: F6C4F889247965B60AB090C170960C92068B165DE3F8DD7C9DCA9D12CF2A25E3
+2026-03-17T19:51:44Z INFO Target complete | elapsed=3s | processes=46 | connections=23 | dns=0 | errors=0
+2026-03-17T19:51:44Z INFO All targets complete | elapsed=3s
+2026-03-17T19:51:56Z INFO Collector DLLs complete
+2026-03-17T19:51:56Z INFO Running collector: Network
+2026-03-17T19:51:57Z INFO Collector Network complete
+2026-03-17T19:51:57Z INFO Running collector: Processes
+2026-03-17T19:51:57Z INFO Collector Processes complete
+2026-03-17T19:51:57Z INFO Running collector: Users
+2026-03-17T19:51:58Z INFO Collector Users complete
+2026-03-17T19:51:58Z INFO Output hostname: WIN-497ODI0A5CH.server2012.local
+2026-03-17T19:51:58Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-497ODI0A5CH.server2012.local\WIN-497ODI0A5CH.server2012.local_20260317195158.json | SHA256: D8AAD4CFD262A21DE3D7AB8ECF45BB01CA625B19F926274FCADF3A95E3AE6603
+2026-03-17T19:51:58Z INFO Target complete | elapsed=16s | processes=43 | connections=73 | dns=1 | errors=0
+2026-03-17T19:51:58Z INFO All targets complete | elapsed=16s
+2026-03-17T19:53:52Z INFO Collector DLLs complete
+2026-03-17T19:53:53Z INFO Running collector: Network
+2026-03-17T19:54:07Z INFO Collector Network complete
+2026-03-17T19:54:07Z INFO Running collector: Processes
+2026-03-17T19:54:10Z INFO Collector Processes complete
+2026-03-17T19:54:10Z INFO Running collector: Users
+2026-03-17T19:54:11Z INFO Collector Users complete
+2026-03-17T19:54:18Z WARN DNS resolution failed for 192.168.1.250, using IP as fallback: Exception calling "GetHostEntry" with "1" argument(s): "No such host is known"
+2026-03-17T19:54:18Z INFO Output hostname: 192.168.1.250
+2026-03-17T19:54:18Z INFO Output: C:\DFIRLab\repo\DFIROutput\192.168.1.250\192.168.1.250_20260317195418.json | SHA256: F0D9B85CCF2B3CA98395029D37E0B9D8A875A7D07EB146B85FF53D585E0E3522
+2026-03-17T19:54:18Z INFO Target complete | elapsed=156s | processes=132 | connections=35 | dns=0 | errors=0
+2026-03-17T19:54:18Z INFO All targets complete | elapsed=156s
+2026-03-17T19:54:25Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:54:25Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:54:25Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:54:25Z INFO Starting collection. Targets: 1
+2026-03-17T19:54:26Z INFO Collection start | target=192.168.1.100
+2026-03-17T19:54:26Z INFO Capability probe OK | PS=4 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-17T19:54:26Z INFO Remote session created for 192.168.1.100
+2026-03-17T19:54:26Z INFO Running collector: DLLs
+2026-03-17T19:54:27Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:54:27Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:54:27Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:54:27Z INFO Starting collection. Targets: 1
+2026-03-17T19:54:27Z INFO Collection start | target=192.168.1.236
+2026-03-17T19:54:28Z INFO Capability probe OK | PS=2 | CIM=False | NetCIM=False | DnsCIM=False
+2026-03-17T19:54:28Z INFO Remote session created for 192.168.1.236
+2026-03-17T19:54:28Z INFO Running collector: DLLs
+2026-03-17T19:54:30Z INFO Collector DLLs complete
+2026-03-17T19:54:30Z INFO Running collector: Network
+2026-03-17T19:54:31Z INFO Collector Network complete
+2026-03-17T19:54:31Z INFO Running collector: Processes
+2026-03-17T19:54:32Z INFO Collector Processes complete
+2026-03-17T19:54:32Z INFO Running collector: Users
+2026-03-17T19:54:32Z INFO Collector Users complete
+2026-03-17T19:54:33Z INFO Output hostname: WIN-J2G2IRL3K8L
+2026-03-17T19:54:33Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-J2G2IRL3K8L\WIN-J2G2IRL3K8L_20260317195433.json | SHA256: 0C4F4A3ABF478F9ADD6DCE5CB0421DA767CC349E3A07C0505BB4340CE0AB863F
+2026-03-17T19:54:33Z INFO Target complete | elapsed=6s | processes=46 | connections=23 | dns=0 | errors=0
+2026-03-17T19:54:33Z INFO All targets complete | elapsed=6s
+2026-03-17T19:54:59Z INFO Collector DLLs complete
+2026-03-17T19:54:59Z INFO Running collector: Network
+2026-03-17T19:55:01Z INFO Collector Network complete
+2026-03-17T19:55:01Z INFO Running collector: Processes
+2026-03-17T19:55:01Z INFO Collector Processes complete
+2026-03-17T19:55:01Z INFO Running collector: Users
+2026-03-17T19:55:02Z INFO Collector Users complete
+2026-03-17T19:55:02Z INFO Output hostname: WIN-497ODI0A5CH.server2012.local
+2026-03-17T19:55:02Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-497ODI0A5CH.server2012.local\WIN-497ODI0A5CH.server2012.local_20260317195502.json | SHA256: 22E1FCC863DCF12816279188F06F0DF9AE90083AB9386E36070656B037DB2479
+2026-03-17T19:55:02Z INFO Target complete | elapsed=37s | processes=43 | connections=74 | dns=1 | errors=0
+2026-03-17T19:55:02Z INFO All targets complete | elapsed=37s
+2026-03-17T19:55:09Z INFO Quicker Collector v2.0 starting
+2026-03-17T19:55:09Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-17T19:55:09Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-17T19:55:09Z INFO Starting collection. Targets: 1
+2026-03-17T19:55:09Z INFO Collection start | target=192.168.1.236
+2026-03-17T19:55:10Z INFO Capability probe OK | PS=2 | CIM=False | NetCIM=False | DnsCIM=False
+2026-03-17T19:55:10Z INFO Remote session created for 192.168.1.236
+2026-03-17T19:55:10Z INFO Running collector: DLLs
+2026-03-17T19:55:11Z INFO Collector DLLs complete
+2026-03-17T19:55:11Z INFO Running collector: Network
+2026-03-17T19:55:11Z INFO Collector Network complete
+2026-03-17T19:55:11Z INFO Running collector: Processes
+2026-03-17T19:55:12Z INFO Collector Processes complete
+2026-03-17T19:55:12Z INFO Running collector: Users
+2026-03-17T19:55:12Z INFO Collector Users complete
+2026-03-17T19:55:12Z INFO Output hostname: WIN-J2G2IRL3K8L
+2026-03-17T19:55:12Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-J2G2IRL3K8L\WIN-J2G2IRL3K8L_20260317195512.json | SHA256: ED6488FC73B532E23BC8F1CCD3F9D69E80ABF9454118F515CFBDCE853C94A300
+2026-03-17T19:55:12Z INFO Target complete | elapsed=3s | processes=46 | connections=23 | dns=0 | errors=0
+2026-03-17T19:55:12Z INFO All targets complete | elapsed=3s
+2026-03-18T08:44:22Z INFO Quicker Collector v2.0 starting
+2026-03-18T08:44:22Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-18T08:44:22Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-18T08:44:22Z INFO Starting collection. Targets: 4
+2026-03-18T08:44:22Z INFO Collection start | target=192.168.1.250
+2026-03-18T08:44:32Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-18T08:44:33Z INFO Remote session created for 192.168.1.250
+2026-03-18T08:44:33Z INFO Running collector: DLLs
+2026-03-18T08:48:34Z INFO Collector DLLs complete
+2026-03-18T08:48:34Z INFO Running collector: Network
+2026-03-18T08:48:38Z INFO Collector Network complete
+2026-03-18T08:48:38Z INFO Running collector: Processes
+2026-03-18T08:48:40Z INFO Collector Processes complete
+2026-03-18T08:48:40Z INFO Running collector: Users
+2026-03-18T08:48:40Z INFO Collector Users complete
+2026-03-18T08:48:44Z WARN DNS resolution failed for 192.168.1.250, using IP as fallback: Exception calling "GetHostEntry" with "1" argument(s): "No such host is known"
+2026-03-18T08:48:44Z INFO Output hostname: 192.168.1.250
+2026-03-18T08:48:44Z INFO Output: C:\DFIRLab\repo\DFIROutput\192.168.1.250\192.168.1.250_20260318084844.json | SHA256: 368565BAD6095F060AE773D9EC7A8C2641CB7436107C37628D5229D7866FD85D
+2026-03-18T08:48:44Z INFO Target complete | elapsed=262s | processes=132 | connections=34 | dns=0 | errors=0
+2026-03-18T08:48:44Z INFO Collection start | target=127.0.0.1
+2026-03-18T08:48:44Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-18T08:48:44Z INFO Running collector: DLLs
+2026-03-18T08:53:24Z INFO Collector DLLs complete
+2026-03-18T08:53:25Z INFO Running collector: Network
+2026-03-18T08:53:29Z INFO Collector Network complete
+2026-03-18T08:53:29Z INFO Running collector: Processes
+2026-03-18T08:53:37Z INFO Collector Processes complete
+2026-03-18T08:53:37Z INFO Running collector: Users
+2026-03-18T08:53:38Z INFO Collector Users complete
+2026-03-18T08:53:38Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-18T08:53:38Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260318085338.json | SHA256: B9A4CEC472A686BEEC3C1B23A1E0514690F381D41D5CF0782B464AD8BFED7235
+2026-03-18T08:53:38Z INFO Target complete | elapsed=294s | processes=177 | connections=58 | dns=18 | errors=0
+2026-03-18T08:53:38Z INFO Collection start | target=192.168.1.100
+2026-03-18T08:56:11Z INFO Capability probe OK | PS=4 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-18T08:56:11Z INFO Remote session created for 192.168.1.100
+2026-03-18T08:56:11Z INFO Running collector: DLLs
+2026-03-18T08:56:45Z INFO Collector DLLs complete
+2026-03-18T08:56:45Z INFO Running collector: Network
+2026-03-18T08:56:47Z INFO Collector Network complete
+2026-03-18T08:56:47Z INFO Running collector: Processes
+2026-03-18T08:56:48Z INFO Collector Processes complete
+2026-03-18T08:56:48Z INFO Running collector: Users
+2026-03-18T08:56:49Z INFO Collector Users complete
+2026-03-18T08:56:49Z INFO Output hostname: WIN-497ODI0A5CH.server2012.local
+2026-03-18T08:56:49Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-497ODI0A5CH.server2012.local\WIN-497ODI0A5CH.server2012.local_20260318085649.json | SHA256: 778F56546EDFDD6DD7EB52CE8901069B31B656D371D5EDFEFC294E5311E75555
+2026-03-18T08:56:49Z INFO Target complete | elapsed=191s | processes=43 | connections=69 | dns=0 | errors=0
+2026-03-18T08:56:49Z INFO Collection start | target=192.168.1.237
+2026-03-18T08:58:28Z INFO Added 192.168.1.237 to WinRM TrustedHosts
+2026-03-18T08:58:28Z INFO Capability probe OK | PS=2 | CIM=False | NetCIM=False | DnsCIM=False
+2026-03-18T08:58:28Z INFO Remote session created for 192.168.1.237
+2026-03-18T08:58:28Z INFO Running collector: DLLs
+2026-03-18T08:58:29Z INFO Collector DLLs complete
+2026-03-18T08:58:29Z INFO Running collector: Network
+2026-03-18T08:58:29Z INFO Collector Network complete
+2026-03-18T08:58:29Z INFO Running collector: Processes
+2026-03-18T08:58:29Z INFO Collector Processes complete
+2026-03-18T08:58:29Z INFO Running collector: Users
+2026-03-18T08:58:29Z INFO Collector Users complete
+2026-03-18T08:58:29Z INFO Output hostname: WIN-J2G2IRL3K8L
+2026-03-18T08:58:29Z INFO Output: C:\DFIRLab\repo\DFIROutput\WIN-J2G2IRL3K8L\WIN-J2G2IRL3K8L_20260318085829.json | SHA256: 7554F11B15DEC43AF833B1E1268AB92D066497038DCE9147D0E85562C613E6CE
+2026-03-18T08:58:29Z INFO Target complete | elapsed=100s | processes=44 | connections=23 | dns=0 | errors=0
+2026-03-18T08:58:29Z INFO All targets complete | elapsed=847s
+2026-03-18T09:42:27Z INFO Quicker Collector v2.0 starting
+2026-03-18T09:42:27Z INFO Analyst: DESKTOP-3JH57JT, PS 5.1.19041.6456, OS: Microsoft Windows 10 Pro
+2026-03-18T09:42:27Z INFO OutputPath: C:\DFIRLab\repo\DFIROutput
+2026-03-18T09:42:27Z INFO Starting collection. Targets: 1
+2026-03-18T09:42:27Z INFO Collection start | target=DESKTOP-3JH57JT
+2026-03-18T09:42:28Z INFO Capability probe OK | PS=5 | CIM=True | NetCIM=True | DnsCIM=True
+2026-03-18T09:42:28Z INFO Running collector: DLLs
+2026-03-18T09:49:35Z INFO Collector DLLs complete
+2026-03-18T09:49:35Z INFO Running collector: Network
+2026-03-18T09:49:41Z INFO Collector Network complete
+2026-03-18T09:49:41Z INFO Running collector: Processes
+2026-03-18T09:49:55Z INFO Collector Processes complete
+2026-03-18T09:49:55Z INFO Running collector: Users
+2026-03-18T09:49:56Z INFO Collector Users complete
+2026-03-18T09:49:56Z INFO Output hostname: DESKTOP-3JH57JT
+2026-03-18T09:49:57Z INFO Output: C:\DFIRLab\repo\DFIROutput\DESKTOP-3JH57JT\DESKTOP-3JH57JT_20260318094957.json | SHA256: A48A40EA8D80A74A17EF6F79A1FC001F423AF8171410AC8B00CF84797F7D8A3C
+2026-03-18T09:49:57Z INFO Target complete | elapsed=449s | processes=194 | connections=70 | dns=9 | errors=0
+2026-03-18T09:49:57Z INFO All targets complete | elapsed=450s
