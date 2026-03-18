@@ -51,7 +51,7 @@ function renderFleet() {
     return;
   }
 
-  const COLS = '36px 180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px';
+  const COLS = '36px 180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px 80px';
   const headers = [
     { key:'_remove',            label:''                 },
     { key:'hostname',           label:'Hostname'         },
@@ -65,6 +65,7 @@ function renderFleet() {
     { key:'dns_count',          label:'DNS'              },
     { key:'errors_count',       label:'Errors'           },
     { key:'collection_time_utc',label:'Collected (UTC)'  },
+    { key:'_execute',           label:''                 },
   ];
 
   function buildRows() {
@@ -105,7 +106,7 @@ function renderFleet() {
 
   function headerHTML() {
     return headers.map(h => {
-      if (h.key === '_remove') return '<div class="th" style="padding:0"></div>';
+      if (h.key === '_remove' || h.key === '_execute') return '<div class="th" style="padding:0"></div>';
       const numeric = /count$|_count$|ps_version$/.test(h.key);
       const arrow = (sortState.tab === 'fleet' && sortState.column === h.key)
         ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
@@ -142,7 +143,8 @@ function renderFleet() {
       <div class="td">${row.unique_ips}</div>
       <div class="td">${row.dns_count}</div>
       <div class="td ${row.errors_count > 0 ? 'amber' : 'dim'}">${row.errors_count}</div>
-      <div class="td dim">${esc(row.collection_time_utc)}</div>`;
+      <div class="td dim">${esc(row.collection_time_utc)}</div>
+      <div class="td" style="display:flex;align-items:center;justify-content:center"><button class="fleet-exec-btn" onclick="event.stopPropagation();openExecDialog('${esc(row.hostname)}','Memory')">Execute &rarr;</button></div>`;
     },
     (i, row) => {
       switchHost(row.hostname);

@@ -163,6 +163,7 @@ function onNetRowClick(i, c, rowEl) {
     sameIP.map(x=>`<tr><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State)}</td></tr>`).join('') +
     '</table>' : '';
 
+  const targetHost = state.activeHost || '';
   const expand = document.createElement('div');
   expand.innerHTML = `
     <div class="kv-grid">
@@ -176,6 +177,10 @@ function onNetRowClick(i, c, rowEl) {
       <span class="k">DNS Match</span>     <span class="v">${esc(c.DnsMatch||'—')}</span>
       <span class="k">Reverse DNS</span>   <span class="v">${esc(c.ReverseDns||'—')}</span>
       <span class="k">Private IP</span>    <span class="v">${c.IsPrivateIP?'Yes':'No'}</span>
+    </div>
+    <div style="margin-top:8px">
+      <button class="net-collect-btn" onclick="openExecDialog('${esc(targetHost)}','Memory')">&#128190; Collect Memory</button>
+      <button class="net-collect-btn" onclick="openExecDialog('${esc(targetHost)}','Disk')">&#128191; Collect Disk</button>
     </div>
     ${sameProcHTML}${sameIPHTML}`;
 

@@ -1,6 +1,6 @@
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
-const ANALYZER_VERSION = "3.2";
+const ANALYZER_VERSION = "3.6";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
@@ -790,6 +790,141 @@ function navigateToRow(tab, matchField, matchValue) {
     }
   }, 100);
 }
+
+// ── EXECUTION DIALOG ──────────────────────────────────────────────────────────
+let _execRemoteDestModified = false;
+let _execLastValues = {}; // cache for copy-after-launch
+
+const _toolDefaults = {
+  Memory: 'C:\\Windows\\Temp\\winpmem.exe',
+  Disk:   'C:\\Windows\\Temp\\DumpIt.exe',
+  Custom: ''
+};
+
+function openExecDialog(hostname, toolType) {
+  _execRemoteDestModified = false;
+  const toolSel  = document.getElementById('em-tool-type');
+  const hostEl   = document.getElementById('em-host');
+  const rdestEl  = document.getElementById('em-remote-dest');
+  const argsEl   = document.getElementById('em-args');
+  const aliveEl  = document.getElementById('em-alive');
+  const methodEl = document.getElementById('em-method');
+  const copyBtn  = document.getElementById('em-copy-btn');
+
+  // Reset to form view in case Launch was clicked before
+  _execRestoreForm();
+
+  hostEl.value   = hostname || '';
+  toolSel.value  = toolType || 'Memory';
+  rdestEl.value  = _toolDefaults[toolSel.value] || '';
+  argsEl.value   = '';
+  aliveEl.value  = '10';
+  methodEl.value = 'Auto';
+  copyBtn.textContent = 'Copy Command';
+
+  document.getElementById('exec-modal-backdrop').classList.add('show');
+  document.getElementById('exec-modal').classList.add('show');
+}
+
+function closeExecDialog() {
+  document.getElementById('exec-modal-backdrop').classList.remove('show');
+  document.getElementById('exec-modal').classList.remove('show');
+  _execRestoreForm();
+}
+
+function _execRestoreForm() {
+  const body = document.getElementById('exec-modal-body');
+  if (!body) return;
+  // Restore original form HTML only if it was replaced by Launch view
+  if (body.querySelector('.em-cmd')) {
+    body.innerHTML = _execFormHTML();
+    // Re-attach oninput for remote dest tracking
+    const rd = document.getElementById('em-remote-dest');
+    if (rd) rd.addEventListener('input', execDialogRemoteDestModified);
+    const tt = document.getElementById('em-tool-type');
+    if (tt) tt.addEventListener('change', execDialogToolTypeChange);
+  }
+}
+
+function _execFormHTML() {
+  return `
+    <div class="em-field"><label>Target Host</label><input type="text" id="em-host" readonly style="color:var(--accent)"></div>
+    <div class="em-field"><label>Tool Type</label><select id="em-tool-type"><option value="Memory">Memory</option><option value="Disk">Disk</option><option value="Custom">Custom</option></select></div>
+    <div class="em-field"><label>Local Binary</label><input type="text" id="em-local-bin" placeholder="C:\\Tools\\winpmem.exe"></div>
+    <div class="em-field"><label>Remote Dest</label><input type="text" id="em-remote-dest" placeholder="C:\\Windows\\Temp\\winpmem.exe"></div>
+    <div class="em-field"><label>Arguments</label><input type="text" id="em-args" placeholder="-o C:\\Windows\\Temp\\mem.raw"></div>
+    <div class="em-field"><label>Method</label><select id="em-method"><option value="Auto">Auto</option><option value="WinRM">WinRM</option><option value="WMI">WMI</option></select></div>
+    <div class="em-field"><label>Alive Check (s)</label><input type="number" id="em-alive" value="10" min="1" max="3600" style="width:80px"></div>`;
+}
+
+function execDialogRemoteDestModified() {
+  _execRemoteDestModified = true;
+}
+
+function execDialogToolTypeChange() {
+  if (_execRemoteDestModified) return; // user typed manually — don't override
+  const toolSel = document.getElementById('em-tool-type');
+  const rdestEl = document.getElementById('em-remote-dest');
+  if (toolSel && rdestEl) rdestEl.value = _toolDefaults[toolSel.value] || '';
+}
+
+function _readExecFields() {
+  return {
+    host:   (document.getElementById('em-host')        || {}).value || _execLastValues.host   || '',
+    lbin:   (document.getElementById('em-local-bin')   || {}).value || _execLastValues.lbin   || '',
+    rdest:  (document.getElementById('em-remote-dest') || {}).value || _execLastValues.rdest  || '',
+    args:   (document.getElementById('em-args')        || {}).value || _execLastValues.args   || '',
+    method: (document.getElementById('em-method')      || {}).value || _execLastValues.method || 'Auto',
+    alive:  (document.getElementById('em-alive')       || {}).value || _execLastValues.alive  || '10',
+  };
+}
+
+function _buildExecCommand() {
+  const v = _readExecFields();
+  return `.\\Executor.ps1 \`\n  -Target "${v.host}" \`\n  -LocalBinaryPath "${v.lbin}" \`\n  -RemoteDestPath "${v.rdest}" \`\n  -Arguments "${v.args}" \`\n  -Method ${v.method} \`\n  -AliveCheck ${v.alive} \`\n  -Credential (Get-Credential)`;
+}
+
+function execDialogCopy() {
+  const cmd = _buildExecCommand();
+  if (!navigator.clipboard) {
+    // Fallback: select all in textarea
+    const ta = document.createElement('textarea');
+    ta.value = cmd;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  } else {
+    navigator.clipboard.writeText(cmd).catch(() => {});
+  }
+  const btn = document.getElementById('em-copy-btn');
+  if (btn) {
+    btn.textContent = 'Copied!';
+    setTimeout(() => { if (btn) btn.textContent = 'Copy Command'; }, 2000);
+  }
+}
+
+function execDialogLaunch() {
+  // Cache field values before replacing DOM
+  _execLastValues = _readExecFields();
+  const cmd  = _buildExecCommand();
+  const body = document.getElementById('exec-modal-body');
+  if (!body) return;
+  body.innerHTML = `
+    <div class="em-cmd-note">Copy and paste into PowerShell:</div>
+    <div class="em-cmd" title="Click to select all" onclick="window.getSelection().selectAllChildren(this)">${esc(cmd)}</div>
+    <div class="em-cmd-note" style="color:var(--amber)">&#9432; Executor.ps1 must be in same folder as Collector.ps1</div>`;
+  const copyBtn = document.getElementById('em-copy-btn');
+  if (copyBtn) copyBtn.textContent = 'Copy Command';
+}
+
+// Close on Escape
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const m = document.getElementById('exec-modal');
+    if (m && m.classList.contains('show')) closeExecDialog();
+  }
+});
 
 // Placeholder will be hidden once files load; auto-trigger picker on init
 window.addEventListener('load', () => {
