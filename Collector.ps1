@@ -10,7 +10,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -67,6 +67,14 @@ Initialize-Log -Path (Join-Path $OutputPath "collection.log") -Quiet:$Quiet.IsPr
 Write-Log 'INFO' "Quicker Collector v$COLLECTOR_VERSION starting"
 Write-Log 'INFO' "Analyst: $env:COMPUTERNAME, PS $($PSVersionTable.PSVersion), OS: $((Get-WmiObject Win32_OperatingSystem).Caption)"
 Write-Log 'INFO' "OutputPath: $OutputPath"
+
+#region --- Tools Manifest ---
+if (Test-Path 'C:\DFIRLab\tools' -PathType Container) {
+    $_toolsManifest = Join-Path $PSScriptRoot "Modules\Core\Get-ToolsManifest.ps1"
+    if (Test-Path $_toolsManifest) {
+        try { & $_toolsManifest } catch { Write-Log 'WARN' "Tools manifest scan failed: $($_.Exception.Message)" }
+    }
+}
 #endregion
 
 #region --- Main Collection Loop ---

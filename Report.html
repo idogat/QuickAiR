@@ -2558,24 +2558,40 @@ function buildUserExpand(u) {
     '.fleet-err-banner{background:rgba(210,140,0,.1);border:1px solid var(--amber);border-radius:4px;padding:7px 12px;margin-bottom:6px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:10px}',
     '.fleet-err-banner a{color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap}',
     '.tab-badge{display:inline-block;background:var(--amber);color:#0d1117;font-size:10px;font-weight:bold;border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle;line-height:14px}',
-    '.tab-badge.red{background:var(--red);color:#fff}'
+    '.tab-badge.red{background:var(--red);color:#fff}',
+    '.qm-bin-wrap{display:flex;flex-direction:column;gap:4px}'
   ].join('');
   document.head.appendChild(s);
 })();
 
 var _execTabRemoteDestModified = false;
-var _bulkSel = {};          // { hostname: { sel, mem, disk } }
-var _detectedMemTool  = '';
-var _detectedDiskTool = '';
+var _bulkSel = {};          // { hostname: { mem, disk } }
+var _toolsManifest       = null;   // cached tools.json data
+var _toolsManifestLoaded = false;  // true once fetch attempt completed
+var _qmRemoteDestModified = false; // tracks manual edits to qm-remote-dest
 
-(function _detectTools() {
-  var base     = 'C:\\DFIRLab\\tools\\';
-  var memNames  = ['winpmem.exe', 'DumpIt.exe', 'Magnet.exe', 'RAMMap.exe'];
-  var diskNames = ['DumpIt.exe', 'FTK.exe', 'dd.exe', 'dcfldd.exe'];
-  // Best-effort: no filesystem access from browser — use first known tool name
-  _detectedMemTool  = base + memNames[0];
-  _detectedDiskTool = base + diskNames[0];
-})();
+function _loadToolsManifest(callback) {
+  if (_toolsManifestLoaded) { callback(_toolsManifest); return; }
+  try {
+    fetch('file:///C:/DFIRLab/tools/tools.json')
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        _toolsManifest = data;
+        _toolsManifestLoaded = true;
+        callback(_toolsManifest);
+      })
+      .catch(function() {
+        _toolsManifestLoaded = true;
+        callback(null);
+      });
+  } catch(e) {
+    _toolsManifestLoaded = true;
+    callback(null);
+  }
+}
 
 var _execTabToolDefaults = {
   Memory: 'C:\\Windows\\Temp\\winpmem.exe',
@@ -2960,12 +2976,95 @@ function execBulkAddToQueue() {
     if (bs.disk) jobs.push({ target: h, tool: 'disk'   });
   });
   if (jobs.length === 0) return;
-  var hasMemJobs  = jobs.some(function(j) { return j.tool === 'memory'; });
-  var hasDiskJobs = jobs.some(function(j) { return j.tool === 'disk';   });
+
   // Title
   var titleEl = el('qm-title');
   if (titleEl) titleEl.textContent = 'Queue Preview \u2014 ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's');
-  // Job list rows
+
+  // Show modal immediately, body will be filled once manifest loads
+  window._queueJobs = jobs;
+  _qmRemoteDestModified = false;
+  var bk = el('queue-modal-backdrop');
+  var md = el('queue-modal');
+  if (bk) bk.classList.add('show');
+  if (md) md.classList.add('show');
+
+  var body = el('qm-body');
+  if (body) body.innerHTML = '<div style="color:var(--muted);padding:8px 0;font-size:12px">Loading tools\u2026</div>';
+
+  var hasMemJobs  = jobs.some(function(j) { return j.tool === 'memory'; });
+  var hasDiskJobs = jobs.some(function(j) { return j.tool === 'disk';   });
+
+  _loadToolsManifest(function(manifest) {
+    _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest);
+  });
+}
+
+// Builds the category display label shown in dropdown options
+function _toolCatLabel(cat) {
+  var map = { 'memory': 'Memory', 'disk': 'Disk', 'memory+disk': 'Memory+Disk', 'custom': 'Custom' };
+  return map[cat] || 'Custom';
+}
+
+// Builds a binary field (dropdown or text input) for the given type ('mem' or 'disk')
+function _buildBinField(type, label, manifest) {
+  var relevant = [];
+  if (manifest && manifest.tools) {
+    manifest.tools.forEach(function(t) {
+      var cat = t.category || 'custom';
+      if (type === 'mem'  && (cat === 'memory' || cat === 'memory+disk' || cat === 'custom')) relevant.push(t);
+      if (type === 'disk' && (cat === 'disk'   || cat === 'memory+disk' || cat === 'custom')) relevant.push(t);
+    });
+  }
+  if (relevant.length > 0) {
+    var opts = relevant.map(function(t) {
+      return '<option value="' + esc(t.path) + '">' + esc(t.filename) + ' (' + _toolCatLabel(t.category) + ')</option>';
+    }).join('');
+    opts += '<option value="__browse__">Browse\u2026</option>';
+    return '<div class="qm-field"><label>' + label + '</label>' +
+      '<div class="qm-bin-wrap">' +
+        '<select id="qm-' + type + '-bin" onchange="_qmBinChange(\'' + type + '\')">' + opts + '</select>' +
+        '<input type="text" id="qm-' + type + '-bin-custom" style="display:none" placeholder="Enter path manually">' +
+      '</div>' +
+    '</div>';
+  }
+  // Fallback: plain text input
+  return '<div class="qm-field"><label>' + label + '</label>' +
+    '<input type="text" id="qm-' + type + '-bin" placeholder="Place tools in C:\\DFIRLab\\tools\\"></div>';
+}
+
+// Returns the effective binary path for the given type ('mem' or 'disk')
+function _qmGetBinValue(type) {
+  var sel = el('qm-' + type + '-bin');
+  if (!sel) return '';
+  if (sel.tagName === 'SELECT') {
+    if (sel.value === '__browse__') {
+      var custom = el('qm-' + type + '-bin-custom');
+      return custom ? custom.value : '';
+    }
+    return sel.value;
+  }
+  return sel.value;
+}
+
+// Called when a binary dropdown changes
+function _qmBinChange(type) {
+  var sel    = el('qm-' + type + '-bin');
+  var custom = el('qm-' + type + '-bin-custom');
+  if (!sel) return;
+  if (sel.value === '__browse__') {
+    if (custom) { custom.style.display = ''; custom.focus(); }
+    return;
+  }
+  if (custom) custom.style.display = 'none';
+  if (!_qmRemoteDestModified) {
+    var fname = sel.value.split('\\').pop();
+    var rdEl  = el('qm-remote-dest');
+    if (rdEl && fname) rdEl.value = 'C:\\Windows\\Temp\\' + fname;
+  }
+}
+
+function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
   var jobRows = jobs.map(function(j) {
     return '<tr>' +
       '<td>' + esc(j.target) + '</td>' +
@@ -2973,18 +3072,23 @@ function execBulkAddToQueue() {
       '<td style="color:var(--green)">Ready</td>' +
       '</tr>';
   }).join('');
-  var memField = hasMemJobs
-    ? '<div class="qm-field"><label>Memory Binary</label>' +
-      '<input type="text" id="qm-mem-bin" value="' + esc(_detectedMemTool) + '" placeholder="C:\\DFIRLab\\tools\\winpmem.exe"></div>'
-    : '';
-  var diskField = hasDiskJobs
-    ? '<div class="qm-field"><label>Disk Binary</label>' +
-      '<input type="text" id="qm-disk-bin" value="' + esc(_detectedDiskTool) + '" placeholder="C:\\DFIRLab\\tools\\DumpIt.exe"></div>'
-    : '';
-  var firstBinName = hasMemJobs
-    ? _detectedMemTool.split('\\').pop()
-    : _detectedDiskTool.split('\\').pop();
-  var remoteDestDefault = 'C:\\Windows\\Temp\\' + (firstBinName || 'tool.exe');
+
+  var memField  = hasMemJobs  ? _buildBinField('mem',  'Memory Binary', manifest) : '';
+  var diskField = hasDiskJobs ? _buildBinField('disk', 'Disk Binary',   manifest) : '';
+
+  // Compute default Remote Dest from first matching tool in manifest
+  var remoteDestDefault = 'C:\\Windows\\Temp\\tool.exe';
+  if (manifest && manifest.tools) {
+    var firstTool = null;
+    manifest.tools.forEach(function(t) {
+      if (firstTool) return;
+      var cat = t.category || 'custom';
+      if (hasMemJobs  && (cat === 'memory' || cat === 'memory+disk' || cat === 'custom')) firstTool = t;
+      if (!firstTool && hasDiskJobs && (cat === 'disk' || cat === 'memory+disk' || cat === 'custom')) firstTool = t;
+    });
+    if (firstTool) remoteDestDefault = 'C:\\Windows\\Temp\\' + firstTool.filename;
+  }
+
   var body = el('qm-body');
   if (body) body.innerHTML =
     '<div class="qm-job-list">' +
@@ -2996,22 +3100,18 @@ function execBulkAddToQueue() {
     '<div class="qm-section-title">Shared Settings</div>' +
     memField + diskField +
     '<div class="qm-field"><label>Remote Destination</label>' +
-      '<input type="text" id="qm-remote-dest" value="' + esc(remoteDestDefault) + '" placeholder="C:\\Windows\\Temp\\tool.exe"></div>' +
+      '<input type="text" id="qm-remote-dest" value="' + esc(remoteDestDefault) + '" placeholder="C:\\Windows\\Temp\\tool.exe" oninput="_qmRemoteDestModified=true"></div>' +
     '<div class="qm-field"><label>Arguments</label>' +
       '<input type="text" id="qm-args" placeholder="optional arguments"></div>' +
     '<div class="qm-field"><label>Method</label>' +
       '<select id="qm-method"><option value="Auto">Auto</option><option value="WinRM">WinRM</option><option value="WMI">WMI</option></select></div>' +
     '<div class="qm-field"><label>Alive Check (s)</label>' +
       '<input type="number" id="qm-alive" value="10" min="1" max="3600" style="width:80px"></div>';
+
   var actions = el('qm-actions');
   if (actions) actions.innerHTML =
     '<button onclick="_closeQueueModal()">Cancel</button>' +
     '<button class="qm-btn-launch" onclick="_queueModalLaunch()">Launch All &#8594;</button>';
-  window._queueJobs = jobs;
-  var bk = el('queue-modal-backdrop');
-  var md = el('queue-modal');
-  if (bk) bk.classList.add('show');
-  if (md) md.classList.add('show');
 }
 
 function _closeQueueModal() {
@@ -3023,8 +3123,8 @@ function _closeQueueModal() {
 
 function _queueModalLaunch() {
   var jobs      = window._queueJobs || [];
-  var memBin    = (el('qm-mem-bin')      || {}).value || '';
-  var diskBin   = (el('qm-disk-bin')     || {}).value || '';
+  var memBin    = _qmGetBinValue('mem');
+  var diskBin   = _qmGetBinValue('disk');
   var remoteDest= (el('qm-remote-dest')  || {}).value || '';
   var args      = (el('qm-args')         || {}).value || '';
   var method    = (el('qm-method')       || {}).value || 'Auto';
