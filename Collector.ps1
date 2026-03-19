@@ -10,7 +10,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -125,10 +125,12 @@ foreach ($target in $Targets) {
     }
 
     # Create shared session (remote) or use $null (local)
-    $session = $null
+    $session        = $null
+    $winrmReachable = $null
     if (-not $isLocalTarget) {
         try {
-            $session = New-RemoteSession -Target $target -Credential $effectiveCred
+            $session        = New-RemoteSession -Target $target -Credential $effectiveCred
+            $winrmReachable = $true
             Write-Log 'INFO' "Remote session created for $target"
         } catch {
             Write-Log 'ERROR' "Failed to create remote session: $($_.Exception.Message). Skipping."
@@ -190,7 +192,8 @@ foreach ($target in $Targets) {
         -Caps             $caps `
         -Sources          $sources `
         -NetworkAdapters  $networkAdapters `
-        -CollectionErrors $collErr
+        -CollectionErrors $collErr `
+        -WinRMReachable   $winrmReachable
 
     # Build full output: manifest first, then each collector's data
     $jsonOutput = [ordered]@{}

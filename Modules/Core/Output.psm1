@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -90,7 +90,8 @@ function Build-Manifest {
         $Caps,
         [hashtable]$Sources,
         $NetworkAdapters,
-        $CollectionErrors
+        $CollectionErrors,
+        $WinRMReachable = $null
     )
 
     $manifest = [ordered]@{
@@ -114,6 +115,7 @@ function Build-Manifest {
         $manifest[$key + '_source'] = $Sources[$key]
     }
 
+    $manifest['winrm_reachable']   = $WinRMReachable
     $manifest['sha256']            = $null
     $manifest['collection_errors'] = $CollectionErrors
 

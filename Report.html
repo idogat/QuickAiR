@@ -2544,8 +2544,12 @@ function _getWinRMStatus(hostname) {
   var d = state.hosts[hostname];
   if (!d || !d.manifest) return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
   var m = d.manifest;
-  if (m.winrm_available === true)  return { status: 'reachable',   label: 'Reachable',   cls: 'exec-winrm-reach'   };
-  if (m.winrm_available === false) return { status: 'unreachable', label: 'Unreachable', cls: 'exec-winrm-unreach' };
+  if (m.winrm_reachable === true)  return { status: 'reachable',   label: 'Reachable',   cls: 'exec-winrm-reach'   };
+  if (m.winrm_reachable === false) return { status: 'unreachable', label: 'Unreachable', cls: 'exec-winrm-unreach' };
+  // Infer from collection data: null + no errors + processes present → reachable
+  var errors = m.collection_errors || [];
+  var procCount = (d.Processes && d.Processes.length) ? d.Processes.length : 0;
+  if (errors.length === 0 && procCount > 0) return { status: 'reachable', label: 'Reachable', cls: 'exec-winrm-reach' };
   return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
 }
 
@@ -2589,9 +2593,9 @@ function renderExecute() {
       var m  = (d && d.manifest) || {};
       var cs = _getCollectionStatus(h);
       var ws = _getWinRMStatus(h);
-      var winrmNotice = (ws.status === 'unreachable' || ws.status === 'unknown')
-        ? '<div class="exec-winrm-notice">WinRM unavailable during collection. Execution may still be possible with different credentials or method.</div>'
-        : '';
+      var winrmNotice = (ws.status === 'unreachable')
+        ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
+        : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
       return '<tr>' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
@@ -2672,7 +2676,7 @@ function renderExecute() {
           '<div class="exec-cmd-outer">' +
             '<div class="exec-cmd-note">Copy and paste into PowerShell:</div>' +
             '<div class="exec-cmd" id="et-cmd-display" title="Click to select all" onclick="window.getSelection().selectAllChildren(this)"></div>' +
-            '<div class="exec-cmd-note" style="color:var(--amber)">&#9432; Executor.ps1 must be in same folder as Collector.ps1</div>' +
+            '<div class="exec-cmd-note">Run this command from the Quicker folder</div>' +
             '<button class="exec-copy-btn" onclick="execTabCopyCmd()" style="margin-top:6px">Copy to Clipboard</button>' +
           '</div>' +
         '</div>' +
@@ -2724,7 +2728,9 @@ function _buildExecTabCommand() {
   var args   = (el('et-args')        || {}).value || '';
   var method = (el('et-method')      || {}).value || 'Auto';
   var alive  = (el('et-alive')       || {}).value || '10';
-  return '.\\Executor.ps1 `\n  -Target "' + host + '" `\n  -LocalBinaryPath "' + lbin + '" `\n  -RemoteDestPath "' + rdest + '" `\n  -Arguments "' + args + '" `\n  -Method ' + method + ' `\n  -AliveCheck ' + alive + ' `\n  -Credential (Get-Credential)';
+  // Strip any surrounding quotes before re-quoting paths
+  function sq(v) { return v.replace(/^["']|["']$/g, ''); }
+  return '.\\Executor.ps1 `\n  -Target "' + sq(host) + '" `\n  -LocalBinaryPath "' + sq(lbin) + '" `\n  -RemoteDestPath "' + sq(rdest) + '" `\n  -Arguments "' + sq(args) + '" `\n  -Method ' + method + ' `\n  -AliveCheck ' + alive + ' `\n  -Credential (Get-Credential)';
 }
 
 function _execTabClipboard(text) {
