@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.0                                          ║
+# ║  Version    : 2.1                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -82,24 +82,93 @@ $script:BtnClose       = $null
 #region ── URI parsing ──────────────────────────────────────────
 function Parse-QuickerURI {
     param([string]$URI)
-    $jobs = @()
+
+    # ── Step 1: extract and decode query string ──────────────────
+    $rawJobs = $null
     try {
         $query = ''
         if ($URI -match '\?(.+)$') { $query = $Matches[1] }
+
         $qParams = @{}
         foreach ($pair in $query -split '&') {
             if ($pair -match '^([^=]+)=(.*)$') {
                 $qParams[$Matches[1]] = [System.Uri]::UnescapeDataString($Matches[2])
             }
         }
+
         if ($qParams['jobs']) {
-            $json  = [System.Text.Encoding]::UTF8.GetString(
-                         [System.Convert]::FromBase64String($qParams['jobs']))
-            $jobs  = $json | ConvertFrom-Json
+            $json    = [System.Text.Encoding]::UTF8.GetString(
+                           [System.Convert]::FromBase64String($qParams['jobs']))
+            $rawJobs = $json | ConvertFrom-Json
+        }
+        else {
+            # No jobs parameter — treat as empty batch
+            return @()
         }
     }
-    catch { Write-Warning "URI parse failed: $_" }
-    return @($jobs)
+    catch {
+        $errMsg = "URI parse failed: $_"
+        Write-Warning $errMsg
+        [System.Windows.Forms.MessageBox]::Show(
+            $errMsg,
+            'Quicker — URI Parse Error',
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+        exit 1
+    }
+
+    # ── Step 2: per-job validation ───────────────────────────────
+    $valid   = @()
+    $allJobs = @($rawJobs)
+
+    if ($allJobs.Count -eq 0) { return @() }
+
+    foreach ($raw in $allJobs) {
+        $ok     = $true
+        $reason = ''
+
+        # target — non-null, matches hostname/IP pattern
+        $tgt = if ($raw.PSObject.Properties['target']) { [string]$raw.target } else { '' }
+        if ([string]::IsNullOrWhiteSpace($tgt)) {
+            $ok = $false; $reason = 'target is null or empty'
+        }
+        elseif ($tgt -notmatch '^[\w][\w\.\-]{0,253}$') {
+            $ok = $false; $reason = "target invalid format: '$tgt'"
+        }
+
+        # type / tool — must be Memory or Disk (case-insensitive)
+        if ($ok) {
+            $typ = if ($raw.PSObject.Properties['type']) { [string]$raw.type } else { '' }
+            if ($typ -notmatch '^(Memory|Disk)$') {
+                $ok = $false; $reason = "type must be Memory or Disk, got: '$typ'"
+            }
+        }
+
+        # binary — non-null
+        if ($ok) {
+            $bin = if ($raw.PSObject.Properties['binary']) { [string]$raw.binary } else { '' }
+            if ([string]::IsNullOrWhiteSpace($bin)) {
+                $ok = $false; $reason = 'binary is null or empty'
+            }
+        }
+
+        # method — must be Auto, WinRM, or WMI
+        if ($ok) {
+            $meth = if ($raw.PSObject.Properties['method']) { [string]$raw.method } else { '' }
+            if ($meth -notmatch '^(Auto|WinRM|WMI)$') {
+                $ok = $false; $reason = "method must be Auto|WinRM|WMI, got: '$meth'"
+            }
+        }
+
+        if ($ok) {
+            $valid += $raw
+        }
+        else {
+            Write-Warning "Job skipped — $reason (target=$tgt)"
+        }
+    }
+
+    return @($valid)
 }
 #endregion
 

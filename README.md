@@ -152,6 +152,45 @@ Run the included test suite against any collected JSON:
 
 ---
 
+## Remote Execution (Quicker Launcher)
+
+### One-Time Setup
+
+Run as Administrator:
+
+```powershell
+.\Register-QuickerProtocol.ps1
+```
+
+### Usage
+
+1. Open Report.html in browser
+2. Load collected JSON files
+3. Go to EXECUTE tab
+4. Select hosts and collection types
+5. Click [Add to Queue →]
+6. Review queue preview
+7. Click [Launch All →]
+8. QuickerLaunch.ps1 opens automatically
+9. Monitor job progress in launcher window
+
+### Bulk Collection Example
+
+```
+Select 5 hosts → Memory only → Launch All
+Select 3 hosts → Disk only → Add to existing queue
+Select 2 hosts → Memory + Disk → Add to queue
+All 15 jobs run with max 5 concurrent
+```
+
+### Unregister
+
+```powershell
+.\Register-QuickerProtocol.ps1 -Unregister
+```
+
+---
+
 ## Author
 
 DFIR analyst tool — built for incident response workflows.
