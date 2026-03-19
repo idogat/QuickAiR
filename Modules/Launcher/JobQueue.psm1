@@ -1,0 +1,254 @@
+#Requires -Version 5.1
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  Quicker — JobQueue.psm1                                   ║
+# ║  Thread-safe job queue and state management.               ║
+# ║  Wraps a Generic List with monitor-lock for thread safety. ║
+# ║  Enforces forward-only status transitions.                 ║
+# ╠══════════════════════════════════════════════════════════════╣
+# ║  Exports   : New-JobQueue, Add-Job, Get-NextJob,           ║
+# ║              Update-JobStatus, Get-QueueSummary            ║
+# ║  Depends   : none                                          ║
+# ║  PS compat : 5.1 (analyst machine)                        ║
+# ║  Version   : 1.0                                          ║
+# ╚══════════════════════════════════════════════════════════════╝
+
+Set-StrictMode -Off
+$ErrorActionPreference = 'Continue'
+
+#region ── Module constants ──────────────────────────────────────
+$script:FORBIDDEN = @(';', '&', '|', '`', '$(', ')', '{', '}')
+
+# Status transition order — higher = further along.
+# Terminal states share 100; any transition to them from a non-terminal
+# state is always valid (100 >= anything <= 3).
+$script:StatusOrder = @{
+    'Queued'            = 0
+    'Connecting'        = 1
+    'TRANSFERRED'       = 2
+    'LAUNCHED'          = 3
+    'ALIVE'             = 100
+    'SFX_LAUNCHED'      = 100
+    'CONNECTION_FAILED' = 100
+    'TRANSFER_FAILED'   = 100
+    'LAUNCH_FAILED'     = 100
+    'FAILED'            = 100
+    'VALIDATION_FAILED' = 100
+    'CANCELLED'         = 100
+    'TIMEOUT'           = 100
+}
+
+$script:TerminalStatuses = @(
+    'ALIVE', 'SFX_LAUNCHED', 'CONNECTION_FAILED', 'TRANSFER_FAILED',
+    'LAUNCH_FAILED', 'FAILED', 'VALIDATION_FAILED', 'CANCELLED', 'TIMEOUT'
+)
+#endregion
+
+#region ── Private helpers ──────────────────────────────────────
+function Invoke-JobValidation {
+    param($raw)
+    $errs = @()
+    if (-not $raw.target -or $raw.target -notmatch '^[\w\.\-]+$') {
+        $errs += "Invalid target: $($raw.target)"
+    }
+    foreach ($c in $script:FORBIDDEN) {
+        if ($raw.binary     -and ([string]$raw.binary).Contains($c))     { $errs += "Binary path contains forbidden char: $c" }
+        if ($raw.remoteDest -and ([string]$raw.remoteDest).Contains($c)) { $errs += "RemoteDest contains forbidden char: $c" }
+    }
+    if (-not $raw.binary) { $errs += 'binary path is required' }
+    $ac = 0
+    if ($raw.aliveCheck) { [int]::TryParse("$($raw.aliveCheck)", [ref]$ac) | Out-Null }
+    else                 { $ac = 10 }
+    if ($ac -lt 5 -or $ac -gt 300) { $errs += "aliveCheck must be 5-300 (got $ac)" }
+    return $errs
+}
+
+function New-JobEntry {
+    param($Queue, $raw)
+    $Queue.JobCounter++
+    $ac = 10
+    if ($raw.aliveCheck) { [int]::TryParse("$($raw.aliveCheck)", [ref]$ac) | Out-Null }
+    return [PSCustomObject]@{
+        JobId         = [guid]::NewGuid().ToString()
+        RowNumber     = $Queue.JobCounter
+        Type          = if ($raw.type)       { [string]$raw.type }       else { 'Memory' }
+        Target        = ([string]$raw.target).Trim()
+        Binary        = if ($raw.binary)     { [string]$raw.binary }     else { '' }
+        RemoteDest    = if ($raw.remoteDest) { [string]$raw.remoteDest } else { '' }
+        Arguments     = if ($raw.arguments)  { [string]$raw.arguments }  else { '' }
+        Method        = if ($raw.method)     { [string]$raw.method }     else { 'Auto' }
+        AliveCheck    = $ac
+        Status        = 'Queued'
+        Detail        = ''
+        DisplayMethod = ''
+        StartTime     = [DateTime]::MinValue
+        IsDone        = $false
+        IsCancelled   = $false
+        Credential    = $null
+        PS_           = $null
+        RunHandle_    = $null
+        OutputPath_   = ''
+    }
+}
+
+function New-FailedEntry {
+    param($Queue, $raw, [string]$detail)
+    $Queue.JobCounter++
+    return [PSCustomObject]@{
+        JobId         = [guid]::NewGuid().ToString()
+        RowNumber     = $Queue.JobCounter
+        Type          = if ($raw.type)   { [string]$raw.type }   else { '?' }
+        Target        = if ($raw.target) { [string]$raw.target } else { '?' }
+        Binary        = ''
+        RemoteDest    = ''
+        Arguments     = ''
+        Method        = ''
+        AliveCheck    = 10
+        Status        = 'VALIDATION_FAILED'
+        Detail        = $detail
+        DisplayMethod = ''
+        StartTime     = [DateTime]::MinValue
+        IsDone        = $true
+        IsCancelled   = $false
+        Credential    = $null
+        PS_           = $null
+        RunHandle_    = $null
+        OutputPath_   = ''
+    }
+}
+#endregion
+
+#region ── Exported functions ───────────────────────────────────
+function New-JobQueue {
+    <#
+    .SYNOPSIS
+        Creates a new job queue object with thread-safe state management.
+    .PARAMETER MaxConcurrent
+        Maximum concurrent jobs (1-20, default 5).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$false)] [int]$MaxConcurrent = 5
+    )
+    return [PSCustomObject]@{
+        Jobs          = [System.Collections.Generic.List[object]]::new()
+        Lock          = [System.Object]::new()
+        MaxConcurrent = [Math]::Max(1, [Math]::Min(20, $MaxConcurrent))
+        JobCounter    = 0
+    }
+}
+
+function Add-Job {
+    <#
+    .SYNOPSIS
+        Validates a raw job object and appends it to the queue.
+    .OUTPUTS
+        The created job state object (valid or VALIDATION_FAILED).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] $Queue,
+        [Parameter(Mandatory=$true)] $Raw
+    )
+    $errs = Invoke-JobValidation $Raw
+    $j = if ($errs.Count -gt 0) { New-FailedEntry $Queue $Raw ($errs -join '; ') }
+         else                   { New-JobEntry    $Queue $Raw }
+
+    [System.Threading.Monitor]::Enter($Queue.Lock)
+    try    { $Queue.Jobs.Add($j) }
+    finally{ [System.Threading.Monitor]::Exit($Queue.Lock) }
+    return $j
+}
+
+function Get-NextJob {
+    <#
+    .SYNOPSIS
+        Returns the next Queued job if a concurrency slot is available,
+        or $null if all slots are occupied or no jobs are waiting.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] $Queue
+    )
+    [System.Threading.Monitor]::Enter($Queue.Lock)
+    $snapshot = @($Queue.Jobs)
+    [System.Threading.Monitor]::Exit($Queue.Lock)
+
+    $running = 0
+    foreach ($j in $snapshot) {
+        if (-not $j.IsDone -and $j.Status -ne 'Queued') { $running++ }
+    }
+    if ($running -ge $Queue.MaxConcurrent) { return $null }
+
+    foreach ($j in $snapshot) {
+        if (-not $j.IsDone -and $j.Status -eq 'Queued') { return $j }
+    }
+    return $null
+}
+
+function Update-JobStatus {
+    <#
+    .SYNOPSIS
+        Updates a job's status, enforcing forward-only transitions.
+        Logs a WARN and returns $false if the transition would be backwards.
+    .OUTPUTS
+        $true if updated; $false if invalid transition or job not found.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]  $Queue,
+        [Parameter(Mandatory=$true)]  [string]$JobId,
+        [Parameter(Mandatory=$true)]  [string]$Status,
+        [Parameter(Mandatory=$false)] [string]$Detail = $null
+    )
+    [System.Threading.Monitor]::Enter($Queue.Lock)
+    $j = $null
+    foreach ($item in $Queue.Jobs) {
+        if ($item.JobId -eq $JobId) { $j = $item; break }
+    }
+    [System.Threading.Monitor]::Exit($Queue.Lock)
+
+    if ($null -eq $j) {
+        Write-Warning "Update-JobStatus: job $JobId not found"
+        return $false
+    }
+
+    $curOrder = if ($script:StatusOrder.ContainsKey($j.Status)) { $script:StatusOrder[$j.Status] } else { 0 }
+    $newOrder = if ($script:StatusOrder.ContainsKey($Status))   { $script:StatusOrder[$Status] }   else { 0 }
+
+    if ($newOrder -lt $curOrder) {
+        Write-Warning "Update-JobStatus: invalid backward transition $($j.Status) -> $Status for job $JobId"
+        return $false
+    }
+
+    $j.Status = $Status
+    if ($null -ne $Detail) { $j.Detail = $Detail }
+    if ($Status -in $script:TerminalStatuses) { $j.IsDone = $true }
+    return $true
+}
+
+function Get-QueueSummary {
+    <#
+    .SYNOPSIS
+        Returns a hashtable with job counts: Running, Queued, Done, Failed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] $Queue
+    )
+    [System.Threading.Monitor]::Enter($Queue.Lock)
+    $snapshot = @($Queue.Jobs)
+    [System.Threading.Monitor]::Exit($Queue.Lock)
+
+    $running = 0; $queued = 0; $done = 0; $failed = 0
+    foreach ($j in $snapshot) {
+        if ($j.IsDone) {
+            if ($j.Status -match 'FAILED|CANCELLED|TIMEOUT') { $failed++ } else { $done++ }
+        }
+        elseif ($j.Status -ne 'Queued') { $running++ }
+        else                            { $queued++ }
+    }
+    return @{ Running = $running; Queued = $queued; Done = $done; Failed = $failed }
+}
+#endregion
+
+Export-ModuleMember -Function New-JobQueue, Add-Job, Get-NextJob, Update-JobStatus, Get-QueueSummary

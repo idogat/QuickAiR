@@ -49,6 +49,11 @@ Modules\Collectors\Users.psm1  — user accounts, sessions, profiles,
 Executor.ps1           — remote tool execution orchestrator
 Modules\Executors\     — WinRM.psm1, WMI.psm1
 Tests\                 — T01-T09 per-module test files
+QuickerLaunch.ps1      — WinForms job manager (single-instance, mutex)
+Register-QuickerProtocol.ps1 — registers quicker:// URI handler
+Modules\Launcher\      — JobQueue.psm1, PipeListener.psm1
+C:\DFIRLab\QuickerBridge\ — inter-process job handoff folder
+                             (not in repo — runtime only)
 
 ## Cross-Host User Correlation
 Report.html builds window.userIndex from all loaded host JSONs.
@@ -173,5 +178,24 @@ Returns: ExecutionId, ComputerName, Method,
   States[], FinalState, PID, Error
 WinRM: transfers binary then executes
 WMI: executes only, no transfer
+
+## Launcher Module Contract
+JobQueue.psm1:
+  Exports: New-JobQueue, Add-Job, Get-NextJob,
+           Update-JobStatus, Get-QueueSummary
+  Thread-safe job state management via Monitor lock.
+  Enforces forward-only status transitions:
+    Queued(0) → Connecting(1) → TRANSFERRED(2)
+    → LAUNCHED(3) → ALIVE|SFX_LAUNCHED|FAILED|TIMEOUT(100)
+  Invalid backward transitions logged as WARN, rejected.
+  New-JobQueue returns object with .Jobs .Lock .MaxConcurrent .JobCounter
+
+PipeListener.psm1:
+  Exports: Start-BridgeListener, Stop-BridgeListener,
+           Send-JobBatch, Read-PendingJobs
+  Background runspace polls C:\DFIRLab\QuickerBridge\ every 1s.
+  New *.json files read, deleted, raw JSON pushed to ConcurrentQueue.
+  Read-PendingJobs drains the ConcurrentQueue on the UI thread.
+  Send-JobBatch writes <guid>.json for second-instance handoff.
 
 

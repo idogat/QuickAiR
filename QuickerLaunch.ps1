@@ -17,8 +17,8 @@
 # ║       "arguments":"", "method":"Auto",                     ║
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
-# ║  Depends    : Executor.ps1 (same directory)               ║
-# ║  Version    : 1.0                                          ║
+# ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
+# ║  Version    : 2.0                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -34,6 +34,12 @@ $ErrorActionPreference = 'Continue'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
+#endregion
+
+#region ── Launcher modules ─────────────────────────────────────
+$_launcherDir = Join-Path $PSScriptRoot 'Modules\Launcher'
+Import-Module (Join-Path $_launcherDir 'JobQueue.psm1')     -Force
+Import-Module (Join-Path $_launcherDir 'PipeListener.psm1') -Force
 #endregion
 
 #region ── Constants ────────────────────────────────────────────
@@ -63,11 +69,9 @@ $COL_BTN_GREEN = [System.Drawing.ColorTranslator]::FromHtml('#1f4e2e')
 #endregion
 
 #region ── Script-scope state ───────────────────────────────────
-$script:Jobs           = [System.Collections.Generic.List[object]]::new()
-$script:JobCounter     = 0
-$script:JobLock        = [System.Object]::new()
-$script:CredCache      = @{}          # keyed by domain or hostname
-$script:MaxConcurrent  = [Math]::Max(1, [Math]::Min(20, $MaxConcurrent))
+$script:Queue          = $null         # JobQueue object (New-JobQueue)
+$script:Listener       = $null         # PipeListener object (Start-BridgeListener)
+$script:CredCache      = @{}           # keyed by domain or hostname
 $script:Form           = $null
 $script:Grid           = $null
 $script:StatusLabel    = $null
@@ -99,99 +103,11 @@ function Parse-QuickerURI {
 }
 #endregion
 
-#region ── Validation ───────────────────────────────────────────
-$FORBIDDEN = @(';','&','|','`','$(',')','{','}')
-
-function Validate-Job {
-    param($raw)
-    $errs = @()
-
-    if (-not $raw.target -or $raw.target -notmatch '^[\w\.\-]+$') {
-        $errs += "Invalid target: $($raw.target)"
-    }
-
-    foreach ($c in $FORBIDDEN) {
-        if ($raw.binary    -and ([string]$raw.binary).Contains($c))     { $errs += "Binary path contains forbidden char: $c" }
-        if ($raw.remoteDest -and ([string]$raw.remoteDest).Contains($c)) { $errs += "RemoteDest contains forbidden char: $c" }
-    }
-
-    if (-not $raw.binary) { $errs += "binary path is required" }
-
-    $ac = 0
-    if ($raw.aliveCheck) { [int]::TryParse("$($raw.aliveCheck)", [ref]$ac) | Out-Null }
-    else { $ac = 10 }
-    if ($ac -lt 5 -or $ac -gt 300) { $errs += "aliveCheck must be 5-300 (got $ac)" }
-
-    return $errs
-}
-#endregion
-
-#region ── Job state ────────────────────────────────────────────
-function New-JobState {
-    param($raw)
-    $script:JobCounter++
-    $ac = 10
-    if ($raw.aliveCheck) { [int]::TryParse("$($raw.aliveCheck)", [ref]$ac) | Out-Null }
-
-    return [PSCustomObject]@{
-        JobId         = [guid]::NewGuid().ToString()
-        RowNumber     = $script:JobCounter
-        Type          = if ($raw.type)       { [string]$raw.type }       else { 'Memory' }
-        Target        = ([string]$raw.target).Trim()
-        Binary        = if ($raw.binary)     { [string]$raw.binary }     else { '' }
-        RemoteDest    = if ($raw.remoteDest) { [string]$raw.remoteDest } else { '' }
-        Arguments     = if ($raw.arguments)  { [string]$raw.arguments }  else { '' }
-        Method        = if ($raw.method)     { [string]$raw.method }     else { 'Auto' }
-        AliveCheck    = $ac
-        Status        = 'Queued'
-        Detail        = ''
-        DisplayMethod = ''
-        StartTime     = [DateTime]::MinValue
-        IsDone        = $false
-        IsCancelled   = $false
-        Credential    = $null
-        PS_           = $null   # PowerShell runspace object
-        RunHandle_    = $null   # async handle
-        OutputPath_   = ''
-    }
-}
-
-function New-FailedJob {
-    param($raw, [string]$detail)
-    $script:JobCounter++
-    return [PSCustomObject]@{
-        JobId         = [guid]::NewGuid().ToString()
-        RowNumber     = $script:JobCounter
-        Type          = if ($raw.type)   { [string]$raw.type }   else { '?' }
-        Target        = if ($raw.target) { [string]$raw.target } else { '?' }
-        Binary        = ''
-        RemoteDest    = ''
-        Arguments     = ''
-        Method        = ''
-        AliveCheck    = 10
-        Status        = 'VALIDATION_FAILED'
-        Detail        = $detail
-        DisplayMethod = ''
-        StartTime     = [DateTime]::MinValue
-        IsDone        = $true
-        IsCancelled   = $false
-        Credential    = $null
-        PS_           = $null
-        RunHandle_    = $null
-        OutputPath_   = ''
-    }
-}
-
+#region ── Job management ───────────────────────────────────────
 function Add-Jobs {
     param([array]$rawJobs)
     foreach ($raw in $rawJobs) {
-        $errs = Validate-Job $raw
-        $j    = if ($errs.Count -gt 0) { New-FailedJob $raw ($errs -join '; ') }
-                else                   { New-JobState  $raw }
-
-        [System.Threading.Monitor]::Enter($script:JobLock)
-        try { $script:Jobs.Add($j) } finally { [System.Threading.Monitor]::Exit($script:JobLock) }
-
+        $j = Add-Job -Queue $script:Queue -Raw $raw
         if ($null -ne $script:Grid -and -not $script:Grid.IsDisposed) {
             Add-GridRow $j
         }
@@ -449,46 +365,32 @@ function Update-GridRow {
 
 #region ── Scheduler (UI thread, 500ms) ─────────────────────────
 function Invoke-Schedule {
-    [System.Threading.Monitor]::Enter($script:JobLock)
-    $snapshot = @($script:Jobs)
-    [System.Threading.Monitor]::Exit($script:JobLock)
-
-    $running = 0; $queued = 0; $done = 0; $failed = 0
-
-    foreach ($j in $snapshot) {
-        if ($j.IsDone) {
-            if ($j.Status -match 'FAILED|CANCELLED|TIMEOUT') { $failed++ } else { $done++ }
-        }
-        elseif ($j.Status -ne 'Queued') { $running++ }
-        else                            { $queued++ }
-    }
-
-    $script:StatusLabel.Text = "Running: $running  |  Queued: $queued  |  Done: $done  |  Failed: $failed  |  Max Concurrent:"
+    $summary = Get-QueueSummary -Queue $script:Queue
+    $script:StatusLabel.Text = "Running: $($summary.Running)  |  Queued: $($summary.Queued)  |  Done: $($summary.Done)  |  Failed: $($summary.Failed)  |  Max Concurrent:"
 
     # Start queued jobs up to MaxConcurrent
-    $maxC = $script:MaxConcurrent
-    foreach ($j in $snapshot) {
-        if ($running -ge $maxC) { break }
-        if ($j.IsDone -or $j.Status -ne 'Queued') { continue }
+    while ($true) {
+        $j = Get-NextJob -Queue $script:Queue
+        if ($null -eq $j) { break }
 
         $cred = Resolve-Credential $j
         if ($cred -eq 'CANCELLED') {
-            $j.Status = 'FAILED'
-            $j.Detail = 'Credential cancelled'
-            $j.IsDone = $true
-            $failed++
+            Update-JobStatus -Queue $script:Queue -JobId $j.JobId -Status 'FAILED' -Detail 'Credential cancelled'
             continue
         }
         $j.Credential = $cred
         Start-JobRunspace $j
-        $running++
     }
 
     # Refresh all rows; dispose completed runspaces
+    [System.Threading.Monitor]::Enter($script:Queue.Lock)
+    $snapshot = @($script:Queue.Jobs)
+    [System.Threading.Monitor]::Exit($script:Queue.Lock)
+
     foreach ($j in $snapshot) {
         if ($j.IsDone -and $null -ne $j.PS_) {
             try { $j.PS_.Dispose() } catch { }
-            $j.PS_       = $null
+            $j.PS_        = $null
             $j.RunHandle_ = $null
         }
         Update-GridRow $j
@@ -502,23 +404,6 @@ function Invoke-Schedule {
 }
 #endregion
 
-#region ── Bridge watcher (UI thread, 1000ms) ───────────────────
-function Watch-Bridge {
-    if (-not (Test-Path $BRIDGE_DIR)) { return }
-    # Only pick up .json files directly in BRIDGE_DIR (not subdirs)
-    $files = @(Get-ChildItem $BRIDGE_DIR -Filter '*.json' -File -ErrorAction SilentlyContinue |
-                   Where-Object { $_.DirectoryName -eq $BRIDGE_DIR })
-    foreach ($f in $files) {
-        try {
-            $content = [System.IO.File]::ReadAllText($f.FullName)
-            [System.IO.File]::Delete($f.FullName)
-            $rawJobs = $content | ConvertFrom-Json
-            if ($rawJobs) { Add-Jobs @($rawJobs) }
-        }
-        catch { }
-    }
-}
-#endregion
 
 #region ── UI builder ───────────────────────────────────────────
 function Build-UI {
@@ -549,7 +434,7 @@ function Build-UI {
     $script:StatusLabel = $statusLabel
 
     $spinLabel           = [System.Windows.Forms.Label]::new()
-    $spinLabel.Text      = "$($script:MaxConcurrent)"
+    $spinLabel.Text      = "$($script:Queue.MaxConcurrent)"
     $spinLabel.AutoSize  = $false
     $spinLabel.Location  = [System.Drawing.Point]::new(664, 8)
     $spinLabel.Size      = [System.Drawing.Size]::new(26, 16)
@@ -566,9 +451,9 @@ function Build-UI {
     $spinUp.ForeColor = $COL_FG
     $spinUp.Font      = [System.Drawing.Font]::new('Consolas', 7)
     $spinUp.Add_Click({
-        if ($script:MaxConcurrent -lt 20) {
-            $script:MaxConcurrent++
-            $script:SpinLabel.Text = "$($script:MaxConcurrent)"
+        if ($script:Queue.MaxConcurrent -lt 20) {
+            $script:Queue.MaxConcurrent++
+            $script:SpinLabel.Text = "$($script:Queue.MaxConcurrent)"
         }
     })
 
@@ -581,9 +466,9 @@ function Build-UI {
     $spinDown.ForeColor = $COL_FG
     $spinDown.Font      = [System.Drawing.Font]::new('Consolas', 7)
     $spinDown.Add_Click({
-        if ($script:MaxConcurrent -gt 1) {
-            $script:MaxConcurrent--
-            $script:SpinLabel.Text = "$($script:MaxConcurrent)"
+        if ($script:Queue.MaxConcurrent -gt 1) {
+            $script:Queue.MaxConcurrent--
+            $script:SpinLabel.Text = "$($script:Queue.MaxConcurrent)"
         }
     })
 
@@ -661,7 +546,7 @@ function Build-UI {
     $btnCancelSel.Add_Click({
         foreach ($row in @($script:Grid.SelectedRows)) {
             $jid = $row.Tag
-            $j   = @($script:Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
+            $j   = @($script:Queue.Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
             if ($null -ne $j -and -not $j.IsDone) {
                 $j.IsCancelled = $true
                 if ($null -ne $j.PS_) { try { $j.PS_.Stop() } catch { } }
@@ -671,9 +556,9 @@ function Build-UI {
     })
 
     $btnCancelAll.Add_Click({
-        [System.Threading.Monitor]::Enter($script:JobLock)
-        $snap = @($script:Jobs)
-        [System.Threading.Monitor]::Exit($script:JobLock)
+        [System.Threading.Monitor]::Enter($script:Queue.Lock)
+        $snap = @($script:Queue.Jobs)
+        [System.Threading.Monitor]::Exit($script:Queue.Lock)
         foreach ($j in $snap) {
             if (-not $j.IsDone) {
                 $j.IsCancelled = $true
@@ -684,24 +569,24 @@ function Build-UI {
     })
 
     $btnClearDone.Add_Click({
-        [System.Threading.Monitor]::Enter($script:JobLock)
-        $snap = @($script:Jobs)
-        [System.Threading.Monitor]::Exit($script:JobLock)
+        [System.Threading.Monitor]::Enter($script:Queue.Lock)
+        $snap = @($script:Queue.Jobs)
+        [System.Threading.Monitor]::Exit($script:Queue.Lock)
         $doneJobs = @($snap | Where-Object { $_.IsDone })
         foreach ($j in $doneJobs) {
-            [System.Threading.Monitor]::Enter($script:JobLock)
-            try { [void]$script:Jobs.Remove($j) } finally { [System.Threading.Monitor]::Exit($script:JobLock) }
+            [System.Threading.Monitor]::Enter($script:Queue.Lock)
+            try { [void]$script:Queue.Jobs.Remove($j) } finally { [System.Threading.Monitor]::Exit($script:Queue.Lock) }
         }
         # Rebuild grid from remaining jobs
         $script:Grid.Rows.Clear()
-        [System.Threading.Monitor]::Enter($script:JobLock)
-        $remaining = @($script:Jobs)
-        [System.Threading.Monitor]::Exit($script:JobLock)
+        [System.Threading.Monitor]::Enter($script:Queue.Lock)
+        $remaining = @($script:Queue.Jobs)
+        [System.Threading.Monitor]::Exit($script:Queue.Lock)
         foreach ($j in $remaining) { Add-GridRow $j }
     })
 
     $btnClose.Add_Click({
-        $anyActive = @($script:Jobs | Where-Object { -not $_.IsDone })
+        $anyActive = @($script:Queue.Jobs | Where-Object { -not $_.IsDone })
         if ($anyActive.Count -eq 0) { $form.Close() }
     })
 
@@ -728,7 +613,10 @@ function Build-UI {
     $bridgeTimer          = [System.Windows.Forms.Timer]::new()
     $bridgeTimer.Interval = $BRIDGE_MS
     $bridgeTimer.Add_Tick({
-        try { Watch-Bridge }
+        try {
+            $newJobs = Read-PendingJobs -Listener $script:Listener
+            if ($newJobs -and $newJobs.Count -gt 0) { Add-Jobs $newJobs }
+        }
         catch {
             $msg = "$(([DateTime]::UtcNow.ToString('o'))) BRIDGE: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
             [System.IO.File]::AppendAllText('C:\DFIRLab\launcher_error.log', $msg)
@@ -741,6 +629,7 @@ function Build-UI {
         $refreshTimer.Dispose()
         $bridgeTimer.Stop()
         $bridgeTimer.Dispose()
+        Stop-BridgeListener $script:Listener
     })
 
     return $form
@@ -749,16 +638,8 @@ function Build-UI {
 
 #region ── Entry point ──────────────────────────────────────────
 
-# Ensure bridge directory exists
-if (-not (Test-Path $BRIDGE_DIR)) {
-    New-Item -ItemType Directory -Path $BRIDGE_DIR -Force | Out-Null
-}
-
 # Parse URI
 $rawJobs = Parse-QuickerURI $URI
-
-# Clamp MaxConcurrent
-$script:MaxConcurrent = [Math]::Max(1, [Math]::Min(20, $MaxConcurrent))
 
 # Single-instance check via named mutex
 $mutex    = [System.Threading.Mutex]::new($false, $MUTEX_NAME)
@@ -767,8 +648,9 @@ try { $acquired = $mutex.WaitOne(100) } catch { $acquired = $false }
 
 if (-not $acquired) {
     # Another instance is running — hand off jobs via bridge file and exit
-    $bridgeFile = Join-Path $BRIDGE_DIR "$([guid]::NewGuid().ToString()).json"
-    $rawJobs | ConvertTo-Json -Depth 5 | Set-Content $bridgeFile -Encoding UTF8
+    if ($rawJobs -and $rawJobs.Count -gt 0) {
+        Send-JobBatch -BridgeDir $BRIDGE_DIR -Jobs @($rawJobs)
+    }
     $mutex.Dispose()
     exit 0
 }
@@ -785,6 +667,9 @@ try {
         [System.IO.File]::AppendAllText($logPath, $msg)
     }
     [System.Windows.Forms.Application]::add_ThreadException($threadExHandler)
+
+    $script:Queue    = New-JobQueue -MaxConcurrent ([Math]::Max(1, [Math]::Min(20, $MaxConcurrent)))
+    $script:Listener = Start-BridgeListener -BridgeDir $BRIDGE_DIR
 
     $form = Build-UI
     try {
