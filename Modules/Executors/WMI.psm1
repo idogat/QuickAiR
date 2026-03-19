@@ -106,7 +106,7 @@ function Invoke-Executor {
         }
 
         # Step 3 — Transfer skipped (WMI cannot transfer files)
-        Add-State "TRANSFERRED" "Skipped — binary must exist on target"
+        Add-State "TRANSFERRED" "Skipped -- binary must exist on target"
 
         # Step 3a — BinaryType detection (on LocalBinaryPath if accessible locally)
         if ($BinaryTypeOverride -ne $null) {
