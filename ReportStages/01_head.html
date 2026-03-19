@@ -182,6 +182,43 @@ input::placeholder{color:var(--muted)}
 .fleet-exec-btn:hover{background:var(--accent);color:#0d1117}
 .net-collect-btn{font-size:11px;padding:3px 9px;margin-right:6px}
 
+/* BULK SELECTION — EXECUTE TAB */
+.exec-cb-col{width:32px;text-align:center;padding:4px 6px!important}
+.exec-type-col{width:52px;text-align:center;padding:4px 6px!important}
+.exec-host-tbl tr.exec-sel-row>td{border-left:3px solid var(--accent)}
+.exec-host-tbl tr:not(.exec-sel-row)>td:first-child{border-left:3px solid transparent}
+.exec-th-toggle{cursor:pointer;user-select:none}
+.exec-th-toggle:hover{color:var(--text)}
+.exec-bulk-bar{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:0 2px}
+.exec-bulk-left{display:flex;align-items:center;gap:10px}
+.exec-sel-counter{font-size:12px;color:var(--muted)}
+.exec-add-queue-btn{background:var(--accent);border-color:var(--accent);color:#0d1117;font-size:12px;padding:4px 12px}
+.exec-add-queue-btn:disabled{opacity:.35;cursor:not-allowed}
+
+/* QUEUE PREVIEW MODAL */
+#queue-modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:400}
+#queue-modal-backdrop.show{display:block}
+#queue-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:401;background:var(--surface);border:1px solid var(--border);border-radius:6px;width:700px;max-width:96vw;max-height:90vh;overflow:hidden;display:none;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.7)}
+#queue-modal.show{display:flex}
+#queue-modal .qm-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg);border-radius:6px 6px 0 0;flex-shrink:0}
+#queue-modal .qm-title{color:var(--accent);font-size:13px;font-weight:bold}
+#queue-modal .qm-close{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+#queue-modal .qm-close:hover{color:var(--text)}
+#queue-modal .qm-body{padding:14px 16px;overflow-y:auto;flex:1;min-height:0}
+#queue-modal .qm-job-list{max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;margin-bottom:14px}
+#queue-modal .qm-job-tbl{width:100%;border-collapse:collapse;font-size:12px}
+#queue-modal .qm-job-tbl th{text-align:left;padding:4px 10px;color:var(--muted);font-weight:normal;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0}
+#queue-modal .qm-job-tbl td{padding:4px 10px;border-bottom:1px solid var(--border)}
+#queue-modal .qm-job-tbl tr:last-child td{border-bottom:none}
+#queue-modal .qm-field{display:grid;grid-template-columns:150px 1fr;align-items:center;gap:6px;margin-bottom:10px}
+#queue-modal .qm-field label{color:var(--muted);font-size:12px;text-align:right;padding-right:8px}
+#queue-modal .qm-field input,#queue-modal .qm-field select{width:100%}
+#queue-modal .qm-section-title{font-size:11px;color:var(--muted);font-weight:bold;text-transform:uppercase;letter-spacing:.05em;margin:12px 0 8px 0;border-bottom:1px solid var(--border);padding-bottom:4px}
+#queue-modal .qm-actions{display:flex;gap:8px;justify-content:flex-end;padding:10px 16px;border-top:1px solid var(--border);flex-shrink:0}
+#queue-modal .qm-btn-launch{background:var(--accent);border-color:var(--accent);color:#0d1117}
+#queue-modal .qm-btn-launch:hover{opacity:.85}
+#queue-modal .qm-success{background:rgba(63,185,80,.1);border:1px solid var(--green);border-radius:4px;padding:10px 14px;margin-bottom:10px;font-size:12px;color:var(--green)}
+
 /* COLUMN RESIZE */
 .tbl-header .th{position:relative;user-select:none}
 .tbl-header .th:last-child{overflow:visible}

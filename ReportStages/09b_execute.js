@@ -43,6 +43,18 @@
 })();
 
 var _execTabRemoteDestModified = false;
+var _bulkSel = {};          // { hostname: { sel, mem, disk } }
+var _detectedMemTool  = '';
+var _detectedDiskTool = '';
+
+(function _detectTools() {
+  var base     = 'C:\\DFIRLab\\tools\\';
+  var memNames  = ['winpmem.exe', 'DumpIt.exe', 'Magnet.exe', 'RAMMap.exe'];
+  var diskNames = ['DumpIt.exe', 'FTK.exe', 'dd.exe', 'dcfldd.exe'];
+  // Best-effort: no filesystem access from browser — use first known tool name
+  _detectedMemTool  = base + memNames[0];
+  _detectedDiskTool = base + diskNames[0];
+})();
 
 var _execTabToolDefaults = {
   Memory: 'C:\\Windows\\Temp\\winpmem.exe',
@@ -108,27 +120,45 @@ function renderExecute() {
   if (hosts.length === 0) {
     sec1HTML = '<div class="exec-no-hosts">Load a JSON file to see host status. You can still use the manual launcher below.</div>';
   } else {
+    // Initialise bulk-selection state for any new hosts
+    hosts.forEach(function(h) {
+      if (!_bulkSel[h]) _bulkSel[h] = { sel: false, mem: false, disk: false };
+    });
     var rows = hosts.map(function(h) {
       var d  = state.hosts[h];
       var m  = (d && d.manifest) || {};
       var cs = _getCollectionStatus(h);
       var ws = _getWinRMStatus(h);
+      var bs = _bulkSel[h];
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
-      return '<tr>' +
+      var rowCls = bs.sel ? ' class="exec-sel-row"' : '';
+      return '<tr' + rowCls + ' id="exec-row-' + esc(h) + '">' +
+        '<td class="exec-cb-col"><input type="checkbox" id="exc-sel-' + esc(h) + '"' + (bs.sel ? ' checked' : '') + ' onchange="execBulkHostCheck(\'' + esc(h) + '\')"></td>' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
         '<td class="' + cs.cls + '">' + esc(cs.label) + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
-        '<td><button class="exec-host-btn" onclick="execTabCollectFromRow(\'' + esc(h) + '\',\'Memory\')">Collect Memory</button></td>' +
-        '<td><button class="exec-host-btn" onclick="execTabCollectFromRow(\'' + esc(h) + '\',\'Disk\')">Collect Disk</button></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + esc(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '</tr>';
     }).join('');
     sec1HTML = '<table class="exec-host-tbl">' +
-      '<thead><tr><th>Hostname</th><th>OS</th><th>Collection Status</th><th>WinRM</th><th>Memory</th><th>Disk</th></tr></thead>' +
+      '<thead><tr>' +
+        '<th class="exec-cb-col"><input type="checkbox" id="exc-sel-all" onchange="execBulkSelectAll(this)" title="Select all"></th>' +
+        '<th>Hostname</th><th>OS</th><th>Collection Status</th><th>WinRM</th>' +
+        '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
+        '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
+      '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
-      '</table>';
+      '</table>' +
+      '<div class="exec-bulk-bar">' +
+        '<div class="exec-bulk-left">' +
+          '<span id="exec-sel-counter" class="exec-sel-counter" style="display:none"></span>' +
+        '</div>' +
+        '<button class="exec-add-queue-btn" id="exec-add-queue-btn" onclick="execBulkAddToQueue()" disabled>Add to Queue &#8594;</button>' +
+      '</div>';
   }
 
   // ── Section 2: Launcher ───────────────────────────────────────────────────
@@ -207,6 +237,8 @@ function renderExecute() {
   var rdEl = el('et-remote-dest');
   if (rdEl) rdEl.value = _execTabToolDefaults['Memory'];
   _execTabRemoteDestModified = false;
+  _execEnsureQueueModal();
+  _execUpdateSelCounter();
 }
 
 function execTabToolTypeChange() {
@@ -306,6 +338,239 @@ function execTabCollectFromRow(hostname, toolType) {
   var launcher = el('exec-launcher-section');
   if (launcher) launcher.scrollIntoView({ behavior: 'smooth', block: 'start' });
   setTimeout(function() { if (lbEl) lbEl.focus(); }, 300);
+}
+
+// ── BULK SELECTION HANDLERS ───────────────────────────────────────────────────
+
+function execBulkSelectAll(cb) {
+  var checked = cb.checked;
+  Object.keys(_bulkSel).forEach(function(h) {
+    _bulkSel[h].sel = checked;
+    var rowCb = el('exc-sel-' + h);
+    if (rowCb) rowCb.checked = checked;
+    var row = el('exec-row-' + h);
+    if (row) {
+      if (checked) row.classList.add('exec-sel-row');
+      else row.classList.remove('exec-sel-row');
+    }
+  });
+  _execUpdateSelCounter();
+}
+
+function execBulkHostCheck(hostname) {
+  var cb = el('exc-sel-' + hostname);
+  if (!cb || !_bulkSel[hostname]) return;
+  _bulkSel[hostname].sel = cb.checked;
+  var row = el('exec-row-' + hostname);
+  if (row) {
+    if (cb.checked) row.classList.add('exec-sel-row');
+    else row.classList.remove('exec-sel-row');
+  }
+  _execUpdateSelCounter();
+}
+
+function execBulkMemCheck(hostname) {
+  var cb = el('exc-mem-' + hostname);
+  if (!cb || !_bulkSel[hostname]) return;
+  _bulkSel[hostname].mem = cb.checked;
+  _execUpdateSelCounter();
+}
+
+function execBulkDiskCheck(hostname) {
+  var cb = el('exc-dsk-' + hostname);
+  if (!cb || !_bulkSel[hostname]) return;
+  _bulkSel[hostname].disk = cb.checked;
+  _execUpdateSelCounter();
+}
+
+function execBulkToggleMem() {
+  var selected = Object.keys(_bulkSel).filter(function(h) { return _bulkSel[h].sel; });
+  if (selected.length === 0) return;
+  var allOn = selected.every(function(h) { return _bulkSel[h].mem; });
+  selected.forEach(function(h) {
+    _bulkSel[h].mem = !allOn;
+    var cb = el('exc-mem-' + h);
+    if (cb) cb.checked = !allOn;
+  });
+  _execUpdateSelCounter();
+}
+
+function execBulkToggleDisk() {
+  var selected = Object.keys(_bulkSel).filter(function(h) { return _bulkSel[h].sel; });
+  if (selected.length === 0) return;
+  var allOn = selected.every(function(h) { return _bulkSel[h].disk; });
+  selected.forEach(function(h) {
+    _bulkSel[h].disk = !allOn;
+    var cb = el('exc-dsk-' + h);
+    if (cb) cb.checked = !allOn;
+  });
+  _execUpdateSelCounter();
+}
+
+function _execUpdateSelCounter() {
+  var selHosts = 0, memJobs = 0, diskJobs = 0;
+  Object.keys(_bulkSel).forEach(function(h) {
+    var bs = _bulkSel[h];
+    if (bs.sel) {
+      selHosts++;
+      if (bs.mem) memJobs++;
+      if (bs.disk) diskJobs++;
+    }
+  });
+  var counter = el('exec-sel-counter');
+  if (counter) {
+    if (selHosts > 0) {
+      counter.style.display = '';
+      counter.textContent = selHosts + ' host' + (selHosts === 1 ? '' : 's') + ' selected \u2014 ' +
+        memJobs + ' memory job' + (memJobs === 1 ? '' : 's') + ', ' +
+        diskJobs + ' disk job' + (diskJobs === 1 ? '' : 's');
+    } else {
+      counter.style.display = 'none';
+    }
+  }
+  var qBtn = el('exec-add-queue-btn');
+  if (qBtn) qBtn.disabled = (memJobs + diskJobs === 0);
+  // Update Select All indeterminate state
+  var selAll = el('exc-sel-all');
+  if (selAll) {
+    var hosts = Object.keys(_bulkSel);
+    var nSel = hosts.filter(function(h) { return _bulkSel[h].sel; }).length;
+    if (nSel === 0) {
+      selAll.checked = false; selAll.indeterminate = false;
+    } else if (nSel === hosts.length) {
+      selAll.checked = true;  selAll.indeterminate = false;
+    } else {
+      selAll.checked = false; selAll.indeterminate = true;
+    }
+  }
+}
+
+// ── QUEUE PREVIEW MODAL ───────────────────────────────────────────────────────
+
+function _execEnsureQueueModal() {
+  if (document.getElementById('queue-modal')) return;
+  var backdrop = document.createElement('div');
+  backdrop.id = 'queue-modal-backdrop';
+  backdrop.addEventListener('click', function(e) {
+    if (e.target === backdrop) _closeQueueModal();
+  });
+  document.body.appendChild(backdrop);
+  var modal = document.createElement('div');
+  modal.id = 'queue-modal';
+  modal.innerHTML =
+    '<div class="qm-header">' +
+      '<span class="qm-title" id="qm-title">Queue Preview</span>' +
+      '<button class="qm-close" onclick="_closeQueueModal()">\u00d7</button>' +
+    '</div>' +
+    '<div class="qm-body" id="qm-body"></div>' +
+    '<div class="qm-actions" id="qm-actions"></div>';
+  document.body.appendChild(modal);
+}
+
+function execBulkAddToQueue() {
+  _execEnsureQueueModal();
+  var jobs = [];
+  Object.keys(_bulkSel).sort().forEach(function(h) {
+    var bs = _bulkSel[h];
+    if (!bs.sel) return;
+    if (bs.mem)  jobs.push({ target: h, tool: 'memory' });
+    if (bs.disk) jobs.push({ target: h, tool: 'disk'   });
+  });
+  if (jobs.length === 0) return;
+  var hasMemJobs  = jobs.some(function(j) { return j.tool === 'memory'; });
+  var hasDiskJobs = jobs.some(function(j) { return j.tool === 'disk';   });
+  // Title
+  var titleEl = el('qm-title');
+  if (titleEl) titleEl.textContent = 'Queue Preview \u2014 ' + jobs.length + ' job' + (jobs.length === 1 ? '' : 's');
+  // Job list rows
+  var jobRows = jobs.map(function(j) {
+    return '<tr>' +
+      '<td>' + esc(j.target) + '</td>' +
+      '<td>' + (j.tool === 'memory' ? 'Memory' : 'Disk') + '</td>' +
+      '<td style="color:var(--green)">Ready</td>' +
+      '</tr>';
+  }).join('');
+  var memField = hasMemJobs
+    ? '<div class="qm-field"><label>Memory Binary</label>' +
+      '<input type="text" id="qm-mem-bin" value="' + esc(_detectedMemTool) + '" placeholder="C:\\DFIRLab\\tools\\winpmem.exe"></div>'
+    : '';
+  var diskField = hasDiskJobs
+    ? '<div class="qm-field"><label>Disk Binary</label>' +
+      '<input type="text" id="qm-disk-bin" value="' + esc(_detectedDiskTool) + '" placeholder="C:\\DFIRLab\\tools\\DumpIt.exe"></div>'
+    : '';
+  var firstBinName = hasMemJobs
+    ? _detectedMemTool.split('\\').pop()
+    : _detectedDiskTool.split('\\').pop();
+  var remoteDestDefault = 'C:\\Windows\\Temp\\' + (firstBinName || 'tool.exe');
+  var body = el('qm-body');
+  if (body) body.innerHTML =
+    '<div class="qm-job-list">' +
+      '<table class="qm-job-tbl">' +
+        '<thead><tr><th>Host</th><th>Collection Type</th><th>Status</th></tr></thead>' +
+        '<tbody>' + jobRows + '</tbody>' +
+      '</table>' +
+    '</div>' +
+    '<div class="qm-section-title">Shared Settings</div>' +
+    memField + diskField +
+    '<div class="qm-field"><label>Remote Destination</label>' +
+      '<input type="text" id="qm-remote-dest" value="' + esc(remoteDestDefault) + '" placeholder="C:\\Windows\\Temp\\tool.exe"></div>' +
+    '<div class="qm-field"><label>Arguments</label>' +
+      '<input type="text" id="qm-args" placeholder="optional arguments"></div>' +
+    '<div class="qm-field"><label>Method</label>' +
+      '<select id="qm-method"><option value="Auto">Auto</option><option value="WinRM">WinRM</option><option value="WMI">WMI</option></select></div>' +
+    '<div class="qm-field"><label>Alive Check (s)</label>' +
+      '<input type="number" id="qm-alive" value="10" min="1" max="3600" style="width:80px"></div>';
+  var actions = el('qm-actions');
+  if (actions) actions.innerHTML =
+    '<button onclick="_closeQueueModal()">Cancel</button>' +
+    '<button class="qm-btn-launch" onclick="_queueModalLaunch()">Launch All &#8594;</button>';
+  window._queueJobs = jobs;
+  var bk = el('queue-modal-backdrop');
+  var md = el('queue-modal');
+  if (bk) bk.classList.add('show');
+  if (md) md.classList.add('show');
+}
+
+function _closeQueueModal() {
+  var bk = el('queue-modal-backdrop');
+  var md = el('queue-modal');
+  if (bk) bk.classList.remove('show');
+  if (md) md.classList.remove('show');
+}
+
+function _queueModalLaunch() {
+  var jobs      = window._queueJobs || [];
+  var memBin    = (el('qm-mem-bin')      || {}).value || '';
+  var diskBin   = (el('qm-disk-bin')     || {}).value || '';
+  var remoteDest= (el('qm-remote-dest')  || {}).value || '';
+  var args      = (el('qm-args')         || {}).value || '';
+  var method    = (el('qm-method')       || {}).value || 'Auto';
+  var alive     = parseInt((el('qm-alive') || {}).value || '10', 10) || 10;
+  var payload = jobs.map(function(j) {
+    return {
+      target:     j.target,
+      tool:       j.tool,
+      binary:     j.tool === 'memory' ? memBin : diskBin,
+      remoteDest: remoteDest,
+      arguments:  args,
+      method:     method,
+      aliveCheck: alive
+    };
+  });
+  var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
+  var uri = 'quicker://batch?jobs=' + encoded;
+  console.log('[Quicker] Batch URI:', uri);
+  window.location.href = uri;
+  // Show success
+  var body = el('qm-body');
+  if (body) {
+    var ok = document.createElement('div');
+    ok.className = 'qm-success';
+    ok.innerHTML = '<strong>Jobs sent to Quicker Launcher</strong><br>QuickerLaunch.ps1 should open shortly.';
+    body.insertBefore(ok, body.firstChild);
+  }
+  var actions = el('qm-actions');
+  if (actions) actions.innerHTML = '<button onclick="_closeQueueModal()">Close</button>';
 }
 
 function renderFleetExecBanners() {
