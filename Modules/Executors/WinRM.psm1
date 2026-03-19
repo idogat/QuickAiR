@@ -14,7 +14,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.7                    ║
+# ║  Version   : 1.8                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -333,7 +333,8 @@ function Invoke-Executor {
 
         } else {
             # Step 4b — Normal launch
-            $launchPID = $null
+            $launchPID     = $null
+            $earlyExitCode = $null
             try {
                 $launchResult = Invoke-OnTarget -ScriptBlock {
                     param($exePath, $exeArgs)
@@ -343,10 +344,21 @@ function Invoke-Executor {
                     $psi.UseShellExecute = $true
                     $proc = [System.Diagnostics.Process]::Start($psi)
                     if (-not $proc) { throw "Process.Start returned null" }
-                    return $proc.Id
+                    $pid_ = $proc.Id
+                    $exited = $proc.WaitForExit(1000)
+                    if ($exited) {
+                        return [PSCustomObject]@{ PID = $pid_; ExitCode = $proc.ExitCode }
+                    }
+                    return [PSCustomObject]@{ PID = $pid_; ExitCode = $null }
                 } -ArgumentList @($RemoteDestPath, $Arguments)
 
-                $launchPID = [int]$launchResult
+                if ($launchResult -is [int] -or $launchResult -is [long]) {
+                    $launchPID     = [int]$launchResult
+                    $earlyExitCode = $null
+                } else {
+                    $launchPID     = [int]$launchResult.PID
+                    $earlyExitCode = $launchResult.ExitCode
+                }
             } catch {
                 Add-State "LAUNCH_FAILED" $_.Exception.Message
                 $result.Error = $_.Exception.Message
@@ -372,7 +384,12 @@ function Invoke-Executor {
             if ($stillAlive) {
                 Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
             } else {
-                Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
+                $failDetail = if ($null -ne $earlyExitCode) {
+                    "Exited early, code: $earlyExitCode"
+                } else {
+                    "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
+                }
+                Add-State "LAUNCH_FAILED" $failDetail
                 $result.Error = "Process not found after alive check"
             }
         }

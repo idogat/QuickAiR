@@ -20,7 +20,7 @@
 # ║  Depends   : Executors\WinRM.psm1  ║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.2                    ║
+# ║  Version   : 1.3                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -39,7 +39,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.2"
+$EXECUTOR_VERSION = "1.3"
 
 #region --- Help ---
 if ($Help) {
@@ -240,4 +240,19 @@ $finalIcon = if ($result.FinalState -match 'FAILED') { "[x]" } else { "[v]" }
 $finalCol  = if ($result.FinalState -match 'FAILED') { "Red" } else { "Green" }
 Write-Ts "$finalIcon Final state: $($result.FinalState)" $finalCol
 Write-Ts "Result JSON: $jsonFile" "White"
+
+if ($result.FinalState -eq 'ALIVE') {
+    Write-Host ""
+    Write-Host "  [v] ALIVE -- tool running as PID $($result.PID)" -ForegroundColor Green
+    Write-Host "  Executor.ps1 complete." -ForegroundColor Green
+    Write-Host "  Tool continues running independently." -ForegroundColor Green
+} elseif ($result.FinalState -eq 'LAUNCH_FAILED') {
+    $lastDetail = if ($result.States -and $result.States.Count -gt 0) {
+        $result.States[-1].Detail
+    } else { '' }
+    Write-Host ""
+    Write-Host "  [x] Process exited before alive check." -ForegroundColor Red
+    if ($lastDetail) { Write-Ts $lastDetail "Red" }
+    Write-Ts "Check tool arguments and permissions." "Red"
+}
 #endregion

@@ -589,7 +589,7 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
     '<div class="qm-field"><label>Method</label>' +
       '<select id="qm-method"><option value="Auto">Auto</option><option value="WinRM">WinRM</option><option value="WMI">WMI</option></select></div>' +
     '<div class="qm-field"><label>Alive Check (s)</label>' +
-      '<input type="number" id="qm-alive" value="10" min="1" max="3600" style="width:80px"></div>';
+      '<input type="number" id="qm-alive" value="30" min="1" max="3600" style="width:80px"></div>';
 
   var actions = el('qm-actions');
   if (actions) actions.innerHTML =
@@ -615,7 +615,7 @@ function _queueModalLaunch() {
   var payload = jobs.map(function(j) {
     return {
       target:     j.target,
-      tool:       j.tool,
+      type:       j.tool === 'memory' ? 'Memory' : 'Disk',
       binary:     j.tool === 'memory' ? memBin : diskBin,
       remoteDest: remoteDest,
       arguments:  args,
