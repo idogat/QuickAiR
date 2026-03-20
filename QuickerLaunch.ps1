@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.2                                          ║
+# ║  Version    : 2.3                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -76,7 +76,8 @@ $script:Form           = $null
 $script:Grid           = $null
 $script:StatusLabel    = $null
 $script:SpinLabel      = $null
-$script:BtnClose       = $null
+$script:BtnClose           = $null
+$script:ShutdownComplete   = $false
 #endregion
 
 #region ── URI parsing ──────────────────────────────────────────
@@ -470,11 +471,6 @@ function Invoke-Schedule {
         Update-GridRow $j
     }
 
-    # Close button: only enabled when all jobs finished
-    if ($null -ne $script:BtnClose) {
-        $anyActive = @($snapshot | Where-Object { -not $_.IsDone })
-        $script:BtnClose.Enabled = ($anyActive.Count -eq 0)
-    }
 }
 #endregion
 
@@ -614,7 +610,6 @@ function Build-UI {
     $btnCancelAll = New-BottomBtn 'Cancel All'       146 '#6e2020'
     $btnClearDone = New-BottomBtn 'Clear Done'       284 '#1f4e2e'
     $btnClose     = New-BottomBtn 'Close'            422 '#21262d'
-    $btnClose.Enabled = $false
     $script:BtnClose  = $btnClose
 
     $btnCancelSel.Add_Click({
@@ -660,8 +655,12 @@ function Build-UI {
     })
 
     $btnClose.Add_Click({
-        $anyActive = @($script:Queue.Jobs | Where-Object { -not $_.IsDone })
-        if ($anyActive.Count -eq 0) { $form.Close() }
+        $anyRunning = @($script:Queue.Jobs | Where-Object { -not $_.IsDone })
+        if ($anyRunning.Count -gt 0) {
+            $script:StatusLabel.Text = "$($anyRunning.Count) job(s) still running. Cancel them first."
+        } else {
+            $form.Close()
+        }
     })
 
     $bottomPanel.Controls.AddRange(@($btnCancelSel, $btnCancelAll, $btnClearDone, $btnClose))
@@ -699,11 +698,45 @@ function Build-UI {
     $bridgeTimer.Start()
 
     $form.Add_FormClosing({
+        param($frmSender, $fce)
+        # If shutdown already completed, allow the close
+        if ($script:ShutdownComplete) { return }
+
+        # Block close if jobs still running
+        $anyRunning = @($script:Queue.Jobs | Where-Object { -not $_.IsDone })
+        if ($anyRunning.Count -gt 0) {
+            $fce.Cancel = $true
+            $script:StatusLabel.Text = "$($anyRunning.Count) job(s) still running. Cancel them first."
+            return
+        }
+
+        # Block OS close while we clean up
+        $fce.Cancel = $true
+
+        # 1. Stop timers
         $refreshTimer.Stop()
         $refreshTimer.Dispose()
         $bridgeTimer.Stop()
         $bridgeTimer.Dispose()
+
+        # 2. Stop bridge listener
         Stop-BridgeListener $script:Listener
+
+        # 3. Stop all running job runspaces
+        [System.Threading.Monitor]::Enter($script:Queue.Lock)
+        $snap = @($script:Queue.Jobs)
+        [System.Threading.Monitor]::Exit($script:Queue.Lock)
+        foreach ($j in $snap) {
+            if ($null -ne $j.PS_) {
+                try { $j.PS_.Stop() }    catch { }
+                try { $j.PS_.Dispose() } catch { }
+                $j.PS_ = $null
+            }
+        }
+
+        # 4. Allow close — re-trigger FormClosing with ShutdownComplete=$true
+        $script:ShutdownComplete = $true
+        $frmSender.Close()
     })
 
     return $form
