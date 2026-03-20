@@ -1,4 +1,4 @@
-// ── EXECUTE TAB ───────────────────────────────────────────────────────────────
+// ── EXECUTE TAB ─────────────────────────────────────────────── v1.1 (banner)─
 (function injectExecuteCSS() {
   var s = document.createElement('style');
   s.textContent = [
@@ -42,7 +42,8 @@
     '.fleet-err-banner a{color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap}',
     '.tab-badge{display:inline-block;background:var(--amber);color:#0d1117;font-size:10px;font-weight:bold;border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle;line-height:14px}',
     '.tab-badge.red{background:var(--red);color:#fff}',
-    '.qm-bin-wrap{display:flex;flex-direction:column;gap:4px}'
+    '.qm-bin-wrap{display:flex;flex-direction:column;gap:4px}',
+    '.exec-setup-banner{background:rgba(100,120,150,.08);border:1px solid var(--border);border-radius:4px;padding:7px 14px;margin-bottom:10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}'
   ].join('');
   document.head.appendChild(s);
 })();
@@ -188,6 +189,7 @@ function renderExecute() {
     : '';
 
   panel.innerHTML =
+    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickerProtocol.ps1</strong> once as Administrator.</div>' +
     '<div class="exec-section">' +
       '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\')">' +
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +
@@ -261,6 +263,10 @@ function renderExecute() {
   _execTabRemoteDestModified = false;
   _execEnsureQueueModal();
   _execUpdateSelCounter();
+  _loadToolsManifest(function(manifest) {
+    var banner = el('exec-setup-banner');
+    if (banner && manifest) banner.style.display = '';
+  });
 }
 
 function execTabToolTypeChange() {
@@ -632,7 +638,7 @@ function _queueModalLaunch() {
   if (body) {
     var ok = document.createElement('div');
     ok.className = 'qm-success';
-    ok.innerHTML = '<strong>Jobs sent to Quicker Launcher</strong><br>QuickerLaunch.ps1 should open shortly.';
+    ok.innerHTML = '<strong>quicker:// URI sent to Windows.</strong><br>If QuickerLaunch.ps1 does not open: Run <code>Register-QuickerProtocol.ps1</code> as Administrator first.';
     body.insertBefore(ok, body.firstChild);
   }
   var actions = el('qm-actions');

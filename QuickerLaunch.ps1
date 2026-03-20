@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
 # ║  Quicker — QuickerLaunch.ps1                               ║
 # ║  Persistent WinForms job manager.                          ║
