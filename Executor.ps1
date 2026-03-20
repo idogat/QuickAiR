@@ -20,7 +20,7 @@
 # ║  Depends   : Executors\WinRM.psm1  ║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.3                    ║
+# ║  Version   : 1.4                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -39,7 +39,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.3"
+$EXECUTOR_VERSION = "1.4"
 
 #region --- Help ---
 if ($Help) {

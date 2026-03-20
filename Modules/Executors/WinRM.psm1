@@ -14,7 +14,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.8                    ║
+# ║  Version   : 1.9                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -336,21 +336,39 @@ function Invoke-Executor {
             $launchPID     = $null
             $earlyExitCode = $null
             try {
-                $launchResult = Invoke-OnTarget -ScriptBlock {
-                    param($exePath, $exeArgs)
-                    $psi = New-Object System.Diagnostics.ProcessStartInfo
-                    $psi.FileName        = $exePath
-                    $psi.Arguments       = $exeArgs
-                    $psi.UseShellExecute = $true
-                    $proc = [System.Diagnostics.Process]::Start($psi)
-                    if (-not $proc) { throw "Process.Start returned null" }
-                    $pid_ = $proc.Id
-                    $exited = $proc.WaitForExit(1000)
-                    if ($exited) {
-                        return [PSCustomObject]@{ PID = $pid_; ExitCode = $proc.ExitCode }
-                    }
-                    return [PSCustomObject]@{ PID = $pid_; ExitCode = $null }
-                } -ArgumentList @($RemoteDestPath, $Arguments)
+                if ($isLocal) {
+                    # Local: Process.Start with UseShellExecute creates a detached process
+                    $launchResult = Invoke-OnTarget -ScriptBlock {
+                        param($exePath, $exeArgs)
+                        $psi = New-Object System.Diagnostics.ProcessStartInfo
+                        $psi.FileName        = $exePath
+                        $psi.Arguments       = $exeArgs
+                        $psi.UseShellExecute = $true
+                        $proc = [System.Diagnostics.Process]::Start($psi)
+                        if (-not $proc) { throw "Process.Start returned null" }
+                        $pid_ = $proc.Id
+                        $exited = $proc.WaitForExit(1000)
+                        if ($exited) {
+                            return [PSCustomObject]@{ PID = $pid_; ExitCode = $proc.ExitCode }
+                        }
+                        return [PSCustomObject]@{ PID = $pid_; ExitCode = $null }
+                    } -ArgumentList @($RemoteDestPath, $Arguments)
+                } else {
+                    # Remote: call Win32_Process::Create locally on the target via WinRM.
+                    # Launching via Invoke-Command ScriptBlock creates a child of wsmprovhost.exe;
+                    # that child is killed when the PSSession closes.
+                    # Win32_Process::Create (called locally on target) spawns under the WMI
+                    # service, which is independent of the WinRM session — process survives close.
+                    $launchResult = Invoke-Command -Session $session -ScriptBlock {
+                        param($exePath, $exeArgs)
+                        $cmdLine = if ($exeArgs) { "`"$exePath`" $exeArgs" } else { "`"$exePath`"" }
+                        $wmiResult = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $cmdLine -ErrorAction Stop
+                        if ($wmiResult.ReturnValue -ne 0) {
+                            throw "Win32_Process::Create failed with return value $($wmiResult.ReturnValue)"
+                        }
+                        return [PSCustomObject]@{ PID = [int]$wmiResult.ProcessId; ExitCode = $null }
+                    } -ArgumentList @($RemoteDestPath, $Arguments) -ErrorAction Stop
+                }
 
                 if ($launchResult -is [int] -or $launchResult -is [long]) {
                     $launchPID     = [int]$launchResult
