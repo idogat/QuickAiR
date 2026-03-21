@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.3                                          ║
+# ║  Version    : 2.5                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -29,6 +29,7 @@ param(
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
+
 
 #region ── Assemblies ───────────────────────────────────────────
 Add-Type -AssemblyName System.Windows.Forms
@@ -76,8 +77,10 @@ $script:Form           = $null
 $script:Grid           = $null
 $script:StatusLabel    = $null
 $script:SpinLabel      = $null
-$script:BtnClose           = $null
-$script:ShutdownComplete   = $false
+$script:BtnClose        = $null
+$script:RefreshTimer    = $null
+$script:BridgeTimer     = $null
+$script:ScheduleRunning = $false   # re-entry guard for Invoke-Schedule
 #endregion
 
 #region ── URI parsing ──────────────────────────────────────────
@@ -138,8 +141,14 @@ function Parse-QuickerURI {
         }
 
         # type / tool — must be Memory or Disk (case-insensitive)
+        # Accept both "type" (browser payload) and "tool" (test/legacy callers)
         if ($ok) {
-            $typ = if ($raw.PSObject.Properties['type']) { [string]$raw.type } else { '' }
+            $typ = if ($raw.PSObject.Properties['type']) { [string]$raw.type }
+                   elseif ($raw.PSObject.Properties['tool']) { [string]$raw.tool }
+                   else { '' }
+            # Normalize lowercase values
+            if ($typ -eq 'memory') { $typ = 'Memory' }
+            if ($typ -eq 'disk')   { $typ = 'Disk' }
             if ($typ -notmatch '^(Memory|Disk)$') {
                 $ok = $false; $reason = "type must be Memory or Disk, got: '$typ'"
             }
@@ -440,6 +449,12 @@ function Update-GridRow {
 
 #region ── Scheduler (UI thread, 500ms) ─────────────────────────
 function Invoke-Schedule {
+    # Guard: ShowDialog() starts a nested message loop; without this the timer
+    # fires again while the credential dialog is open, creating a dialog storm.
+    if ($script:ScheduleRunning) { return }
+    $script:ScheduleRunning = $true
+    try {
+
     $summary = Get-QueueSummary -Queue $script:Queue
     $script:StatusLabel.Text = "Running: $($summary.Running)  |  Queued: $($summary.Queued)  |  Done: $($summary.Done)  |  Failed: $($summary.Failed)  |  Max Concurrent:"
 
@@ -471,6 +486,7 @@ function Invoke-Schedule {
         Update-GridRow $j
     }
 
+    } finally { $script:ScheduleRunning = $false }
 }
 #endregion
 
@@ -672,20 +688,20 @@ function Build-UI {
     $form.Controls.Add($statusPanel)
 
     # ── Timers ────────────────────────────────────────────────
-    $refreshTimer          = [System.Windows.Forms.Timer]::new()
-    $refreshTimer.Interval = $REFRESH_MS
-    $refreshTimer.Add_Tick({
+    $script:RefreshTimer          = [System.Windows.Forms.Timer]::new()
+    $script:RefreshTimer.Interval = $REFRESH_MS
+    $script:RefreshTimer.Add_Tick({
         try { Invoke-Schedule }
         catch {
             $msg = "$(([DateTime]::UtcNow.ToString('o'))) REFRESH: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
             [System.IO.File]::AppendAllText('C:\DFIRLab\launcher_error.log', $msg)
         }
     })
-    $refreshTimer.Start()
+    $script:RefreshTimer.Start()
 
-    $bridgeTimer          = [System.Windows.Forms.Timer]::new()
-    $bridgeTimer.Interval = $BRIDGE_MS
-    $bridgeTimer.Add_Tick({
+    $script:BridgeTimer          = [System.Windows.Forms.Timer]::new()
+    $script:BridgeTimer.Interval = $BRIDGE_MS
+    $script:BridgeTimer.Add_Tick({
         try {
             $newJobs = Read-PendingJobs -Listener $script:Listener
             if ($newJobs -and $newJobs.Count -gt 0) { Add-Jobs $newJobs }
@@ -695,12 +711,10 @@ function Build-UI {
             [System.IO.File]::AppendAllText('C:\DFIRLab\launcher_error.log', $msg)
         }
     })
-    $bridgeTimer.Start()
+    $script:BridgeTimer.Start()
 
     $form.Add_FormClosing({
         param($frmSender, $fce)
-        # If shutdown already completed, allow the close
-        if ($script:ShutdownComplete) { return }
 
         # Block close if jobs still running
         $anyRunning = @($script:Queue.Jobs | Where-Object { -not $_.IsDone })
@@ -710,33 +724,29 @@ function Build-UI {
             return
         }
 
-        # Block OS close while we clean up
-        $fce.Cancel = $true
+        # No running jobs — allow close; do lightweight cleanup then return.
+        # Do NOT call Stop-BridgeListener here: Runspace.Close() blocks the UI
+        # thread, preventing the form from actually closing. Signal stop only;
+        # full cleanup happens after Application::Run returns in the finally block.
 
-        # 1. Stop timers
-        $refreshTimer.Stop()
-        $refreshTimer.Dispose()
-        $bridgeTimer.Stop()
-        $bridgeTimer.Dispose()
+        # 1. Stop timers (script-scoped so accessible in this handler)
+        try { $script:RefreshTimer.Stop();  $script:RefreshTimer.Dispose() } catch { }
+        try { $script:BridgeTimer.Stop();   $script:BridgeTimer.Dispose()  } catch { }
 
-        # 2. Stop bridge listener
-        Stop-BridgeListener $script:Listener
+        # 2. Signal bridge listener to stop (non-blocking)
+        try { if ($null -ne $script:Listener) { $script:Listener.StopFlag.Value = $true } } catch { }
 
-        # 3. Stop all running job runspaces
+        # 3. Signal all running job runspaces to stop (non-blocking)
         [System.Threading.Monitor]::Enter($script:Queue.Lock)
         $snap = @($script:Queue.Jobs)
         [System.Threading.Monitor]::Exit($script:Queue.Lock)
         foreach ($j in $snap) {
             if ($null -ne $j.PS_) {
-                try { $j.PS_.Stop() }    catch { }
-                try { $j.PS_.Dispose() } catch { }
-                $j.PS_ = $null
+                try { $j.PS_.Stop() } catch { }
             }
         }
 
-        # 4. Allow close — re-trigger FormClosing with ShutdownComplete=$true
-        $script:ShutdownComplete = $true
-        $frmSender.Close()
+        # Cancel stays $false — form closes after this handler returns
     })
 
     return $form
@@ -746,7 +756,7 @@ function Build-UI {
 #region ── Entry point ──────────────────────────────────────────
 
 # Parse URI
-$rawJobs = Parse-QuickerURI $URI
+$rawJobs = @(Parse-QuickerURI $URI)
 
 # Single-instance check via named mutex
 $mutex    = [System.Threading.Mutex]::new($false, $MUTEX_NAME)
@@ -755,8 +765,8 @@ try { $acquired = $mutex.WaitOne(100) } catch { $acquired = $false }
 
 if (-not $acquired) {
     # Another instance is running — hand off jobs via bridge file and exit
-    if ($rawJobs -and $rawJobs.Count -gt 0) {
-        Send-JobBatch -BridgeDir $BRIDGE_DIR -Jobs @($rawJobs)
+    if ($rawJobs.Count -gt 0) {
+        Send-JobBatch -BridgeDir $BRIDGE_DIR -Jobs $rawJobs
     }
     $mutex.Dispose()
     exit 0
@@ -789,6 +799,17 @@ try {
     [System.Windows.Forms.Application]::Run($form)
 }
 finally {
+    # Full listener/runspace cleanup after UI message loop exits
+    try { Stop-BridgeListener $script:Listener } catch { }
+    [System.Threading.Monitor]::Enter($script:Queue.Lock)
+    $finalSnap = @($script:Queue.Jobs)
+    [System.Threading.Monitor]::Exit($script:Queue.Lock)
+    foreach ($j in $finalSnap) {
+        if ($null -ne $j.PS_) {
+            try { $j.PS_.Dispose() } catch { }
+            $j.PS_ = $null
+        }
+    }
     try { $mutex.ReleaseMutex() } catch { }
     $mutex.Dispose()
 }

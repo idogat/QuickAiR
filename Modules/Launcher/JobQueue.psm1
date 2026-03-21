@@ -9,7 +9,7 @@
 # ║              Update-JobStatus, Get-QueueSummary            ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.0                                          ║
+# ║  Version   : 1.1                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -70,7 +70,10 @@ function New-JobEntry {
     return [PSCustomObject]@{
         JobId         = [guid]::NewGuid().ToString()
         RowNumber     = $Queue.JobCounter
-        Type          = if ($raw.type)       { [string]$raw.type }       else { 'Memory' }
+        Type          = if ($raw.type)       { [string]$raw.type }
+                       elseif ($raw.tool -eq 'disk')   { 'Disk' }
+                       elseif ($raw.tool -eq 'memory') { 'Memory' }
+                       else { 'Memory' }
         Target        = ([string]$raw.target).Trim()
         Binary        = if ($raw.binary)     { [string]$raw.binary }     else { '' }
         RemoteDest    = if ($raw.remoteDest) { [string]$raw.remoteDest } else { '' }
@@ -96,7 +99,10 @@ function New-FailedEntry {
     return [PSCustomObject]@{
         JobId         = [guid]::NewGuid().ToString()
         RowNumber     = $Queue.JobCounter
-        Type          = if ($raw.type)   { [string]$raw.type }   else { '?' }
+        Type          = if ($raw.type)             { [string]$raw.type }
+                       elseif ($raw.tool -eq 'disk')   { 'Disk' }
+                       elseif ($raw.tool -eq 'memory') { 'Memory' }
+                       else { '?' }
         Target        = if ($raw.target) { [string]$raw.target } else { '?' }
         Binary        = ''
         RemoteDest    = ''
