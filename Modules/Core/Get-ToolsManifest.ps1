@@ -7,14 +7,15 @@
 # -------------------------------------------
 # Exports   : n/a (standalone script)
 # Inputs    : none
-# Output    : C:\DFIRLab\tools\tools.json
+# Output    : <repo-root>\tools.json + C:\DFIRLab\tools\tools.json
 # Depends   : none
 # PS compat : 5.1 (analyst machine)
-# Version   : 1.0
+# Version   : 1.1
 # ===========================================
 
 $toolsDir = 'C:\DFIRLab\tools'
-$outFile  = Join-Path $toolsDir 'tools.json'
+$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$outFile  = Join-Path $repoRoot 'tools.json'
 
 if (-not (Test-Path $toolsDir -PathType Container)) {
     Write-Verbose "Get-ToolsManifest: tools folder not found ($toolsDir) - skipping"
@@ -61,4 +62,7 @@ $manifest = [ordered]@{
 
 $json = $manifest | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText($outFile, $json, [System.Text.Encoding]::UTF8)
+# Also write to tools dir for backward compat
+$toolsCopy = Join-Path $toolsDir 'tools.json'
+[System.IO.File]::WriteAllText($toolsCopy, $json, [System.Text.Encoding]::UTF8)
 Write-Host "Get-ToolsManifest: wrote $($tools.Count) tool(s) to $outFile"

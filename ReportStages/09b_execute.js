@@ -55,26 +55,11 @@ var _toolsManifestLoaded = false;  // true once fetch attempt completed
 var _qmRemoteDestModified = false; // tracks manual edits to qm-remote-dest
 
 function _loadToolsManifest(callback) {
-  if (_toolsManifestLoaded) { callback(_toolsManifest); return; }
-  try {
-    fetch('file:///C:/DFIRLab/tools/tools.json')
-      .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-      })
-      .then(function(data) {
-        _toolsManifest = data;
-        _toolsManifestLoaded = true;
-        callback(_toolsManifest);
-      })
-      .catch(function() {
-        _toolsManifestLoaded = true;
-        callback(null);
-      });
-  } catch(e) {
+  if (!_toolsManifestLoaded) {
+    _toolsManifest = (typeof _embeddedToolsManifest !== 'undefined') ? _embeddedToolsManifest : null;
     _toolsManifestLoaded = true;
-    callback(null);
   }
+  callback(_toolsManifest);
 }
 
 var _execTabToolDefaults = {
@@ -506,7 +491,8 @@ function _buildBinField(type, label, manifest) {
     });
   }
   if (relevant.length > 0) {
-    var opts = relevant.map(function(t) {
+    var opts = '<option value="" disabled selected>-- Select tool --</option>';
+    opts += relevant.map(function(t) {
       return '<option value="' + esc(t.path) + '">' + esc(t.filename) + ' (' + _toolCatLabel(t.category) + ')</option>';
     }).join('');
     opts += '<option value="__browse__">Browse\u2026</option>';
@@ -519,7 +505,7 @@ function _buildBinField(type, label, manifest) {
   }
   // Fallback: plain text input
   return '<div class="qm-field"><label>' + label + '</label>' +
-    '<input type="text" id="qm-' + type + '-bin" placeholder="Place tools in C:\\DFIRLab\\tools\\"></div>';
+    '<input type="text" id="qm-' + type + '-bin" placeholder="Run Get-ToolsManifest.ps1 to populate tool list"></div>';
 }
 
 // Returns the effective binary path for the given type ('mem' or 'disk')

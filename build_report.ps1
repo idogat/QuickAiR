@@ -13,6 +13,17 @@ $output = ""
 foreach ($s in $stages) {
     $output += [System.IO.File]::ReadAllText($s.FullName, [System.Text.Encoding]::UTF8)
 }
+#region --- Embed tools.json as JS variable ---
+$toolsJsonPath = Join-Path $PSScriptRoot "tools.json"
+if (Test-Path $toolsJsonPath) {
+    $toolsJson = [System.IO.File]::ReadAllText($toolsJsonPath, [System.Text.Encoding]::UTF8).Trim()
+    $embed = "`nvar _embeddedToolsManifest = $toolsJson;`n"
+} else {
+    $embed = "`nvar _embeddedToolsManifest = null;`n"
+}
+$output = $output.Replace('<script>', "<script>$embed")
+#endregion
+
 $outPath = Join-Path $PSScriptRoot "Report.html"
 [System.IO.File]::WriteAllText($outPath, $output, [System.Text.Encoding]::UTF8)
 $size = (Get-Item $outPath).Length
