@@ -32,7 +32,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01-PLAN.md — Write complete docs/COVERAGE-MATRIX.md with all collector sections, fallback chains, field fidelity tables, and coverage gaps
-- [ ] 01-02-PLAN.md — Human verification of document accuracy against collector source files
+- [x] 01-02-PLAN.md — Human verification of document accuracy against collector source files
 
 ### Phase 2: Operational Runbook
 **Goal**: An analyst new to the toolkit can go from zero to successfully collecting data from a remote host, and can diagnose and resolve common failures without tribal knowledge
