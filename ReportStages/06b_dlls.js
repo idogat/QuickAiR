@@ -1,3 +1,19 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 06b_dlls.js               ║
+// ║  DLLs tab render, virtual scroll,    ║
+// ║  row expand, signature display,      ║
+// ║  SHA256 display, private path        ║
+// ║  highlighting                        ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.DLLs           ║
+// ║  Writes   : dllFilters, dllSort       ║
+// ║  Functions: renderDlls,               ║
+// ║    applyDllFilters, renderDllRow,     ║
+// ║    onDllRowClick, dllGotoProcess      ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── DLLs TAB ──────────────────────────────────────────────────────────────────
 
 // Inject row-private style

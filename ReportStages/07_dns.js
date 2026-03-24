@@ -1,3 +1,20 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 07_dns.js                 ║
+// ║  DNS tab render, virtual scroll,     ║
+// ║  correlation summary, fallback       ║
+// ║  banner, cross-reference clicks      ║
+// ║  to Processes tab                    ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.Network.dns,   ║
+// ║             activeHost.Network.tcp    ║
+// ║  Writes   : dnsFilters, dnsSort       ║
+// ║  Functions: renderDns,                ║
+// ║    applyDnsFilters, renderDnsRow,     ║
+// ║    onDnsRowClick                      ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
 let dnsFilters = { search: '' };
 let dnsSort    = { col: 'Entry', dir: 1 };

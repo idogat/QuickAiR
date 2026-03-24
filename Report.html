@@ -1,4 +1,16 @@
-﻿<!DOCTYPE html>
+﻿<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Quicker — 01_head.html              ║ -->
+<!-- ║  CSS variables, dark theme, table     ║ -->
+<!-- ║  styles, modal styles, resize         ║ -->
+<!-- ║  handles, highlight animations        ║ -->
+<!-- ╠══════════════════════════════════════╣ -->
+<!-- ║  Reads    : nothing                   ║ -->
+<!-- ║  Writes   : CSS custom properties     ║ -->
+<!-- ║  Functions: none (HTML/CSS only)      ║ -->
+<!-- ║  Depends  : none                      ║ -->
+<!-- ║  Version  : 3.39                      ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -241,6 +253,18 @@ input::placeholder{color:var(--muted)}
 
 </style>
 </head>
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Quicker — 02_shell.html             ║ -->
+<!-- ║  Body structure, top bar, tab bar,   ║ -->
+<!-- ║  tab containers, modal placeholder,  ║ -->
+<!-- ║  exec modal. Opens script tag.       ║ -->
+<!-- ╠══════════════════════════════════════╣ -->
+<!-- ║  Reads    : nothing                   ║ -->
+<!-- ║  Writes   : DOM structure             ║ -->
+<!-- ║  Functions: none (HTML only)          ║ -->
+<!-- ║  Depends  : 01_head.html              ║ -->
+<!-- ║  Version  : 3.39                      ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
 
 <body>
 <div id="drop-zone">Drop JSON files here</div>
@@ -359,6 +383,32 @@ var _toolDefaults = {
   }
 };
 
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 03_core.js                ║
+// ║  Global state, file loader, chunked  ║
+// ║  FileReader, tab router, virtual     ║
+// ║  scroll engine, sort engine, resize  ║
+// ║  handles, global search, drag-drop,  ║
+// ║  host management                     ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : JSON files via FileReader ║
+// ║  Writes   : fleetIndex, activeHost,   ║
+// ║             userIndex, sortState,     ║
+// ║             colWidths                 ║
+// ║  Functions: el, esc, str, triggerLoad,║
+// ║    handleFiles, loadJsonFile,         ║
+// ║    switchHost, removeHost, activeData,║
+// ║    switchTab, renderActiveTab,        ║
+// ║    createVS, sortTable, applySortTo-  ║
+// ║    Rows, addResizeHandles, updateBad- ║
+// ║    ges, updateMeta, onGlobalSearch,   ║
+// ║    buildUserIndex, rebuildUserIndex,  ║
+// ║    navigateToRow, gotoProcess,        ║
+// ║    gotoNetwork, getAdapterAliases,    ║
+// ║    ifaceColor, getProcName            ║
+// ║  Depends  : 02_shell.html (DOM)       ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
 const ANALYZER_VERSION = "3.6";
@@ -1169,6 +1219,22 @@ window.addEventListener('load', () => {
   }, 100);
 });
 
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 04_fleet.js               ║
+// ║  Fleet tab render, host status       ║
+// ║  table, manifest panel, selection    ║
+// ║  badges                              ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : fleetIndex                ║
+// ║  Writes   : nothing (read-only)       ║
+// ║  Functions: renderFleet,              ║
+// ║    renderManifestPanel, fleetSortBy,  ║
+// ║    fleetStartRemove, fleetConfirm-    ║
+// ║    Remove, fleetCancelRemove          ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
 let fleetSort = { col: 'hostname', dir: 1 };
 
@@ -1392,6 +1458,25 @@ function fleetSortBy(col) {
   if (fleetSort.col === col) { fleetSort.dir *= -1; } else { fleetSort.col = col; fleetSort.dir = 1; }
   renderFleet();
 }
+
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 05_processes.js           ║
+// ║  Processes tab render, virtual       ║
+// ║  scroll, row expand, inline network  ║
+// ║  detail, DLL count display           ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.Processes,     ║
+// ║             activeHost.DLLs           ║
+// ║  Writes   : procFilters, procSort     ║
+// ║  Functions: renderProcesses,          ║
+// ║    applyProcFilters, renderProcRow,   ║
+// ║    onProcRowClick, gotoProcessPid,    ║
+// ║    gotoNetworkPid, gotoNetworkIp,     ║
+// ║    gotoProcessDlls, renderSignedIcon, ║
+// ║    fmtBytes                           ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
 let procFilters = { search: '' };
@@ -1639,6 +1724,24 @@ function fmtBytes(b) {
   return b+' B';
 }
 
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 06_network.js             ║
+// ║  Network tab render, virtual scroll, ║
+// ║  row expand, remote IP summary       ║
+// ║  panel, interface color coding       ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.Network.tcp,   ║
+// ║             activeHost.Network.dns    ║
+// ║  Writes   : netFilters, netSort       ║
+// ║  Functions: renderNetwork,            ║
+// ║    applyNetFilters, renderNetRow,     ║
+// ║    onNetRowClick, buildIpSummary,     ║
+// ║    gotoProcessPid, highlightNetwork-  ║
+// ║    Ip, highlightNetworkPid            ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── NETWORK TAB ───────────────────────────────────────────────────────────────
 let netFilters = { search: '', state: '', iface: '' };
 let netSort    = { col: 'State', dir: 1 };
@@ -1873,6 +1976,22 @@ function highlightNetworkPid(pid) {
   applyNetFilters();
 }
 
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 06b_dlls.js               ║
+// ║  DLLs tab render, virtual scroll,    ║
+// ║  row expand, signature display,      ║
+// ║  SHA256 display, private path        ║
+// ║  highlighting                        ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.DLLs           ║
+// ║  Writes   : dllFilters, dllSort       ║
+// ║  Functions: renderDlls,               ║
+// ║    applyDllFilters, renderDllRow,     ║
+// ║    onDllRowClick, dllGotoProcess      ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── DLLs TAB ──────────────────────────────────────────────────────────────────
 
 // Inject row-private style
@@ -2064,6 +2183,23 @@ function dllSortBy(col) {
 }
 
 function dllGotoProcess(pid) { navigateToRow('processes', 'ProcessId', pid); }
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 07_dns.js                 ║
+// ║  DNS tab render, virtual scroll,     ║
+// ║  correlation summary, fallback       ║
+// ║  banner, cross-reference clicks      ║
+// ║  to Processes tab                    ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.Network.dns,   ║
+// ║             activeHost.Network.tcp    ║
+// ║  Writes   : dnsFilters, dnsSort       ║
+// ║  Functions: renderDns,                ║
+// ║    applyDnsFilters, renderDnsRow,     ║
+// ║    onDnsRowClick                      ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
 let dnsFilters = { search: '' };
 let dnsSort    = { col: 'Entry', dir: 1 };
@@ -2208,11 +2344,46 @@ function dnsSortBy(col) {
   applyDnsFilters();
 }
 
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 08_manifest.js            ║
+// ║  Manifest panel init, placeholder    ║
+// ║  auto-display on load                ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : DOM #placeholder          ║
+// ║  Writes   : placeholder visibility    ║
+// ║  Functions: init (IIFE)               ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // Initialize: auto-open file picker + show placeholder
 (function init() {
   const ph = document.getElementById('placeholder');
   if (ph) ph.classList.add('show');
 })();
+
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 09_users.js               ║
+// ║  Users tab render, cross-host user   ║
+// ║  correlation by SID, per-user        ║
+// ║  expandable machine list, DC data    ║
+// ║  enrichment, first-login confidence  ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : window.userIndex,         ║
+// ║             activeHost.Users          ║
+// ║  Writes   : usersData, usersSearch,   ║
+// ║             usersTypeFilter,          ║
+// ║             usersConfFilter           ║
+// ║  Functions: renderUsers, renderUser-  ║
+// ║    Row, onUserRowClick, buildUser-    ║
+// ║    Expand, usersSortRows, usersApply- ║
+// ║    Filters, fmtUTC, confBadge,       ║
+// ║    acctTypeBadge, usersGetFirstLogon, ║
+// ║    usersGetLastLogon, usersGetBest-   ║
+// ║    Conf                               ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
 // Unified table — one row per unique SID, cross-host correlation via userIndex.
@@ -2593,6 +2764,28 @@ function buildUserExpand(u) {
   html += '</div>';
   return html;
 }
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 09b_execute.js            ║
+// ║  Execute tab, host status panel      ║
+// ║  with memory/disk checkboxes, queue  ║
+// ║  preview dialog, tool dropdown from  ║
+// ║  tools.json, quicker:// URI gen,     ║
+// ║  delayed execution                   ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : fleetIndex, tools.json    ║
+// ║  Writes   : _bulkSel, _toolsManifest ║
+// ║  Functions: renderExecute, execBulk-  ║
+// ║    AddToQueue, execBulkMemCheck,      ║
+// ║    execBulkDiskCheck, execBulkToggle- ║
+// ║    Mem, execBulkToggleDisk, execTab-  ║
+// ║    Copy, execTabLaunch, execTabTool-  ║
+// ║    TypeChange, updateExecuteBadge,    ║
+// ║    renderFleetExecBanners,            ║
+// ║    execToggleSection                  ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
 (function injectExecuteCSS() {
   var s = document.createElement('style');
@@ -3333,6 +3526,16 @@ function renderFleetExecBanners() {
   }).join('');
   wrap.innerHTML = banners;
 }
+<!-- ╔══════════════════════════════════════╗ -->
+<!-- ║  Quicker — 10_close.html             ║ -->
+<!-- ║  Closes script tag, body, html       ║ -->
+<!-- ╠══════════════════════════════════════╣ -->
+<!-- ║  Reads    : nothing                   ║ -->
+<!-- ║  Writes   : nothing                   ║ -->
+<!-- ║  Functions: none                      ║ -->
+<!-- ║  Depends  : all prior stages          ║ -->
+<!-- ║  Version  : 3.39                      ║ -->
+<!-- ╚══════════════════════════════════════╝ -->
 </script>
 </body>
 </html>

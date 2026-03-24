@@ -1,3 +1,21 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 06_network.js             ║
+// ║  Network tab render, virtual scroll, ║
+// ║  row expand, remote IP summary       ║
+// ║  panel, interface color coding       ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.Network.tcp,   ║
+// ║             activeHost.Network.dns    ║
+// ║  Writes   : netFilters, netSort       ║
+// ║  Functions: renderNetwork,            ║
+// ║    applyNetFilters, renderNetRow,     ║
+// ║    onNetRowClick, buildIpSummary,     ║
+// ║    gotoProcessPid, highlightNetwork-  ║
+// ║    Ip, highlightNetworkPid            ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── NETWORK TAB ───────────────────────────────────────────────────────────────
 let netFilters = { search: '', state: '', iface: '' };
 let netSort    = { col: 'State', dir: 1 };

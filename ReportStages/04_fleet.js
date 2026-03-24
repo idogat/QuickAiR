@@ -1,3 +1,19 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 04_fleet.js               ║
+// ║  Fleet tab render, host status       ║
+// ║  table, manifest panel, selection    ║
+// ║  badges                              ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : fleetIndex                ║
+// ║  Writes   : nothing (read-only)       ║
+// ║  Functions: renderFleet,              ║
+// ║    renderManifestPanel, fleetSortBy,  ║
+// ║    fleetStartRemove, fleetConfirm-    ║
+// ║    Remove, fleetCancelRemove          ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
 let fleetSort = { col: 'hostname', dir: 1 };
 

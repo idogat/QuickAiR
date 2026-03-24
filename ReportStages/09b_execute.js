@@ -1,3 +1,25 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 09b_execute.js            ║
+// ║  Execute tab, host status panel      ║
+// ║  with memory/disk checkboxes, queue  ║
+// ║  preview dialog, tool dropdown from  ║
+// ║  tools.json, quicker:// URI gen,     ║
+// ║  delayed execution                   ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : fleetIndex, tools.json    ║
+// ║  Writes   : _bulkSel, _toolsManifest ║
+// ║  Functions: renderExecute, execBulk-  ║
+// ║    AddToQueue, execBulkMemCheck,      ║
+// ║    execBulkDiskCheck, execBulkToggle- ║
+// ║    Mem, execBulkToggleDisk, execTab-  ║
+// ║    Copy, execTabLaunch, execTabTool-  ║
+// ║    TypeChange, updateExecuteBadge,    ║
+// ║    renderFleetExecBanners,            ║
+// ║    execToggleSection                  ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
 (function injectExecuteCSS() {
   var s = document.createElement('style');

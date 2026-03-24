@@ -1,3 +1,26 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 09_users.js               ║
+// ║  Users tab render, cross-host user   ║
+// ║  correlation by SID, per-user        ║
+// ║  expandable machine list, DC data    ║
+// ║  enrichment, first-login confidence  ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : window.userIndex,         ║
+// ║             activeHost.Users          ║
+// ║  Writes   : usersData, usersSearch,   ║
+// ║             usersTypeFilter,          ║
+// ║             usersConfFilter           ║
+// ║  Functions: renderUsers, renderUser-  ║
+// ║    Row, onUserRowClick, buildUser-    ║
+// ║    Expand, usersSortRows, usersApply- ║
+// ║    Filters, fmtUTC, confBadge,       ║
+// ║    acctTypeBadge, usersGetFirstLogon, ║
+// ║    usersGetLastLogon, usersGetBest-   ║
+// ║    Conf                               ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
 // Unified table — one row per unique SID, cross-host correlation via userIndex.
 

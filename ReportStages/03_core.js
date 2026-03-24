@@ -1,3 +1,29 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 03_core.js                ║
+// ║  Global state, file loader, chunked  ║
+// ║  FileReader, tab router, virtual     ║
+// ║  scroll engine, sort engine, resize  ║
+// ║  handles, global search, drag-drop,  ║
+// ║  host management                     ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : JSON files via FileReader ║
+// ║  Writes   : fleetIndex, activeHost,   ║
+// ║             userIndex, sortState,     ║
+// ║             colWidths                 ║
+// ║  Functions: el, esc, str, triggerLoad,║
+// ║    handleFiles, loadJsonFile,         ║
+// ║    switchHost, removeHost, activeData,║
+// ║    switchTab, renderActiveTab,        ║
+// ║    createVS, sortTable, applySortTo-  ║
+// ║    Rows, addResizeHandles, updateBad- ║
+// ║    ges, updateMeta, onGlobalSearch,   ║
+// ║    buildUserIndex, rebuildUserIndex,  ║
+// ║    navigateToRow, gotoProcess,        ║
+// ║    gotoNetwork, getAdapterAliases,    ║
+// ║    ifaceColor, getProcName            ║
+// ║  Depends  : 02_shell.html (DOM)       ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
 const ANALYZER_VERSION = "3.6";

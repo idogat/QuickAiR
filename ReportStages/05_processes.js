@@ -1,3 +1,22 @@
+// ╔══════════════════════════════════════╗
+// ║  Quicker — 05_processes.js           ║
+// ║  Processes tab render, virtual       ║
+// ║  scroll, row expand, inline network  ║
+// ║  detail, DLL count display           ║
+// ╠══════════════════════════════════════╣
+// ║  Reads    : activeHost.Processes,     ║
+// ║             activeHost.DLLs           ║
+// ║  Writes   : procFilters, procSort     ║
+// ║  Functions: renderProcesses,          ║
+// ║    applyProcFilters, renderProcRow,   ║
+// ║    onProcRowClick, gotoProcessPid,    ║
+// ║    gotoNetworkPid, gotoNetworkIp,     ║
+// ║    gotoProcessDlls, renderSignedIcon, ║
+// ║    fmtBytes                           ║
+// ║  Depends  : 03_core.js               ║
+// ║  Version  : 3.39                      ║
+// ╚══════════════════════════════════════╝
+
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
 let procFilters = { search: '' };
 let procSort    = { col: 'ProcessId', dir: 1 };
