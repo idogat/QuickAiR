@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.5                                          ║
+# ║  Version    : 2.6                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -30,6 +30,21 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
+#region ── Self-elevate if not Administrator ───────────────────
+$_isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $_isAdmin) {
+    # Write URI to temp file to avoid command-line length/encoding issues
+    $tmpUri = Join-Path $env:TEMP "quicker_uri_$([guid]::NewGuid().ToString('N')).txt"
+    [System.IO.File]::WriteAllText($tmpUri, $URI, [System.Text.Encoding]::UTF8)
+    $fileUri = "file:$tmpUri"
+    Start-Process powershell.exe -Verb RunAs -ArgumentList @(
+        '-ExecutionPolicy', 'Bypass',
+        '-File', $MyInvocation.MyCommand.Path,
+        '-URI', $fileUri
+    )
+    exit 0
+}
+#endregion
 
 #region ── Assemblies ───────────────────────────────────────────
 Add-Type -AssemblyName System.Windows.Forms
@@ -86,6 +101,15 @@ $script:ScheduleRunning = $false   # re-entry guard for Invoke-Schedule
 #region ── URI parsing ──────────────────────────────────────────
 function Parse-QuickerURI {
     param([string]$URI)
+
+    # If URI was passed via temp file (from self-elevation), read the real URI
+    if ($URI -match '^file:(.+)$') {
+        $tmpPath = $Matches[1]
+        if (Test-Path $tmpPath) {
+            $URI = [System.IO.File]::ReadAllText($tmpPath, [System.Text.Encoding]::UTF8)
+            Remove-Item $tmpPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     # ── Step 1: extract and decode query string ──────────────────
     $rawJobs = $null
