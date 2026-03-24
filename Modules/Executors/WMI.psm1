@@ -163,7 +163,8 @@ function Invoke-Executor {
             $sfxType = $result.BinaryType.SFXType
             Add-State "LAUNCHED" "SFX type=$sfxType detected; using exit code check"
 
-            $sfxExited = $false
+            $sfxExited   = $false
+            $wmiErrors   = 0
             while (-not $sfxExited) {
                 Start-Sleep -Seconds 2
                 $checkParams = @{
@@ -176,10 +177,20 @@ function Invoke-Executor {
                 try {
                     $p = Get-WmiObject @checkParams
                     if ($null -eq $p) { $sfxExited = $true }
-                } catch { $sfxExited = $true }
+                    $wmiErrors = 0
+                } catch {
+                    $wmiErrors++
+                    if ($wmiErrors -ge 3) {
+                        # WMI permanently inaccessible — assume SFX launched
+                        Add-State "SFX_LAUNCHED" "SFX assumed launched (WMI poll error: $($_.Exception.Message))"
+                        break
+                    }
+                }
             }
 
-            Add-State "SFX_LAUNCHED" "SFX exited (exit code unavailable via WMI)"
+            if ($sfxExited) {
+                Add-State "SFX_LAUNCHED" "SFX exited (exit code unavailable via WMI)"
+            }
 
         } else {
             Add-State "LAUNCHED" "PID=$launchPID"
@@ -187,7 +198,7 @@ function Invoke-Executor {
             # Step 5 — Alive check
             Start-Sleep -Seconds $AliveCheckSeconds
 
-            $stillAlive = $false
+            $aliveResult = 'UNKNOWN'
             try {
                 $aliveParams = @{
                     Class        = 'Win32_Process'
@@ -197,11 +208,18 @@ function Invoke-Executor {
                 }
                 if ($Credential) { $aliveParams['Credential'] = $Credential }
                 $proc = Get-WmiObject @aliveParams
-                $stillAlive = ($null -ne $proc)
-            } catch { $stillAlive = $false }
+                $aliveResult = if ($null -ne $proc) { 'ALIVE' } else { 'EXITED' }
+            } catch {
+                # WMI query failed (e.g. Access Denied) — process was already
+                # launched successfully, so assume alive rather than marking failed.
+                $aliveResult = 'ALIVE'
+                Add-State "ALIVE" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"
+            }
 
-            if ($stillAlive) {
-                Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+            if ($aliveResult -eq 'ALIVE') {
+                if ($result.States[$result.States.Count - 1].State -ne 'ALIVE') {
+                    Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
+                }
             } else {
                 Add-State "LAUNCH_FAILED" "PID=$launchPID not found after ${AliveCheckSeconds}s alive check"
                 $result.Error = "Process not found after alive check"

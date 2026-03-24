@@ -412,7 +412,8 @@ function Start-JobRunspace {
             $job.Detail = $_.Exception.Message
         }
         finally {
-            $job.IsDone = $true
+            $job.IsDone  = $true
+            $job.EndTime = [DateTime]::UtcNow
         }
     }).AddArgument($exePath).AddArgument($job).AddArgument($outPath) | Out-Null
 
