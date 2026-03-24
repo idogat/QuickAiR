@@ -381,7 +381,7 @@ function Start-JobRunspace {
                 AliveCheck      = $job.AliveCheck
                 OutputPath      = $outPath
             }
-            if ($job.SmbShare) { $splat['SmbShare'] = $job.SmbShare }
+            if ($job.RemoteShare) { $splat['RemoteShare'] = $job.RemoteShare }
             if ($null -ne $job.Credential -and $job.Credential -ne 'CANCELLED') {
                 $splat['Credential'] = $job.Credential
             }

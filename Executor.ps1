@@ -21,7 +21,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.7                    ║
+# ║  Version   : 1.8                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -33,7 +33,7 @@ param(
     [Parameter(Mandatory=$false)] [System.Management.Automation.PSCredential]$Credential,
     [Parameter(Mandatory=$false)] [ValidateSet("Auto","WinRM","SMB+WMI","WMI")] [string]$Method = "Auto",
     [Parameter(Mandatory=$false)] [int]$AliveCheck         = 10,
-    [Parameter(Mandatory=$false)] [string]$SmbShare        = "",
+    [Parameter(Mandatory=$false)] [string]$RemoteShare      = "",
     [Parameter(Mandatory=$false)] [string]$OutputPath      = "",
     [Parameter(Mandatory=$false)] [switch]$Help
 )
@@ -41,7 +41,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.7"
+$EXECUTOR_VERSION = "1.8"
 
 #region --- Help ---
 if ($Help) {
@@ -67,9 +67,9 @@ if ($Help) {
     Write-Host "  -Method           Auto | WinRM | SMB+WMI | WMI  (default: Auto)"
     Write-Host "                    Auto tries WinRM first, then SMB+WMI, then FAILED"
     Write-Host "  -AliveCheck       Seconds to wait before alive check (default: 10)"
-    Write-Host "  -SmbShare         Custom SMB share for SMB+WMI method (optional)"
-    Write-Host "                    Default: admin share (\\target\C$)"
-    Write-Host "                    Example: \\target\Share or just ShareName"
+    Write-Host "  -RemoteShare      Known share path on target. Skips enumeration. (optional)"
+    Write-Host "                    Default: auto-detect via Win32_Share enumeration"
+    Write-Host "                    Example: \\192.168.1.10\DataShare"
     Write-Host "  -OutputPath       Folder for result JSON (default: .\ExecutionResults\)"
     Write-Host "  -Help             Show this help"
     Write-Host ""
@@ -79,6 +79,8 @@ if ($Help) {
     Write-Host "    -Method WinRM -AliveCheck 15 -Arguments '-scan'"
     Write-Host "  .\Executor.ps1 -Target 192.168.1.250 -LocalBinaryPath C:\Tools\tool.exe \"
     Write-Host "    -Method 'SMB+WMI' -AliveCheck 15"
+    Write-Host "  .\Executor.ps1 -Target 192.168.1.10 -LocalBinaryPath C:\Tools\tool.exe \"
+    Write-Host "    -Method 'SMB+WMI' -RemoteShare \\192.168.1.10\DataShare"
     Write-Host "  .\Executor.ps1 -Target localhost -LocalBinaryPath C:\Windows\System32\notepad.exe"
     Write-Host ""
     Write-Host "STATES" -ForegroundColor Yellow
@@ -192,9 +194,9 @@ $execParams = @{
     AliveCheckSeconds  = $AliveCheck
 }
 
-# SmbShare only applies to SMBWMI module
+# RemoteShare only applies to SMBWMI module
 $smbExecParams = $execParams.Clone()
-if ($SmbShare) { $smbExecParams['SmbShare'] = $SmbShare }
+if ($RemoteShare) { $smbExecParams['SmbShare'] = $RemoteShare }
 
 # Helper: print states for a result
 function Show-States {

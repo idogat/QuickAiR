@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.1                    ║
+# ║  Version   : 1.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -92,6 +92,33 @@ function Invoke-Executor {
         return $null
     }
 
+    # Enumerate admin shares on target via WMI; find one matching the drive letter
+    function Find-AdminShare {
+        param([string]$Host_, [System.Management.Automation.PSCredential]$Cred, [string]$DriveLetter)
+        try {
+            $wmiScope = New-Object System.Management.ManagementScope("\\$Host_\root\cimv2")
+            if ($Cred) {
+                $wmiScope.Options.Username = $Cred.UserName
+                $wmiScope.Options.Password = $Cred.GetNetworkCredential().Password
+            }
+            $wmiScope.Connect()
+            $q = New-Object System.Management.ObjectQuery("SELECT Name, Path FROM Win32_Share WHERE Type = 2147483648")
+            $searcher = New-Object System.Management.ManagementObjectSearcher($wmiScope, $q)
+            $shares = @($searcher.Get())
+            $allNames = @()
+            foreach ($s in $shares) {
+                $allNames += [string]$s['Name']
+                $sp = [string]$s['Path']
+                if ($sp -and $sp.Length -ge 2 -and $sp.Substring(0,1) -ieq $DriveLetter) {
+                    return @{ Name = [string]$s['Name']; Path = $sp; AllShares = $allNames }
+                }
+            }
+            return @{ Name = $null; Path = $null; AllShares = $allNames }
+        } catch {
+            return @{ Name = $null; Path = $null; AllShares = @(); Error = $_.Exception.Message }
+        }
+    }
+
     $smbDriveName = $null
 
     try {
@@ -122,16 +149,87 @@ function Invoke-Executor {
                 return [PSCustomObject]$result
             }
         } else {
-            # Default: admin share (C$, D$, etc.)
-            $uncPath = ConvertTo-UNCPath -Host_ $ComputerName -LocalPath $RemoteDestPath
-            if (-not $uncPath) {
-                Add-State "CONNECTION_FAILED" "Cannot convert path to UNC: $RemoteDestPath"
-                $result.Error = "Cannot convert path to UNC: $RemoteDestPath"
+            # Dynamic share enumeration via Win32_Share
+            if ($RemoteDestPath -notmatch '^([A-Za-z]):\\(.*)$') {
+                Add-State "CONNECTION_FAILED" "Cannot parse drive letter from path: $RemoteDestPath"
+                $result.Error = "Cannot parse drive letter from path: $RemoteDestPath"
                 $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
                 return [PSCustomObject]$result
             }
-            $driveLetter = $RemoteDestPath.Substring(0,1)
-            $shareRoot   = "\\$ComputerName\$driveLetter`$"
+            $driveLetter = $Matches[1]
+            $pathRemainder = $Matches[2]
+
+            $shareResult = Find-AdminShare -Host_ $ComputerName -Cred $Credential -DriveLetter $driveLetter
+
+            if ($shareResult.Name) {
+                # Found matching admin share
+                $shareRoot = "\\$ComputerName\" + $shareResult.Name
+                $uncPath   = "\\$ComputerName\" + $shareResult.Name + "\" + $pathRemainder
+            } else {
+                # No matching share -- prompt analyst for manual share input
+                Write-Host ""
+                Write-Host "[!] No admin share found for drive $($driveLetter): on $ComputerName" -ForegroundColor Yellow
+                if ($shareResult.AllShares -and $shareResult.AllShares.Count -gt 0) {
+                    $nameList = $shareResult.AllShares -join ', '
+                    Write-Host "    Available admin shares: $nameList" -ForegroundColor Yellow
+                }
+                if ($shareResult.Error) {
+                    Write-Host "    Enumeration error: $($shareResult.Error)" -ForegroundColor Yellow
+                }
+                Write-Host "    Enter a share path (e.g. \\$ComputerName\ShareName) or press Enter to skip:" -ForegroundColor Yellow
+
+                # 60-second timeout Read-Host via async runspace
+                $analystInput = ''
+                try {
+                    $rs = [PowerShell]::Create().AddScript('Read-Host "Share path"')
+                    $handle = $rs.BeginInvoke()
+                    if ($handle.AsyncWaitHandle.WaitOne(60000)) {
+                        $analystInput = ($rs.EndInvoke($handle) | Select-Object -First 1)
+                    } else {
+                        Write-Host "    Timeout -- no input received after 60s." -ForegroundColor Yellow
+                    }
+                    $rs.Dispose()
+                } catch {
+                    Write-Host "    Input error: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+
+                if ($analystInput -and $analystInput.Trim()) {
+                    $analystInput = $analystInput.Trim()
+                    # Normalize: if not UNC, prepend \\ComputerName\
+                    if ($analystInput -notmatch '^\\\\') {
+                        $analystInput = "\\$ComputerName\" + $analystInput
+                    }
+                    $shareRoot = $analystInput.TrimEnd('\')
+                    $uncPath   = $shareRoot + "\" + $pathRemainder
+
+                    # Test accessibility
+                    try {
+                        $testDrive = "QuickerTest_$(Get-Random)"
+                        $tdParams = @{
+                            Name        = $testDrive
+                            PSProvider  = 'FileSystem'
+                            Root        = $shareRoot
+                            ErrorAction = 'Stop'
+                        }
+                        if ($Credential) { $tdParams['Credential'] = $Credential }
+                        New-PSDrive @tdParams | Out-Null
+                        $accessible = Test-Path "${testDrive}:\"
+                        Remove-PSDrive -Name $testDrive -Force -ErrorAction SilentlyContinue
+                        if (-not $accessible) { throw "Share not accessible" }
+                    } catch {
+                        Add-State "TRANSFER_FAILED" "Provided share not accessible: $shareRoot ($($_.Exception.Message))"
+                        $result.Error = "Provided share not accessible: $shareRoot"
+                        $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                        return [PSCustomObject]$result
+                    }
+                } else {
+                    # Analyst skipped or timeout
+                    Add-State "CONNECTION_FAILED" "No accessible share found. Skipping SMB+WMI method."
+                    $result.Error = "No accessible share found. Skipping SMB+WMI method."
+                    $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                    return [PSCustomObject]$result
+                }
+            }
         }
         $result.SmbShare = $shareRoot
         $smbDriveName = "QuickerSMB_$(Get-Random)"
