@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -21,6 +21,21 @@ $ErrorActionPreference = 'Continue'
 
 # ── .NET scriptblock (PS 3+) ─────────────────────────────────────────────────
 $script:DLL_SB_DOTNET = {
+    function _sha256($p) {
+        if (-not $p) { return @($null, 'PATH_NULL') }
+        try {
+            if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
+            $b = [System.IO.File]::ReadAllBytes($p)
+            $s = [Security.Cryptography.SHA256]::Create()
+            $h = $s.ComputeHash($b); $s.Dispose()
+            return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
+        } catch {
+            $m = $_.Exception.Message
+            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+            elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
+            else { return @($null, "COMPUTE_ERROR: $m") }
+        }
+    }
     $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
@@ -77,28 +92,7 @@ $script:DLL_SB_DOTNET = {
                 }
             }
 
-            $fileHash = $null
-            $sha256Err = $null
-            if ($mPath) {
-                try {
-                    if (-not [System.IO.File]::Exists($mPath)) {
-                        $sha256Err = 'FILE_NOT_FOUND'
-                    } else {
-                        $bytes  = [System.IO.File]::ReadAllBytes($mPath)
-                        $hasher = [Security.Cryptography.SHA256]::Create()
-                        $hashBytes = $hasher.ComputeHash($bytes)
-                        $fileHash = ([BitConverter]::ToString($hashBytes) -replace '-','').ToLower()
-                        $hasher.Dispose()
-                    }
-                } catch {
-                    $msgD = $_.Exception.Message
-                    if ($msgD -match 'Access') { $sha256Err = 'ACCESS_DENIED' }
-                    elseif ($msgD -match 'not find|not exist|cannot find') { $sha256Err = 'FILE_NOT_FOUND' }
-                    else { $sha256Err = "COMPUTE_ERROR: $msgD" }
-                }
-            } else {
-                $sha256Err = 'PATH_NULL'
-            }
+            $r = _sha256 $mPath; $fileHash = $r[0]; $sha256Err = $r[1]
 
             $ver     = $null
             $company = $null
@@ -160,6 +154,21 @@ $script:DLL_SB_DOTNET = {
 
 # ── WMI scriptblock (PS 2.0) ─────────────────────────────────────────────────
 $script:DLL_SB_WMI = {
+    function _sha256($p) {
+        if (-not $p) { return @($null, 'PATH_NULL') }
+        try {
+            if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
+            $b = [System.IO.File]::ReadAllBytes($p)
+            $s = [Security.Cryptography.SHA256]::Create()
+            $h = $s.ComputeHash($b); $s.Dispose()
+            return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
+        } catch {
+            $m = $_.Exception.Message
+            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+            elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
+            else { return @($null, "COMPUTE_ERROR: $m") }
+        }
+    }
     $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
@@ -254,24 +263,7 @@ $script:DLL_SB_WMI = {
                 if ($mPath -like "*$marker*") { $isPrivate = $true; break }
             }
 
-            $fileHash = $null
-            $sha256ErrW = $null
-            try {
-                if (-not [System.IO.File]::Exists($mPath)) {
-                    $sha256ErrW = 'FILE_NOT_FOUND'
-                } else {
-                    $bytes     = [System.IO.File]::ReadAllBytes($mPath)
-                    $hasher    = [Security.Cryptography.SHA256]::Create()
-                    $hashBytes = $hasher.ComputeHash($bytes)
-                    $fileHash  = ([BitConverter]::ToString($hashBytes) -replace '-','').ToLower()
-                    $hasher.Dispose()
-                }
-            } catch {
-                $msgW2 = $_.Exception.Message
-                if ($msgW2 -match 'Access') { $sha256ErrW = 'ACCESS_DENIED' }
-                elseif ($msgW2 -match 'not find|not exist|cannot find') { $sha256ErrW = 'FILE_NOT_FOUND' }
-                else { $sha256ErrW = "COMPUTE_ERROR: $msgW2" }
-            }
+            $r = _sha256 $mPath; $fileHash = $r[0]; $sha256ErrW = $r[1]
 
             $ver     = $null
             $company = $null

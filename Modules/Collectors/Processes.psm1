@@ -13,7 +13,7 @@
 # ║               errors=[] }           ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -21,6 +21,21 @@ $ErrorActionPreference = 'Continue'
 
 # PS 2.0-compatible WMI process enumeration scriptblock
 $script:PROC_SB_WMI = {
+    function _sha256($p) {
+        if (-not $p) { return @($null, 'PATH_NULL') }
+        try {
+            if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
+            $b = [System.IO.File]::ReadAllBytes($p)
+            $s = [Security.Cryptography.SHA256]::Create()
+            $h = $s.ComputeHash($b); $s.Dispose()
+            return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
+        } catch {
+            $m = $_.Exception.Message
+            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+            elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
+            else { return @($null, "COMPUTE_ERROR: $m") }
+        }
+    }
     $out = @()
     $outerErrors = @()
     $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
@@ -41,28 +56,8 @@ $script:PROC_SB_WMI = {
         try { $sid    = [int]$p.SessionId }        catch {}
         try { $hc     = [int]$p.HandleCount }      catch {}
 
-        # SHA256 inline
-        $sha256Val = $null; $sha256Err = $null
-        if ($exePath) {
-            try {
-                if (-not [System.IO.File]::Exists($exePath)) {
-                    $sha256Err = 'FILE_NOT_FOUND'
-                } else {
-                    $bytes2 = [System.IO.File]::ReadAllBytes($exePath)
-                    $sha2 = [Security.Cryptography.SHA256]::Create()
-                    $hb2 = $sha2.ComputeHash($bytes2)
-                    $sha2.Dispose()
-                    $sha256Val = ([BitConverter]::ToString($hb2) -replace '-','').ToLower()
-                }
-            } catch {
-                $msg2 = $_.Exception.Message
-                if ($msg2 -match 'Access') { $sha256Err = 'ACCESS_DENIED' }
-                elseif ($msg2 -match 'not find|not exist|cannot find') { $sha256Err = 'FILE_NOT_FOUND' }
-                else { $sha256Err = "COMPUTE_ERROR: $msg2" }
-            }
-        } else {
-            $sha256Err = 'PATH_NULL'
-        }
+        # SHA256
+        $r = _sha256 $exePath; $sha256Val = $r[0]; $sha256Err = $r[1]
 
         # Signature inline (PS 2.0 compatible)
         $sigObj = $null
@@ -118,18 +113,7 @@ $script:PROC_SB_WMI = {
                 try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
-                $sha256Fb = $null; $sha256ErrFb = $null
-                if ($exeFn) {
-                    try {
-                        if (-not [System.IO.File]::Exists($exeFn)) { $sha256ErrFb = 'FILE_NOT_FOUND' }
-                        else {
-                            $bytesFb = [System.IO.File]::ReadAllBytes($exeFn)
-                            $shaFb = [Security.Cryptography.SHA256]::Create()
-                            $hbFb = $shaFb.ComputeHash($bytesFb); $shaFb.Dispose()
-                            $sha256Fb = ([BitConverter]::ToString($hbFb) -replace '-','').ToLower()
-                        }
-                    } catch { $sha256ErrFb = "COMPUTE_ERROR: $($_.Exception.Message)" }
-                } else { $sha256ErrFb = 'PATH_NULL' }
+                $r = _sha256 $exeFn; $sha256Fb = $r[0]; $sha256ErrFb = $r[1]
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
@@ -146,6 +130,21 @@ $script:PROC_SB_WMI = {
 
 # CIM scriptblock for PS 3+ path
 $script:PROC_SB_CIM = {
+    function _sha256($p) {
+        if (-not $p) { return @($null, 'PATH_NULL') }
+        try {
+            if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
+            $b = [System.IO.File]::ReadAllBytes($p)
+            $s = [Security.Cryptography.SHA256]::Create()
+            $h = $s.ComputeHash($b); $s.Dispose()
+            return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
+        } catch {
+            $m = $_.Exception.Message
+            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+            elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
+            else { return @($null, "COMPUTE_ERROR: $m") }
+        }
+    }
     $out = @()
     $outerErrors = @()
     $raw = Get-CimInstance Win32_Process -OperationTimeoutSec 60
@@ -174,26 +173,8 @@ $script:PROC_SB_CIM = {
         try { $entry.SessionId       = [int]$p.SessionId }       catch {}
         try { $entry.HandleCount     = [int]$p.HandleCount }     catch {}
 
-        # SHA256 inline
-        if ($entry.ExecutablePath) {
-            try {
-                if (-not [System.IO.File]::Exists($entry.ExecutablePath)) {
-                    $entry.SHA256Error = 'FILE_NOT_FOUND'
-                } else {
-                    $bytes3 = [System.IO.File]::ReadAllBytes($entry.ExecutablePath)
-                    $sha3 = [Security.Cryptography.SHA256]::Create()
-                    $hb3 = $sha3.ComputeHash($bytes3); $sha3.Dispose()
-                    $entry.SHA256 = ([BitConverter]::ToString($hb3) -replace '-','').ToLower()
-                }
-            } catch {
-                $msg3 = $_.Exception.Message
-                if ($msg3 -match 'Access') { $entry.SHA256Error = 'ACCESS_DENIED' }
-                elseif ($msg3 -match 'not find|not exist|cannot find') { $entry.SHA256Error = 'FILE_NOT_FOUND' }
-                else { $entry.SHA256Error = "COMPUTE_ERROR: $msg3" }
-            }
-        } else {
-            $entry.SHA256Error = 'PATH_NULL'
-        }
+        # SHA256
+        $r = _sha256 $entry.ExecutablePath; $entry.SHA256 = $r[0]; $entry.SHA256Error = $r[1]
 
         # Signature inline (PS 3+)
         if ($entry.ExecutablePath) {
@@ -245,18 +226,7 @@ $script:PROC_SB_CIM = {
                 try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
-                $sha256Fb2 = $null; $sha256ErrFb2 = $null
-                if ($exeFn) {
-                    try {
-                        if (-not [System.IO.File]::Exists($exeFn)) { $sha256ErrFb2 = 'FILE_NOT_FOUND' }
-                        else {
-                            $bytesFb2 = [System.IO.File]::ReadAllBytes($exeFn)
-                            $shaFb2 = [Security.Cryptography.SHA256]::Create()
-                            $hbFb2 = $shaFb2.ComputeHash($bytesFb2); $shaFb2.Dispose()
-                            $sha256Fb2 = ([BitConverter]::ToString($hbFb2) -replace '-','').ToLower()
-                        }
-                    } catch { $sha256ErrFb2 = "COMPUTE_ERROR: $($_.Exception.Message)" }
-                } else { $sha256ErrFb2 = 'PATH_NULL' }
+                $r = _sha256 $exeFn; $sha256Fb2 = $r[0]; $sha256ErrFb2 = $r[1]
                 $sigFb2 = $null
                 if ($exeFn) {
                     try {
@@ -290,6 +260,22 @@ $script:PROC_SB_CIM = {
     } catch {}
     $out += $dotnet
     New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
+}
+
+function _sha256($p) {
+    if (-not $p) { return @($null, 'PATH_NULL') }
+    try {
+        if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
+        $b = [System.IO.File]::ReadAllBytes($p)
+        $s = [Security.Cryptography.SHA256]::Create()
+        $h = $s.ComputeHash($b); $s.Dispose()
+        return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
+    } catch {
+        $m = $_.Exception.Message
+        if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+        elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
+        else { return @($null, "COMPUTE_ERROR: $m") }
+    }
 }
 
 function Invoke-Collector {
@@ -407,24 +393,8 @@ function Invoke-Collector {
                     try { $entry.SessionId        = [int]$p.SessionId }      catch {}
                     try { $entry.HandleCount      = [int]$p.HandleCount }    catch {}
 
-                    # SHA256 inline (local CIM path)
-                    if ($entry.ExecutablePath) {
-                        try {
-                            if (-not [System.IO.File]::Exists($entry.ExecutablePath)) {
-                                $entry.SHA256Error = 'FILE_NOT_FOUND'
-                            } else {
-                                $bytesL = [System.IO.File]::ReadAllBytes($entry.ExecutablePath)
-                                $shaL = [Security.Cryptography.SHA256]::Create()
-                                $hbL = $shaL.ComputeHash($bytesL); $shaL.Dispose()
-                                $entry.SHA256 = ([BitConverter]::ToString($hbL) -replace '-','').ToLower()
-                            }
-                        } catch {
-                            $msgL = $_.Exception.Message
-                            if ($msgL -match 'Access') { $entry.SHA256Error = 'ACCESS_DENIED' }
-                            elseif ($msgL -match 'not find|not exist|cannot find') { $entry.SHA256Error = 'FILE_NOT_FOUND' }
-                            else { $entry.SHA256Error = "COMPUTE_ERROR: $msgL" }
-                        }
-                    } else { $entry.SHA256Error = 'PATH_NULL' }
+                    # SHA256
+                    $r = _sha256 $entry.ExecutablePath; $entry.SHA256 = $r[0]; $entry.SHA256Error = $r[1]
 
                     # Signature inline (local CIM path, PS 3+)
                     if ($entry.ExecutablePath) {
@@ -473,17 +443,8 @@ function Invoke-Collector {
                             try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                             try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                             try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
-                            $sha256Fb3 = $null; $sha256ErrFb3 = $null; $sigFb3 = $null
+                            $r = _sha256 $exeFn; $sha256Fb3 = $r[0]; $sha256ErrFb3 = $r[1]; $sigFb3 = $null
                             if ($exeFn) {
-                                try {
-                                    if (-not [System.IO.File]::Exists($exeFn)) { $sha256ErrFb3 = 'FILE_NOT_FOUND' }
-                                    else {
-                                        $bFb3 = [System.IO.File]::ReadAllBytes($exeFn)
-                                        $sFb3 = [Security.Cryptography.SHA256]::Create()
-                                        $hFb3 = $sFb3.ComputeHash($bFb3); $sFb3.Dispose()
-                                        $sha256Fb3 = ([BitConverter]::ToString($hFb3) -replace '-','').ToLower()
-                                    }
-                                } catch { $sha256ErrFb3 = "COMPUTE_ERROR: $($_.Exception.Message)" }
                                 try {
                                     $sigFb3x = Get-AuthenticodeSignature -FilePath $exeFn -ErrorAction Stop
                                     $cnFb3 = $null
@@ -552,24 +513,8 @@ function Invoke-Collector {
                     try { $sid     = [int]$p.SessionId }      catch {}
                     try { $hc      = [int]$p.HandleCount }    catch {}
 
-                    # SHA256 inline (local WMI path)
-                    $sha256W = $null; $sha256ErrW = $null
-                    if ($exePath) {
-                        try {
-                            if (-not [System.IO.File]::Exists($exePath)) { $sha256ErrW = 'FILE_NOT_FOUND' }
-                            else {
-                                $bW = [System.IO.File]::ReadAllBytes($exePath)
-                                $sW = [Security.Cryptography.SHA256]::Create()
-                                $hbW = $sW.ComputeHash($bW); $sW.Dispose()
-                                $sha256W = ([BitConverter]::ToString($hbW) -replace '-','').ToLower()
-                            }
-                        } catch {
-                            $msgW = $_.Exception.Message
-                            if ($msgW -match 'Access') { $sha256ErrW = 'ACCESS_DENIED' }
-                            elseif ($msgW -match 'not find|not exist|cannot find') { $sha256ErrW = 'FILE_NOT_FOUND' }
-                            else { $sha256ErrW = "COMPUTE_ERROR: $msgW" }
-                        }
-                    } else { $sha256ErrW = 'PATH_NULL' }
+                    # SHA256
+                    $r = _sha256 $exePath; $sha256W = $r[0]; $sha256ErrW = $r[1]
 
                     $procs += @{
                         ProcessId        = $pid_
