@@ -11,6 +11,10 @@
 #   T31 Byte pattern detection: ZIP magic appended → IsSFX=true
 #   T32 SFX flow exit code 0 → FinalState=SFX_LAUNCHED
 #   T33 SFX flow exit code 1 → FinalState=LAUNCH_FAILED
+#   T34 SMBWMI.psm1 imports + exports Invoke-Executor
+#   T35 SMB unreachable returns CONNECTION_FAILED
+#   T36 SMBWMI localhost notepad.exe smoke test
+#   T37 Auto both methods fail: combined error detail
 # =============================================
 #   Inputs    : -JsonPath -HtmlPath (unused, for suite compat)
 #   Output    : @{ Passed=@();
@@ -43,6 +47,7 @@ $repoDir     = Split-Path -Parent $scriptDir
 $executorDir = Join-Path $repoDir "Modules\Executors"
 $winrmMod    = Join-Path $executorDir "WinRM.psm1"
 $wmiMod      = Join-Path $executorDir "WMI.psm1"
+$smbwmiMod   = Join-Path $executorDir "SMBWMI.psm1"
 
 # ---------------------------------------------------------------
 # T24 — WinRM.psm1 imports cleanly, exports Invoke-Executor
@@ -360,6 +365,170 @@ try {
     }
 } catch {
     Add-R "T33" $false "T33 threw exception" @($_.Exception.Message)
+}
+
+# ---------------------------------------------------------------
+# T34 — SMBWMI.psm1 imports cleanly, exports Invoke-Executor
+# ---------------------------------------------------------------
+try {
+    if (-not (Test-Path $smbwmiMod)) { throw "File not found: $smbwmiMod" }
+    Import-Module $smbwmiMod -Force -ErrorAction Stop
+    $cmd = Get-Command Invoke-Executor -ErrorAction Stop
+    if ($null -ne $cmd) {
+        Add-R "T34" $true "SMBWMI.psm1 imports cleanly and exports Invoke-Executor"
+    } else {
+        Add-R "T34" $false "SMBWMI.psm1 imported but Invoke-Executor not found" @()
+    }
+} catch {
+    Add-R "T34" $false "SMBWMI.psm1 import failed" @($_.Exception.Message)
+}
+
+# ---------------------------------------------------------------
+# T35 — SMB unreachable IP returns CONNECTION_FAILED, no exception
+# ---------------------------------------------------------------
+try {
+    Import-Module $smbwmiMod -Force -ErrorAction Stop
+    $t35Start = Get-Date
+    $r35 = Invoke-Executor `
+        -ComputerName "192.0.2.1" `
+        -LocalBinaryPath "C:\Windows\System32\notepad.exe" `
+        -RemoteDestPath "C:\Windows\Temp\notepad.exe" `
+        -AliveCheckSeconds 1
+    $t35Elapsed = [int]((Get-Date) - $t35Start).TotalSeconds
+
+    $t35Details = @()
+    if ($r35.FinalState -ne "CONNECTION_FAILED") {
+        $t35Details += "Expected FinalState=CONNECTION_FAILED, got $($r35.FinalState)"
+    }
+    if ($r35.Method -ne "SMB+WMI") {
+        $t35Details += "Expected Method=SMB+WMI, got $($r35.Method)"
+    }
+    $hasSMB = ($r35.States | Where-Object { $_.Detail -match 'SMB' })
+    if (-not $hasSMB) {
+        $t35Details += "No state detail containing 'SMB'. Details: $($r35.States | ForEach-Object { $_.Detail })"
+    }
+    if ($t35Elapsed -gt 35) {
+        $t35Details += "Elapsed ${t35Elapsed}s exceeds 35s limit"
+    }
+    if ($t35Details.Count -eq 0) {
+        Add-R "T35" $true "SMB unreachable returned CONNECTION_FAILED in ${t35Elapsed}s"
+    } else {
+        Add-R "T35" $false "SMB unreachable test failed" $t35Details
+    }
+} catch {
+    Add-R "T35" $false "T35 threw exception" @($_.Exception.Message)
+}
+
+# ---------------------------------------------------------------
+# T36 — SMBWMI localhost smoke test (cmd.exe /c ping)
+#        WMI launches in session 0 (no desktop) so we use cmd.exe
+#        with a long ping to keep it alive for the alive check.
+#        Verify Method=SMB+WMI, TRANSFERRED+SHA256, reaches ALIVE.
+# ---------------------------------------------------------------
+$t36TempFile = "C:\Windows\Temp\quicker_test_smbwmi_$(Get-Random).exe"
+$t36PID      = $null
+
+try {
+    Import-Module $smbwmiMod -Force -ErrorAction Stop
+
+    $r36 = Invoke-Executor `
+        -ComputerName "localhost" `
+        -LocalBinaryPath "C:\Windows\System32\cmd.exe" `
+        -RemoteDestPath $t36TempFile `
+        -Arguments "/c ping 127.0.0.1 -n 60" `
+        -AliveCheckSeconds 3
+
+    $t36Details = @()
+
+    if ($r36.Method -ne "SMB+WMI") {
+        $t36Details += "Expected Method=SMB+WMI, got $($r36.Method)"
+    }
+
+    # Should have TRANSFERRED state
+    $hasTransferred = @($r36.States | Where-Object { $_.State -eq "TRANSFERRED" })
+    if ($hasTransferred.Count -eq 0) {
+        $t36Details += "Missing TRANSFERRED state"
+    }
+
+    # Should have SHA256 in transfer detail
+    $hasSHA = ($r36.States | Where-Object { $_.Detail -match 'SHA256' })
+    if (-not $hasSHA) {
+        $t36Details += "No SHA256 in transfer detail"
+    }
+
+    # Should reach ALIVE
+    if ($r36.FinalState -ne "ALIVE") {
+        $t36Details += "Expected FinalState=ALIVE, got $($r36.FinalState). Error=$($r36.Error)"
+    }
+
+    $t36PID = $r36.PID
+
+    if ($t36Details.Count -eq 0) {
+        Add-R "T36" $true "SMBWMI localhost smoke test passed (FinalState=$($r36.FinalState) PID=$t36PID)"
+    } else {
+        Add-R "T36" $false "SMBWMI localhost smoke test failed ($($t36Details.Count) issues)" $t36Details
+    }
+} catch {
+    Add-R "T36" $false "T36 threw exception" @($_.Exception.Message)
+} finally {
+    if ($t36PID) {
+        try { Stop-Process -Id $t36PID -Force -ErrorAction SilentlyContinue } catch { }
+    }
+    if (Test-Path -LiteralPath $t36TempFile) {
+        Remove-Item -LiteralPath $t36TempFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------------
+# T37 — Auto both methods fail: combined error detail
+#        Use unreachable IP so both WinRM and SMB+WMI fail.
+#        Verify FinalState=CONNECTION_FAILED and Error contains
+#        both "WinRM" and "SMB+WMI" error messages.
+# ---------------------------------------------------------------
+try {
+    # Simulate the Auto aggregation logic from Executor.ps1
+    Import-Module $winrmMod -Force -ErrorAction Stop
+    $r37w = Invoke-Executor `
+        -ComputerName "192.0.2.1" `
+        -LocalBinaryPath "C:\Windows\System32\notepad.exe" `
+        -RemoteDestPath "C:\Windows\Temp\notepad.exe" `
+        -AliveCheckSeconds 1
+
+    Import-Module $smbwmiMod -Force -ErrorAction Stop
+    $r37s = Invoke-Executor `
+        -ComputerName "192.0.2.1" `
+        -LocalBinaryPath "C:\Windows\System32\notepad.exe" `
+        -RemoteDestPath "C:\Windows\Temp\notepad.exe" `
+        -AliveCheckSeconds 1
+
+    $t37Details = @()
+
+    if ($r37w.FinalState -ne "CONNECTION_FAILED") {
+        $t37Details += "WinRM expected CONNECTION_FAILED, got $($r37w.FinalState)"
+    }
+    if ($r37s.FinalState -ne "CONNECTION_FAILED") {
+        $t37Details += "SMBWMI expected CONNECTION_FAILED, got $($r37s.FinalState)"
+    }
+
+    # Build combined error like Executor.ps1 Auto mode does
+    $combined = "All methods failed -- WinRM: $($r37w.Error) | SMB+WMI: $($r37s.Error)"
+    if ($combined -notmatch 'WinRM:') {
+        $t37Details += "Combined error missing WinRM detail"
+    }
+    if ($combined -notmatch 'SMB\+WMI:') {
+        $t37Details += "Combined error missing SMB+WMI detail"
+    }
+    if (-not $r37w.Error -or -not $r37s.Error) {
+        $t37Details += "One or both Error fields are empty (WinRM=$($r37w.Error) SMBWMI=$($r37s.Error))"
+    }
+
+    if ($t37Details.Count -eq 0) {
+        Add-R "T37" $true "Auto both-fail: combined error contains both method details"
+    } else {
+        Add-R "T37" $false "Auto both-fail test failed" $t37Details
+    }
+} catch {
+    Add-R "T37" $false "T37 threw exception" @($_.Exception.Message)
 }
 
 return @{

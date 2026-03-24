@@ -18,9 +18,10 @@
 # ║  Output    : <hostname>_execution_  ║
 # ║              <ts>.json              ║
 # ║  Depends   : Executors\WinRM.psm1  ║
+# ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.5                    ║
+# ║  Version   : 1.6                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -30,7 +31,7 @@ param(
     [Parameter(Mandatory=$false)] [string]$RemoteDestPath  = "",
     [Parameter(Mandatory=$false)] [string]$Arguments       = "",
     [Parameter(Mandatory=$false)] [System.Management.Automation.PSCredential]$Credential,
-    [Parameter(Mandatory=$false)] [ValidateSet("Auto","WinRM","WMI")] [string]$Method = "Auto",
+    [Parameter(Mandatory=$false)] [ValidateSet("Auto","WinRM","SMB+WMI","WMI")] [string]$Method = "Auto",
     [Parameter(Mandatory=$false)] [int]$AliveCheck         = 10,
     [Parameter(Mandatory=$false)] [string]$OutputPath      = "",
     [Parameter(Mandatory=$false)] [switch]$Help
@@ -39,7 +40,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.5"
+$EXECUTOR_VERSION = "1.6"
 
 #region --- Help ---
 if ($Help) {
@@ -62,8 +63,8 @@ if ($Help) {
     Write-Host "  -Arguments        Arguments to pass to the tool"
     Write-Host "  -Credential       PSCredential for remote auth"
     Write-Host "                    Prompted if not supplied and target is not localhost"
-    Write-Host "  -Method           Auto | WinRM | WMI  (default: Auto)"
-    Write-Host "                    Auto tries WinRM first, falls back to WMI"
+    Write-Host "  -Method           Auto | WinRM | SMB+WMI | WMI  (default: Auto)"
+    Write-Host "                    Auto tries WinRM first, then SMB+WMI, then FAILED"
     Write-Host "  -AliveCheck       Seconds to wait before alive check (default: 10)"
     Write-Host "  -OutputPath       Folder for result JSON (default: .\ExecutionResults\)"
     Write-Host "  -Help             Show this help"
@@ -72,6 +73,8 @@ if ($Help) {
     Write-Host "  .\Executor.ps1 -Target 192.168.1.250 -LocalBinaryPath C:\Tools\tool.exe"
     Write-Host "  .\Executor.ps1 -Target 192.168.1.100 -LocalBinaryPath C:\Tools\tool.exe \"
     Write-Host "    -Method WinRM -AliveCheck 15 -Arguments '-scan'"
+    Write-Host "  .\Executor.ps1 -Target 192.168.1.250 -LocalBinaryPath C:\Tools\tool.exe \"
+    Write-Host "    -Method 'SMB+WMI' -AliveCheck 15"
     Write-Host "  .\Executor.ps1 -Target localhost -LocalBinaryPath C:\Windows\System32\notepad.exe"
     Write-Host ""
     Write-Host "STATES" -ForegroundColor Yellow
@@ -185,41 +188,57 @@ $execParams = @{
     AliveCheckSeconds  = $AliveCheck
 }
 
-$result = $null
-
-if ($Method -eq "WinRM" -or $Method -eq "Auto") {
-    Write-Ts "Trying WinRM..." "Cyan"
-    Import-Module "$executorDir\WinRM.psm1" -Force
-    $result = Invoke-Executor @execParams
-
-    foreach ($s in $result.States) {
+# Helper: print states for a result
+function Show-States {
+    param($res)
+    foreach ($s in $res.States) {
         $icon = if ($s.State -match 'FAILED') { "[x]" } else { "[v]" }
         $col  = if ($s.State -match 'FAILED') { "Red" } else { "Green" }
         Write-Ts "$icon $($s.State)  $($s.Detail)" $col
     }
+}
 
-    if ($Method -eq "Auto" -and $result.FinalState -eq "CONNECTION_FAILED") {
-        Write-Ts "WinRM CONNECTION_FAILED - falling back to WMI" "Yellow"
-        Import-Module "$executorDir\WMI.psm1" -Force
+$result = $null
+
+if ($Method -eq "Auto") {
+    # Auto chain: WinRM → SMB+WMI → FAILED
+    Write-Ts "Trying WinRM..." "Cyan"
+    Import-Module "$executorDir\WinRM.psm1" -Force
+    $result = Invoke-Executor @execParams
+    Show-States $result
+
+    if ($result.FinalState -eq "CONNECTION_FAILED") {
+        $winrmError = $result.Error
+        Write-Ts "WinRM failed -- trying SMB+WMI..." "Yellow"
+        Import-Module "$executorDir\SMBWMI.psm1" -Force
         $result = Invoke-Executor @execParams
+        Show-States $result
 
-        foreach ($s in $result.States) {
-            $icon = if ($s.State -match 'FAILED') { "[x]" } else { "[v]" }
-            $col  = if ($s.State -match 'FAILED') { "Red" } else { "Green" }
-            Write-Ts "$icon $($s.State)  $($s.Detail)" $col
+        if ($result.FinalState -eq "CONNECTION_FAILED") {
+            $smbError = $result.Error
+            Write-Ts "SMB+WMI failed -- no more methods." "Red"
+            # Aggregate both errors into the final result
+            $result.Error = "All methods failed -- WinRM: $winrmError | SMB+WMI: $smbError"
         }
     }
+}
+elseif ($Method -eq "WinRM") {
+    Write-Ts "Trying WinRM..." "Cyan"
+    Import-Module "$executorDir\WinRM.psm1" -Force
+    $result = Invoke-Executor @execParams
+    Show-States $result
+}
+elseif ($Method -eq "SMB+WMI") {
+    Write-Ts "Trying SMB+WMI..." "Cyan"
+    Import-Module "$executorDir\SMBWMI.psm1" -Force
+    $result = Invoke-Executor @execParams
+    Show-States $result
 }
 elseif ($Method -eq "WMI") {
     Write-Ts "Using WMI..." "Cyan"
     Import-Module "$executorDir\WMI.psm1" -Force
     $result = Invoke-Executor @execParams
-
-    foreach ($s in $result.States) {
-        $icon = if ($s.State -match 'FAILED') { "[x]" } else { "[v]" }
-        $col  = if ($s.State -match 'FAILED') { "Red" } else { "Green" }
-        Write-Ts "$icon $($s.State)  $($s.Detail)" $col
-    }
+    Show-States $result
 }
 #endregion
 

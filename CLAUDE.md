@@ -177,7 +177,11 @@ Params: ComputerName, Credential,
 Returns: ExecutionId, ComputerName, Method,
   States[], FinalState, PID, Error
 WinRM: transfers binary then executes
+SMB+WMI: transfers via SMB admin share,
+  executes via WMI. Fallback when WinRM
+  unavailable. Requires port 445 + WMI access.
 WMI: executes only, no transfer
+Auto chain: WinRM → SMB+WMI → FAILED
 
 ## Launcher Module Contract
 JobQueue.psm1:
