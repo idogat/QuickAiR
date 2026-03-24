@@ -52,24 +52,24 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| COV-01 | Pending | Pending |
-| COV-02 | Pending | Pending |
-| COV-03 | Pending | Pending |
-| COV-04 | Pending | Pending |
-| RUN-01 | Pending | Pending |
-| RUN-02 | Pending | Pending |
-| RUN-03 | Pending | Pending |
-| RUN-04 | Pending | Pending |
-| INT-01 | Pending | Pending |
-| INT-02 | Pending | Pending |
-| INT-03 | Pending | Pending |
-| INT-04 | Pending | Pending |
+| COV-01 | Phase 1 | Pending |
+| COV-02 | Phase 1 | Pending |
+| COV-03 | Phase 1 | Pending |
+| COV-04 | Phase 1 | Pending |
+| RUN-01 | Phase 2 | Pending |
+| RUN-02 | Phase 2 | Pending |
+| RUN-03 | Phase 2 | Pending |
+| RUN-04 | Phase 2 | Pending |
+| INT-01 | Phase 3 | Pending |
+| INT-02 | Phase 3 | Pending |
+| INT-03 | Phase 3 | Pending |
+| INT-04 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 12 total
-- Mapped to phases: 0
-- Unmapped: 12
+- Mapped to phases: 12
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-24 after initial definition*
+*Last updated: 2026-03-24 after roadmap creation — all 12 v1 requirements mapped*
