@@ -28,7 +28,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Fallback path columns are populated for each artifact showing the specific collection method at each tier (CIM, WMI, netstat, etc.)
   3. Coverage gaps are explicitly listed — DLLs/Users PS 2.0 absence, netstat PID correlation loss, DNS TTL loss — not omitted or minimized
   4. Fidelity notes per fallback tier make clear what data is degraded or absent at each tier compared to the preferred path
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Write complete docs/COVERAGE-MATRIX.md with all collector sections, fallback chains, field fidelity tables, and coverage gaps
+- [ ] 01-02-PLAN.md — Human verification of document accuracy against collector source files
 
 ### Phase 2: Operational Runbook
 **Goal**: An analyst new to the toolkit can go from zero to successfully collecting data from a remote host, and can diagnose and resolve common failures without tribal knowledge
@@ -69,7 +73,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Coverage Matrix | 0/TBD | Not started | - |
+| 1. Coverage Matrix | 0/2 | Planning complete | - |
 | 2. Operational Runbook | 0/TBD | Not started | - |
 | 3. Interpretation Guide | 0/TBD | Not started | - |
 | 4. README and Integration Review | 0/TBD | Not started | - |
