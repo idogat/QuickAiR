@@ -2769,21 +2769,19 @@ function buildUserExpand(u) {
 // ║  Execute tab, host status panel      ║
 // ║  with memory/disk checkboxes, queue  ║
 // ║  preview dialog, tool dropdown from  ║
-// ║  tools.json, quicker:// URI gen,     ║
-// ║  delayed execution                   ║
+// ║  tools.json, quicker:// URI gen      ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : fleetIndex, tools.json    ║
 // ║  Writes   : _bulkSel, _toolsManifest ║
 // ║  Functions: renderExecute, execBulk-  ║
 // ║    AddToQueue, execBulkMemCheck,      ║
 // ║    execBulkDiskCheck, execBulkToggle- ║
-// ║    Mem, execBulkToggleDisk, execTab-  ║
-// ║    Copy, execTabLaunch, execTabTool-  ║
-// ║    TypeChange, updateExecuteBadge,    ║
+// ║    Mem, execBulkToggleDisk,           ║
+// ║    updateExecuteBadge,                ║
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
@@ -2811,21 +2809,6 @@ function buildUserExpand(u) {
     '.exec-winrm-notice{color:var(--amber);font-size:11px;margin-top:3px}',
     '.exec-host-btn{font-size:11px;padding:2px 8px}',
     '.exec-no-hosts{color:var(--muted);font-style:italic;padding:8px 0}',
-    '.exec-launcher{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:14px 16px;max-width:720px}',
-    '.exec-field{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:6px;margin-bottom:10px}',
-    '.exec-field label{color:var(--muted);font-size:12px;text-align:right;padding-right:8px}',
-    '.exec-field input,.exec-field select{width:100%}',
-    '.exec-field-wrap{display:flex;gap:6px;align-items:center}',
-    '.exec-field-wrap input{flex:1}',
-    '.exec-actions{display:flex;gap:8px;margin-top:12px}',
-    '.exec-copy-btn{background:var(--accent);border-color:var(--accent);color:#0d1117}',
-    '.exec-copy-btn:hover{opacity:.85}',
-    '.exec-host-notice{margin-top:4px;margin-left:148px;font-size:11px}',
-    '.exec-host-notice.amber{color:var(--amber)}',
-    '.exec-host-notice.red-note{color:var(--red)}',
-    '.exec-cmd-outer{margin-top:14px;max-width:720px}',
-    '.exec-cmd{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:12px;font-family:"Consolas","Courier New",monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;user-select:all;cursor:text;color:var(--green);margin-bottom:8px}',
-    '.exec-cmd-note{color:var(--muted);font-size:11px;margin-bottom:6px}',
     '.fleet-err-banner{background:rgba(210,140,0,.1);border:1px solid var(--amber);border-radius:4px;padding:7px 12px;margin-bottom:6px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:10px}',
     '.fleet-err-banner a{color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap}',
     '.tab-badge{display:inline-block;background:var(--amber);color:#0d1117;font-size:10px;font-weight:bold;border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle;line-height:14px}',
@@ -2836,7 +2819,6 @@ function buildUserExpand(u) {
   document.head.appendChild(s);
 })();
 
-var _execTabRemoteDestModified = false;
 var _bulkSel = {};          // { hostname: { mem, disk } }
 var _toolsManifest       = null;   // cached tools.json data
 var _toolsManifestLoaded = false;  // true once fetch attempt completed
@@ -2849,12 +2831,6 @@ function _loadToolsManifest(callback) {
   }
   callback(_toolsManifest);
 }
-
-var _execTabToolDefaults = {
-  Memory: 'C:\\Windows\\Temp\\winpmem.exe',
-  Disk:   'C:\\Windows\\Temp\\DumpIt.exe',
-  Custom: ''
-};
 
 function _getCollectionStatus(hostname) {
   var d = state.hosts[hostname];
@@ -2912,7 +2888,7 @@ function renderExecute() {
   // ── Section 1: Host Status ────────────────────────────────────────────────
   var sec1HTML;
   if (hosts.length === 0) {
-    sec1HTML = '<div class="exec-no-hosts">Load a JSON file to see host status. You can still use the manual launcher below.</div>';
+    sec1HTML = '<div class="exec-no-hosts">Load a JSON file to see host status.</div>';
   } else {
     // Initialise bulk-selection state for any new hosts
     hosts.forEach(function(h) {
@@ -2955,15 +2931,6 @@ function renderExecute() {
       '</div>';
   }
 
-  // ── Section 2: Launcher ───────────────────────────────────────────────────
-  var hostOpts = hosts.map(function(h) {
-    return '<option value="' + esc(h) + '">' + esc(h) + '</option>';
-  }).join('');
-  var hostDropdown = hosts.length > 0
-    ? '<select id="et-host-select" onchange="execTabHostDropdownChange()" style="width:200px">' +
-      '<option value="">-- Select loaded host --</option>' + hostOpts + '</select>'
-    : '';
-
   panel.innerHTML =
     '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickerProtocol.ps1</strong> once as Administrator.</div>' +
     '<div class="exec-section">' +
@@ -2971,190 +2938,14 @@ function renderExecute() {
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +
       '</div>' +
       '<div class="exec-section-body" id="exec-sec1-body">' + sec1HTML + '</div>' +
-    '</div>' +
-    '<div class="exec-section" id="exec-launcher-section">' +
-      '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec2-body\')">' +
-        '<span class="exec-sec-arrow" id="exec-sec2-arrow">&#9660;</span>Launch with Command' +
-      '</div>' +
-      '<div class="exec-section-body" id="exec-sec2-body"><div class="exec-launcher">' +
-        '<div class="exec-field">' +
-          '<label>Target Host</label>' +
-          '<div class="exec-field-wrap">' +
-            '<input type="text" id="et-host" placeholder="hostname or IP">' +
-            hostDropdown +
-          '</div>' +
-        '</div>' +
-        '<div id="et-host-notice"></div>' +
-        '<div class="exec-field">' +
-          '<label>Tool Type</label>' +
-          '<select id="et-tool-type" onchange="execTabToolTypeChange()">' +
-            '<option value="Memory">Memory</option>' +
-            '<option value="Disk">Disk</option>' +
-            '<option value="Custom">Custom</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="exec-field">' +
-          '<label>Local Binary</label>' +
-          '<input type="text" id="et-local-bin" placeholder="C:\\Tools\\winpmem.exe">' +
-        '</div>' +
-        '<div class="exec-field">' +
-          '<label>Remote Dest</label>' +
-          '<input type="text" id="et-remote-dest" placeholder="C:\\Windows\\Temp\\winpmem.exe" oninput="_execTabRemoteDestModified=true">' +
-        '</div>' +
-        '<div class="exec-field">' +
-          '<label>Arguments</label>' +
-          '<input type="text" id="et-args" placeholder="-o C:\\Windows\\Temp\\mem.raw">' +
-        '</div>' +
-        '<div class="exec-field">' +
-          '<label>Method</label>' +
-          '<select id="et-method">' +
-            '<option value="Auto">Auto</option>' +
-            '<option value="WinRM">WinRM</option>' +
-            '<option value="SMB+WMI">SMB+WMI</option>' +
-            '<option value="WMI">WMI</option>' +
-          '</select>' +
-        '</div>' +
-        '<div class="exec-field">' +
-          '<label>SMB Share</label>' +
-          '<input type="text" id="et-smb-share" placeholder="optional — default: \\\\target\\C$">' +
-        '</div>' +
-        '<div class="exec-field">' +
-          '<label>Alive Check (s)</label>' +
-          '<input type="number" id="et-alive" value="10" min="1" max="3600" style="width:80px">' +
-        '</div>' +
-        '<div class="exec-actions">' +
-          '<button class="exec-copy-btn" id="et-copy-btn" onclick="execTabCopy()">Copy Command</button>' +
-          '<button onclick="execTabLaunch()">Launch &#8594;</button>' +
-        '</div>' +
-        '<div id="et-cmd-wrap" style="display:none">' +
-          '<div class="exec-cmd-outer">' +
-            '<div class="exec-cmd-note">Copy and paste into PowerShell:</div>' +
-            '<div class="exec-cmd" id="et-cmd-display" title="Click to select all" onclick="window.getSelection().selectAllChildren(this)"></div>' +
-            '<div class="exec-cmd-note">Run this command from the Quicker folder</div>' +
-            '<button class="exec-copy-btn" onclick="execTabCopyCmd()" style="margin-top:6px">Copy to Clipboard</button>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +   // close exec-launcher
-      '</div>' +   // close exec-section-body
     '</div>';
 
-  // Set initial remote dest for default tool type (Memory)
-  var rdEl = el('et-remote-dest');
-  if (rdEl) rdEl.value = _execTabToolDefaults['Memory'];
-  _execTabRemoteDestModified = false;
   _execEnsureQueueModal();
   _execUpdateSelCounter();
   _loadToolsManifest(function(manifest) {
     var banner = el('exec-setup-banner');
     if (banner && manifest) banner.style.display = '';
   });
-}
-
-function execTabToolTypeChange() {
-  if (_execTabRemoteDestModified) return;
-  var tt = el('et-tool-type');
-  var rd = el('et-remote-dest');
-  if (tt && rd) rd.value = _execTabToolDefaults[tt.value] || '';
-}
-
-function execTabHostDropdownChange() {
-  var sel = el('et-host-select');
-  if (!sel) return;
-  var h = sel.value;
-  var hostEl = el('et-host');
-  if (hostEl) hostEl.value = h;
-  _updateExecHostNotice(h);
-}
-
-function _updateExecHostNotice(hostname) {
-  var notice = el('et-host-notice');
-  if (!notice) return;
-  if (!hostname || !state.hosts[hostname]) { notice.innerHTML = ''; return; }
-  var cs = _getCollectionStatus(hostname);
-  var ws = _getWinRMStatus(hostname);
-  var html = '';
-  if (cs.status === 'partial' || cs.status === 'failed') {
-    html += '<div class="exec-host-notice amber">&#9888; Collection was ' + esc(cs.label.toLowerCase()) + ' on this host.</div>';
-  }
-  if (ws.status === 'unreachable') {
-    html += '<div class="exec-host-notice red-note">WinRM was unreachable during collection. Try SMB+WMI method or verify credentials.</div>';
-  }
-  notice.innerHTML = html;
-}
-
-function _buildExecTabCommand() {
-  var host   = (el('et-host')        || {}).value || '';
-  var lbin   = (el('et-local-bin')   || {}).value || '';
-  var rdest  = (el('et-remote-dest') || {}).value || '';
-  var args   = (el('et-args')        || {}).value || '';
-  var method = (el('et-method')      || {}).value || 'Auto';
-  var smb    = (el('et-smb-share')   || {}).value || '';
-  var alive  = (el('et-alive')       || {}).value || '10';
-  // Strip any surrounding quotes before re-quoting paths
-  function sq(v) { return v.replace(/^["']|["']$/g, ''); }
-  var cmd = '.\\Executor.ps1 `\n  -Target "' + sq(host) + '" `\n  -LocalBinaryPath "' + sq(lbin) + '" `\n  -RemoteDestPath "' + sq(rdest) + '" `\n  -Arguments "' + sq(args) + '" `\n  -Method ' + method;
-  if (smb) cmd += ' `\n  -RemoteShare "' + sq(smb) + '"';
-  cmd += ' `\n  -AliveCheck ' + alive + ' `\n  -Credential (Get-Credential)';
-  return cmd;
-}
-
-function _execTabClipboard(text) {
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(text).catch(function() { _execTabClipboardFallback(text); });
-  } else {
-    _execTabClipboardFallback(text);
-  }
-}
-
-function _execTabClipboardFallback(text) {
-  var ta = document.createElement('textarea');
-  ta.value = text;
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand('copy');
-  document.body.removeChild(ta);
-}
-
-function execTabCopy() {
-  _execTabClipboard(_buildExecTabCommand());
-  var btn = el('et-copy-btn');
-  if (btn) {
-    btn.textContent = 'Copied!';
-    setTimeout(function() { if (btn) btn.textContent = 'Copy Command'; }, 2000);
-  }
-}
-
-function execTabLaunch() {
-  var cmd  = _buildExecTabCommand();
-  var wrap = el('et-cmd-wrap');
-  var disp = el('et-cmd-display');
-  if (disp) disp.textContent = cmd;
-  if (wrap) wrap.style.display = '';
-}
-
-function execTabCopyCmd() {
-  _execTabClipboard(_buildExecTabCommand());
-}
-
-function execTabCollectFromRow(hostname, toolType) {
-  var hostEl = el('et-host');
-  var ttEl   = el('et-tool-type');
-  var rdEl   = el('et-remote-dest');
-  var lbEl   = el('et-local-bin');
-  var selEl  = el('et-host-select');
-  if (hostEl) hostEl.value = hostname;
-  if (selEl)  { selEl.value = hostname; }
-  if (ttEl)   ttEl.value   = toolType;
-  _execTabRemoteDestModified = false;
-  if (rdEl)   rdEl.value   = _execTabToolDefaults[toolType] || '';
-  _updateExecHostNotice(hostname);
-  var launcher = el('exec-sec2-body');
-  if (launcher) {
-    // Ensure section is expanded before scrolling
-    if (launcher.classList.contains('collapsed')) execToggleSection('exec-sec2-body');
-    launcher.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-  setTimeout(function() { if (lbEl) lbEl.focus(); }, 300);
 }
 
 // ── BULK SELECTION HANDLERS ───────────────────────────────────────────────────
@@ -3502,8 +3293,7 @@ function execToggleSection(bodyId) {
   var body = el(bodyId);
   if (!body) return;
   var nowCollapsed = body.classList.toggle('collapsed');
-  var arrowId = bodyId === 'exec-sec1-body' ? 'exec-sec1-arrow' : 'exec-sec2-arrow';
-  var arrow = el(arrowId);
+  var arrow = el('exec-sec1-arrow');
   if (arrow) arrow.innerHTML = nowCollapsed ? '&#9654;' : '&#9660;';
 }
 
