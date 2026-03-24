@@ -481,7 +481,8 @@ function _toolCatLabel(cat) {
 }
 
 // Builds a binary field (dropdown or text input) for the given type ('mem' or 'disk')
-function _buildBinField(type, label, manifest) {
+// preselect: optional path string to pre-select in the dropdown
+function _buildBinField(type, label, manifest, preselect) {
   var relevant = [];
   if (manifest && manifest.tools) {
     manifest.tools.forEach(function(t) {
@@ -491,9 +492,15 @@ function _buildBinField(type, label, manifest) {
     });
   }
   if (relevant.length > 0) {
-    var opts = '<option value="" disabled selected>-- Select tool --</option>';
+    var hasPreselect = false;
+    if (preselect) {
+      var norm = preselect.replace(/\//g, '\\').toLowerCase();
+      relevant.forEach(function(t) { if (t.path.toLowerCase() === norm) hasPreselect = true; });
+    }
+    var opts = hasPreselect ? '' : '<option value="" disabled selected>-- Select tool --</option>';
     opts += relevant.map(function(t) {
-      return '<option value="' + esc(t.path) + '">' + esc(t.filename) + ' (' + _toolCatLabel(t.category) + ')</option>';
+      var sel = (hasPreselect && t.path.toLowerCase() === preselect.replace(/\//g, '\\').toLowerCase()) ? ' selected' : '';
+      return '<option value="' + esc(t.path) + '"' + sel + '>' + esc(t.filename) + ' (' + _toolCatLabel(t.category) + ')</option>';
     }).join('');
     opts += '<option value="__browse__">Browse\u2026</option>';
     return '<div class="qm-field"><label>' + label + '</label>' +
@@ -503,9 +510,10 @@ function _buildBinField(type, label, manifest) {
       '</div>' +
     '</div>';
   }
-  // Fallback: plain text input
+  // Fallback: plain text input (pre-fill with default if provided)
+  var val = preselect ? ' value="' + esc(preselect) + '"' : '';
   return '<div class="qm-field"><label>' + label + '</label>' +
-    '<input type="text" id="qm-' + type + '-bin" placeholder="Run Get-ToolsManifest.ps1 to populate tool list"></div>';
+    '<input type="text" id="qm-' + type + '-bin"' + val + ' placeholder="Run Get-ToolsManifest.ps1 to populate tool list"></div>';
 }
 
 // Returns the effective binary path for the given type ('mem' or 'disk')
@@ -552,24 +560,17 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
       '</tr>';
   }).join('');
 
-  // Binary fields: pre-fill from defaults or show dropdown/fallback
+  // Binary fields: always use dropdown when manifest has tools;
+  // pass tool-defaults binary as pre-selection hint (validated against manifest)
   var memField = '';
   if (hasMemJobs) {
-    if (memDef && memDef.binary) {
-      memField = '<div class="qm-field"><label>Memory Binary</label>' +
-        '<input type="text" id="qm-mem-bin" value="' + esc(memDef.binary) + '"></div>';
-    } else {
-      memField = _buildBinField('mem', 'Memory Binary', manifest);
-    }
+    var memPreselect = (memDef && memDef.binary) ? memDef.binary : null;
+    memField = _buildBinField('mem', 'Memory Binary', manifest, memPreselect);
   }
   var diskField = '';
   if (hasDiskJobs) {
-    if (diskDef && diskDef.binary) {
-      diskField = '<div class="qm-field"><label>Disk Binary</label>' +
-        '<input type="text" id="qm-disk-bin" value="' + esc(diskDef.binary) + '"></div>';
-    } else {
-      diskField = _buildBinField('disk', 'Disk Binary', manifest);
-    }
+    var diskPreselect = (diskDef && diskDef.binary) ? diskDef.binary : null;
+    diskField = _buildBinField('disk', 'Disk Binary', manifest, diskPreselect);
   }
 
   // Compute defaults for shared fields (prefer memory defaults, then disk)
