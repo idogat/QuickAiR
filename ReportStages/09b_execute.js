@@ -219,6 +219,7 @@ function renderExecute() {
           '<select id="et-method">' +
             '<option value="Auto">Auto</option>' +
             '<option value="WinRM">WinRM</option>' +
+            '<option value="SMB+WMI">SMB+WMI</option>' +
             '<option value="WMI">WMI</option>' +
           '</select>' +
         '</div>' +
@@ -281,7 +282,7 @@ function _updateExecHostNotice(hostname) {
     html += '<div class="exec-host-notice amber">&#9888; Collection was ' + esc(cs.label.toLowerCase()) + ' on this host.</div>';
   }
   if (ws.status === 'unreachable') {
-    html += '<div class="exec-host-notice red-note">WinRM was unreachable during collection. Try WMI method or verify credentials.</div>';
+    html += '<div class="exec-host-notice red-note">WinRM was unreachable during collection. Try SMB+WMI method or verify credentials.</div>';
   }
   notice.innerHTML = html;
 }
@@ -602,7 +603,7 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
 
   // Build per-row editable table
   function methodOpts(selected) {
-    return ['Auto', 'WinRM', 'WMI'].map(function(m) {
+    return ['Auto', 'WinRM', 'SMB+WMI', 'WMI'].map(function(m) {
       return '<option value="' + m + '"' + (m === selected ? ' selected' : '') + '>' + m + '</option>';
     }).join('');
   }

@@ -186,11 +186,11 @@ function Parse-QuickerURI {
             }
         }
 
-        # method — must be Auto, WinRM, or WMI
+        # method — must be Auto, WinRM, SMB+WMI, or WMI
         if ($ok) {
             $meth = if ($raw.PSObject.Properties['method']) { [string]$raw.method } else { '' }
-            if ($meth -notmatch '^(Auto|WinRM|WMI)$') {
-                $ok = $false; $reason = "method must be Auto|WinRM|WMI, got: '$meth'"
+            if ($meth -notmatch '^(Auto|WinRM|SMB\+WMI|WMI)$') {
+                $ok = $false; $reason = "method must be Auto|WinRM|SMB+WMI|WMI, got: '$meth'"
             }
         }
 
