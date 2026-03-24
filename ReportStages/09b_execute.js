@@ -139,18 +139,21 @@ function renderExecute() {
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
+      var execData = (state.executions || {})[h];
+      var shareInfo = (execData && execData.SmbShare) ? execData.SmbShare : '';
       return '<tr id="exec-row-' + esc(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
         '<td class="' + cs.cls + '">' + esc(cs.label) + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
+        '<td class="mono dim">' + esc(shareInfo) + '</td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + esc(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '</tr>';
     }).join('');
     sec1HTML = '<table class="exec-host-tbl">' +
       '<thead><tr>' +
-        '<th>Hostname</th><th>OS</th><th>Collection Status</th><th>WinRM</th>' +
+        '<th>Hostname</th><th>OS</th><th>Collection Status</th><th>WinRM</th><th>SMB Share</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
       '</tr></thead>' +

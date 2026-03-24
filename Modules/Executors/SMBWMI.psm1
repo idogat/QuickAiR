@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.2                    ║
+# ║  Version   : 1.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -109,7 +109,8 @@ function Invoke-Executor {
             foreach ($s in $shares) {
                 $allNames += [string]$s['Name']
                 $sp = [string]$s['Path']
-                if ($sp -and $sp.Length -ge 2 -and $sp.Substring(0,1) -ieq $DriveLetter) {
+                $driveRoot = $DriveLetter + ':\'
+                if ($sp -and $sp -ieq $driveRoot) {
                     return @{ Name = [string]$s['Name']; Path = $sp; AllShares = $allNames }
                 }
             }
@@ -257,8 +258,13 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 3 — Compute SHA256 of local binary
-        $localHash = (Get-FileHash -LiteralPath $LocalBinaryPath -Algorithm SHA256).Hash
+        # Step 3 — Compute SHA256 of local binary (PS 2.0 compatible — no Get-FileHash)
+        $localSha = [System.Security.Cryptography.SHA256]::Create()
+        $localBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
+        $localHashBytes = $localSha.ComputeHash($localBytes)
+        try { $localSha.Dispose() } catch { }
+        $localHash = ([System.BitConverter]::ToString($localHashBytes) -replace '-','')
+        $localSize = $localBytes.Length
 
         # Step 4 — Transfer binary via SMB (use UNC path — PSDrive caches credentials)
         try {
@@ -268,7 +274,17 @@ function Invoke-Executor {
             }
             Copy-Item -LiteralPath $LocalBinaryPath -Destination $uncPath -Force -ErrorAction Stop
 
-            # Verify SHA256 by reading back through UNC
+            # Verify 1: file exists on target
+            if (-not (Test-Path -LiteralPath $uncPath)) {
+                throw "Post-copy verification failed: file not found at UNC path $uncPath"
+            }
+            # Verify 2: file size matches source
+            $remoteSize = (Get-Item -LiteralPath $uncPath -ErrorAction Stop).Length
+            if ($remoteSize -ne $localSize) {
+                throw "Post-copy verification failed: size mismatch (local=${localSize} remote=${remoteSize}) UNC=$uncPath"
+            }
+
+            # Verify 3: SHA256 by reading back through UNC
             $sha   = [System.Security.Cryptography.SHA256]::Create()
             $bytes = [System.IO.File]::ReadAllBytes($uncPath)
             $hash  = $sha.ComputeHash($bytes)

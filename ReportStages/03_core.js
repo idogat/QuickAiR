@@ -9,6 +9,7 @@ const state = {
   vsInstances: {},  // virtual scroll instances keyed by id
   expandedRows: {}, // { tableId: rowIndex }
   filtered: {},     // { tab: sortedRows[] } for sortTable
+  executions: {},   // { hostname: executionResultObj } from *_execution_*.json
 };
 
 // ── SORT/RESIZE CSS ───────────────────────────────────────────────────────────
@@ -295,6 +296,11 @@ function loadJsonFile(file, onDone) {
   reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
+      // Handle execution result JSONs (from Executor.ps1)
+      if (data.ExecutionId && data.ComputerName && !data.manifest) {
+        state.executions[data.ComputerName] = data;
+        onDone(); return;
+      }
       const host = (data.manifest && data.manifest.hostname) ? data.manifest.hostname : file.name.replace(/\.json$/i,'');
       // Normalize new JSON keys (v2.0) with backwards compat for old format
       data.processes   = data.Processes   || data.processes   || [];
