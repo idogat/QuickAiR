@@ -79,6 +79,7 @@ function New-JobEntry {
         RemoteDest    = if ($raw.remoteDest) { ([string]$raw.remoteDest).Trim().Trim('"').Trim("'").Trim() } else { '' }
         Arguments     = if ($raw.arguments)  { ([string]$raw.arguments).Trim() }  else { '' }
         Method        = if ($raw.method)     { [string]$raw.method }     else { 'Auto' }
+        SmbShare      = if ($raw.smbShare)  { ([string]$raw.smbShare).Trim() } else { '' }
         AliveCheck    = $ac
         Status        = 'Queued'
         Detail        = ''
@@ -109,6 +110,7 @@ function New-FailedEntry {
         RemoteDest    = ''
         Arguments     = ''
         Method        = ''
+        SmbShare      = ''
         AliveCheck    = 10
         Status        = 'VALIDATION_FAILED'
         Detail        = $detail

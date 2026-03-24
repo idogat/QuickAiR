@@ -224,6 +224,10 @@ function renderExecute() {
           '</select>' +
         '</div>' +
         '<div class="exec-field">' +
+          '<label>SMB Share</label>' +
+          '<input type="text" id="et-smb-share" placeholder="optional — default: \\\\target\\C$">' +
+        '</div>' +
+        '<div class="exec-field">' +
           '<label>Alive Check (s)</label>' +
           '<input type="number" id="et-alive" value="10" min="1" max="3600" style="width:80px">' +
         '</div>' +
@@ -293,10 +297,14 @@ function _buildExecTabCommand() {
   var rdest  = (el('et-remote-dest') || {}).value || '';
   var args   = (el('et-args')        || {}).value || '';
   var method = (el('et-method')      || {}).value || 'Auto';
+  var smb    = (el('et-smb-share')   || {}).value || '';
   var alive  = (el('et-alive')       || {}).value || '10';
   // Strip any surrounding quotes before re-quoting paths
   function sq(v) { return v.replace(/^["']|["']$/g, ''); }
-  return '.\\Executor.ps1 `\n  -Target "' + sq(host) + '" `\n  -LocalBinaryPath "' + sq(lbin) + '" `\n  -RemoteDestPath "' + sq(rdest) + '" `\n  -Arguments "' + sq(args) + '" `\n  -Method ' + method + ' `\n  -AliveCheck ' + alive + ' `\n  -Credential (Get-Credential)';
+  var cmd = '.\\Executor.ps1 `\n  -Target "' + sq(host) + '" `\n  -LocalBinaryPath "' + sq(lbin) + '" `\n  -RemoteDestPath "' + sq(rdest) + '" `\n  -Arguments "' + sq(args) + '" `\n  -Method ' + method;
+  if (smb) cmd += ' `\n  -SmbShare "' + sq(smb) + '"';
+  cmd += ' `\n  -AliveCheck ' + alive + ' `\n  -Credential (Get-Credential)';
+  return cmd;
 }
 
 function _execTabClipboard(text) {
@@ -621,6 +629,7 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
         'oninput="_qmRowRdModified[' + idx + ']=true" placeholder="C:\\Windows\\Temp\\tool.exe"></td>' +
       '<td><input id="qm-args-' + idx + '" value="' + esc(args) + '" placeholder="optional"></td>' +
       '<td><select id="qm-method-' + idx + '">' + methodOpts(meth) + '</select></td>' +
+      '<td><input id="qm-smb-' + idx + '" value="" placeholder="\\\\target\\C$" style="width:120px"></td>' +
       '<td><input type="number" id="qm-alive-' + idx + '" value="' + alive + '" min="1" max="3600" style="width:60px"></td>' +
       '</tr>';
   }).join('');
@@ -634,7 +643,7 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
       '<table class="qm-settings-tbl">' +
         '<thead><tr>' +
           '<th>Host</th><th>Type</th><th>Remote Destination</th>' +
-          '<th>Arguments</th><th>Method</th><th>Alive</th>' +
+          '<th>Arguments</th><th>Method</th><th>SMB Share</th><th>Alive</th>' +
         '</tr></thead>' +
         '<tbody>' + settingsRows + '</tbody>' +
       '</table>' +
@@ -665,6 +674,7 @@ function _queueModalLaunch() {
       remoteDest: (el('qm-rd-' + idx) || {}).value || '',
       arguments:  (el('qm-args-' + idx) || {}).value || '',
       method:     (el('qm-method-' + idx) || {}).value || 'Auto',
+      smbShare:   (el('qm-smb-' + idx) || {}).value || '',
       aliveCheck: parseInt((el('qm-alive-' + idx) || {}).value || '30', 10) || 30
     };
   });

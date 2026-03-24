@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.0                    ║
+# ║  Version   : 1.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -49,6 +49,7 @@ function Invoke-Executor {
         [Parameter(Mandatory=$true)]  [string]$RemoteDestPath,
         [Parameter(Mandatory=$false)] [string]$Arguments = "",
         [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10,
+        [Parameter(Mandatory=$false)] [string]$SmbShare = "",
         [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null
     )
 
@@ -65,6 +66,7 @@ function Invoke-Executor {
         States        = @()
         FinalState    = $null
         PID           = $null
+        SmbShare      = $null
         BinaryType    = $null
         Error         = $null
     }
@@ -103,18 +105,35 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 2 — Test SMB connectivity: map PSDrive to admin share
-        $uncPath = ConvertTo-UNCPath -Host_ $ComputerName -LocalPath $RemoteDestPath
-        if (-not $uncPath) {
-            Add-State "CONNECTION_FAILED" "Cannot convert path to UNC: $RemoteDestPath"
-            $result.Error = "Cannot convert path to UNC: $RemoteDestPath"
-            $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
-            return [PSCustomObject]$result
+        # Step 2 — Test SMB connectivity: map PSDrive to share
+        if ($SmbShare) {
+            # Custom share provided (e.g. \\host\CustomShare or just CustomShare)
+            $shareRoot = $SmbShare.TrimEnd('\')
+            if ($shareRoot -notmatch '^\\\\') {
+                $shareRoot = "\\$ComputerName\$shareRoot"
+            }
+            # For custom share: UNC path = shareRoot + relative portion of RemoteDestPath
+            # User must ensure RemoteDestPath maps correctly under the share
+            $uncPath = ConvertTo-UNCPath -Host_ $ComputerName -LocalPath $RemoteDestPath
+            if (-not $uncPath) {
+                Add-State "CONNECTION_FAILED" "Cannot convert path to UNC: $RemoteDestPath"
+                $result.Error = "Cannot convert path to UNC: $RemoteDestPath"
+                $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                return [PSCustomObject]$result
+            }
+        } else {
+            # Default: admin share (C$, D$, etc.)
+            $uncPath = ConvertTo-UNCPath -Host_ $ComputerName -LocalPath $RemoteDestPath
+            if (-not $uncPath) {
+                Add-State "CONNECTION_FAILED" "Cannot convert path to UNC: $RemoteDestPath"
+                $result.Error = "Cannot convert path to UNC: $RemoteDestPath"
+                $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                return [PSCustomObject]$result
+            }
+            $driveLetter = $RemoteDestPath.Substring(0,1)
+            $shareRoot   = "\\$ComputerName\$driveLetter`$"
         }
-
-        # Extract drive share root: \\host\C$
-        $driveLetter = $RemoteDestPath.Substring(0,1)
-        $shareRoot   = "\\$ComputerName\$driveLetter`$"
+        $result.SmbShare = $shareRoot
         $smbDriveName = "QuickerSMB_$(Get-Random)"
 
         try {
@@ -160,7 +179,7 @@ function Invoke-Executor {
             if ($remoteHash -ne $localHash) {
                 throw "SHA256 mismatch: local=$localHash remote=$remoteHash"
             }
-            Add-State "TRANSFERRED" "SHA256=$localHash"
+            Add-State "TRANSFERRED" "via $shareRoot SHA256=$localHash"
         } catch {
             Add-State "TRANSFER_FAILED" $_.Exception.Message
             $result.Error = $_.Exception.Message

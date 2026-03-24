@@ -21,7 +21,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.6                    ║
+# ║  Version   : 1.7                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -33,6 +33,7 @@ param(
     [Parameter(Mandatory=$false)] [System.Management.Automation.PSCredential]$Credential,
     [Parameter(Mandatory=$false)] [ValidateSet("Auto","WinRM","SMB+WMI","WMI")] [string]$Method = "Auto",
     [Parameter(Mandatory=$false)] [int]$AliveCheck         = 10,
+    [Parameter(Mandatory=$false)] [string]$SmbShare        = "",
     [Parameter(Mandatory=$false)] [string]$OutputPath      = "",
     [Parameter(Mandatory=$false)] [switch]$Help
 )
@@ -40,7 +41,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.6"
+$EXECUTOR_VERSION = "1.7"
 
 #region --- Help ---
 if ($Help) {
@@ -66,6 +67,9 @@ if ($Help) {
     Write-Host "  -Method           Auto | WinRM | SMB+WMI | WMI  (default: Auto)"
     Write-Host "                    Auto tries WinRM first, then SMB+WMI, then FAILED"
     Write-Host "  -AliveCheck       Seconds to wait before alive check (default: 10)"
+    Write-Host "  -SmbShare         Custom SMB share for SMB+WMI method (optional)"
+    Write-Host "                    Default: admin share (\\target\C$)"
+    Write-Host "                    Example: \\target\Share or just ShareName"
     Write-Host "  -OutputPath       Folder for result JSON (default: .\ExecutionResults\)"
     Write-Host "  -Help             Show this help"
     Write-Host ""
@@ -188,6 +192,10 @@ $execParams = @{
     AliveCheckSeconds  = $AliveCheck
 }
 
+# SmbShare only applies to SMBWMI module
+$smbExecParams = $execParams.Clone()
+if ($SmbShare) { $smbExecParams['SmbShare'] = $SmbShare }
+
 # Helper: print states for a result
 function Show-States {
     param($res)
@@ -211,7 +219,7 @@ if ($Method -eq "Auto") {
         $winrmError = $result.Error
         Write-Ts "WinRM failed -- trying SMB+WMI..." "Yellow"
         Import-Module "$executorDir\SMBWMI.psm1" -Force
-        $result = Invoke-Executor @execParams
+        $result = Invoke-Executor @smbExecParams
         Show-States $result
 
         if ($result.FinalState -eq "CONNECTION_FAILED") {
@@ -231,7 +239,7 @@ elseif ($Method -eq "WinRM") {
 elseif ($Method -eq "SMB+WMI") {
     Write-Ts "Trying SMB+WMI..." "Cyan"
     Import-Module "$executorDir\SMBWMI.psm1" -Force
-    $result = Invoke-Executor @execParams
+    $result = Invoke-Executor @smbExecParams
     Show-States $result
 }
 elseif ($Method -eq "WMI") {
