@@ -175,4 +175,116 @@ Network — DNS Cache collects the DNS resolver cache from the target. The colle
 - **TTL parsing fragility**: ipconfig TTL extracted via regex `Time To Live[\s.]*:[\s]*(\d+)` — Windows ipconfig output formatting has varied across OS versions; TTL may be 0 or incorrect on untested OS versions
 
 
-<!-- DLLs, Users, and Toolkit-Wide Coverage Gaps sections follow -->
+
+
+## DLLs
+
+DLLs collects loaded module (DLL) details for each process from the target. The collection method and available data fields vary by tier.
+
+### Fallback Chain
+
+| Tier | Condition | Collection Method | `source` value |
+|------|-----------|-------------------|----------------|
+| PS 3+ | PSVersion >= 3 | `[System.Diagnostics.Process]::GetProcesses()` + `.Modules` | `dotnet` |
+| PS 2.0 | PSVersion < 3 | `Win32_ProcessVMMapsFiles` WMI association, fallback to `CIM_ProcessExecutable` | `wmi` |
+
+**Note:** These are entirely different enumeration mechanisms — the WMI path is NOT a degraded version of the .NET path.
+
+**PS 2.0 WMI association query:** The PS 2.0 path tries `Win32_ProcessVMMapsFiles` first; if that throws, tries `CIM_ProcessExecutable`. Both use `Antecedent`/`Dependent` traversal. If both fail, emits a stub entry with `reason = 'WMI_UNAVAILABLE'` and no module data.
+
+**Protected process exclusion (all tiers):** `lsass`, `csrss`, `smss`, `wininit`, `System`, `Idle` are skipped at ALL tiers — hardcoded exclusion list in `DLLs.psm1` at two locations (PS 3+ path and PS 2.0 path).
+
+### Field Fidelity
+
+| Field | .NET `dotnet` (PS 3+) | WMI (PS 2.0) |
+|-------|----------------------|--------------|
+| `ProcessId` | populated | populated |
+| `ProcessName` | populated | populated |
+| `ModuleName` | populated (`.ModuleName`) | populated (filename from path) |
+| `ModulePath` | populated (`.FileName`) | populated (from WMI association object) |
+| `FileVersion` | populated (`[FileVersionInfo]::GetVersionInfo`) | populated (`CIM_DataFile.Version`) |
+| `Company` | populated (`FileVersionInfo.CompanyName`) | populated (`CIM_DataFile.Manufacturer`) |
+| `FileHash` (SHA256) | populated | populated |
+| `IsPrivatePath` | populated (checks `\Temp\`, `\AppData\`, `\ProgramData\`, `\Users\Public\`, `\Downloads\`) | populated (same logic) |
+| `Signature.IsValid` | populated (bool) | **null** |
+| `Signature.Thumbprint` | populated | **null** |
+| `Signature.NotAfter` | populated | **null** |
+| `Signature.TimeStamper` | populated | **null** |
+| `Signature.Status` | populated (e.g. `Valid`) | `PS2_SIGNED / PS2_UNSUPPORTED` |
+| `Signature.SignerSubject` | populated | populated (X509 Subject only) |
+| `LoadedAt` | null (all tiers) — neither `.NET` nor WMI API provides DLL load timestamp | null (all tiers) |
+
+**FileVersion/Company source difference:** The .NET path uses `System.Diagnostics.FileVersionInfo` (file metadata). The WMI path uses `Get-WmiObject CIM_DataFile` (WMI database). Values may differ for files where the WMI database is stale or incomplete.
+
+### Coverage Gaps
+
+- **Protected processes skipped**: `lsass`, `csrss`, `smss`, `wininit`, `System`, `Idle` are never enumerated at any tier — hardcoded exclusion list in `DLLs.psm1`
+- **No DLL load timestamps**: `LoadedAt` is null at all tiers — no Windows API provides DLL load time
+- **ACCESS_DENIED stubs**: Processes where `.Modules` access throws ACCESS_DENIED (.NET path) produce a stub entry with `reason='ACCESS_DENIED'` and no module data
+- **PS 2.0 Signature limitation**: Same binary `PS2_SIGNED`/`PS2_UNSUPPORTED` limitation as Processes — `IsValid`, `Thumbprint`, `NotAfter`, `TimeStamper` always null
+- **FileVersion/Company source divergence at PS 2.0**: WMI `CIM_DataFile` values may differ from .NET `FileVersionInfo` for files where the WMI database is stale
+
+
+## Users
+
+Users collects local account inventory, user profile metadata, and (on domain controllers) domain account details from the target. The collection method and available data fields vary by tier.
+
+**Key architectural note:** The entire `$script:USERS_SB` scriptblock runs at ALL PS versions without branching on `PSVersion`. It uses `Get-WmiObject` (not `Get-CimInstance`) throughout — PS 2.0-compatible and works identically on PS 2.0 through PS 5.1. There is no PS-version-dependent fallback for local/profile collection.
+
+### Collection Sub-Components
+
+| Sub-component | Method | PS Version Dependency |
+|---------------|--------|-----------------------|
+| System info (`is_dc`, domain, machine name) | `Get-WmiObject Win32_ComputerSystem` | None — WMI at all tiers |
+| Machine SID prefix | `Get-WmiObject Win32_UserAccount` | None — WMI at all tiers |
+| User profiles | `HKLM:\...\ProfileList` registry enumeration | None — `Microsoft.Win32.Registry` API |
+| Profile timestamps | ProfileFolder mtime + NTUSER.DAT mtime + Registry LastWriteTime | None — file system + registry |
+| Local accounts | `Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True"` | None — WMI at all tiers |
+| DC domain accounts | `Get-ADUser` (preferred) -> ADSI `DirectorySearcher` (fallback) | None — PS version independent |
+
+**`source` field construction:**
+
+| Scenario | `source` value |
+|----------|----------------|
+| Non-DC target | `WMI` |
+| DC target with `Get-ADUser` available | `WMI+Get-ADUser` |
+| DC target with ADSI fallback | `WMI+ADSI` |
+
+**SID note:** `SID` is the primary cross-host user correlation key in this toolkit. SID is populated at all tiers for both local accounts and DC domain accounts.
+
+### DC Domain Account Fidelity
+
+| Field | `Get-ADUser` | ADSI (`DirectorySearcher`) |
+|-------|-------------|---------------------------|
+| `SamAccountName` | populated | populated |
+| `DisplayName` | populated | populated |
+| `SID` | populated | populated (byte array converted to `SecurityIdentifier`) |
+| `Enabled` | populated | derived from `userAccountControl` flag (bit 2) |
+| `WhenCreatedUTC` | populated | populated (`whencreated` attribute) |
+| `LastLogonUTC` | populated (`LastLogonDate` — replicated) | populated (`lastlogontimestamp` — replicated, up to 14 days lag) |
+| `PasswordLastSetUTC` | populated | populated (`pwdlastset` FILETIME) |
+| `LockedOut` | populated | derived from `lockouttime > 0` |
+| `BadLogonCount` | populated | populated (`badpwdcount`) |
+
+DC domain accounts: `LastLogonUTC` reflects `lastlogontimestamp` replication, which occurs every up to 14 days by default. This applies to both `Get-ADUser` and ADSI paths — neither provides real-time per-DC logon data.
+
+### Coverage Gaps
+
+- **No PS-version degradation for local/profile collection**: Same fields collected at all tiers — no fallback path exists for this sub-component
+- **DC LastLogon replication lag**: `LastLogonUTC` has up to 14-day replication lag regardless of `Get-ADUser` vs ADSI — Active Directory default (`lastlogontimestamp` attribute)
+- **No session enumeration**: Collection is account inventory, not active session state — logged-on users and active sessions are not collected
+
+
+## Toolkit-Wide Coverage Gaps
+
+The following artifact types are never collected at any tier. These are explicit scope boundaries, not collector failures.
+
+| Gap | Notes |
+|-----|-------|
+| Windows Event Logs | Explicitly out of scope |
+| Registry hives (raw) | Registry is read only for `ProfileList` key during Users collection |
+| Memory dumps / RAM contents | Out of scope |
+| File system artifacts (file listings, hash scans) | Out of scope |
+| Network packet captures | Out of scope |
+| Services / scheduled tasks | Not a collector module |
+| Autorun / persistence locations | Not a collector module |
