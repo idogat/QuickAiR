@@ -62,4 +62,117 @@ The `Get-TargetCaps` function in `Modules/Core/Connection.psm1` runs on the remo
 | `TimezoneOffsetMinutes` | int | Target timezone offset for UTC conversion |
 
 
-<!-- Collector sections follow -->
+
+
+## Processes
+
+Processes collects running process details from the target. The collection method and available data fields vary by tier.
+
+### Fallback Chain
+
+| Tier | Condition | Collection Method | `source` value |
+|------|-----------|-------------------|----------------|
+| PS 3+ | HasCIM=true | `Get-CimInstance Win32_Process` | `cim` |
+| PS 2.0 | PSVersion < 3 | `ManagementObjectSearcher Win32_Process` (WMI) | `wmi` |
+| Any (supplement) | PIDs in .NET not in WMI/CIM | `[System.Diagnostics.Process]::GetProcesses()` | `dotnet_fallback` |
+
+Supplement at all tiers: processes absent from WMI/CIM are added via `.NET System.Diagnostics.Process.GetProcesses()` with `source = dotnet_fallback`. These entries have null values for: `ParentProcessId`, `CommandLine`, `SessionId`, `HandleCount`.
+
+Combined source strings when supplement fires: `cim+dotnet_fallback` or `wmi+dotnet_fallback`.
+
+**Note:** The `PS 5.1 / Full CIM` and `PS 3+ / Partial CIM` columns are identical for Processes — both use `Get-CimInstance Win32_Process`. The CIM/netstat distinction (HasNetTCPIP / HasDNSClient) affects Network collection, not Processes.
+
+### Field Fidelity
+
+| Field | PS 5.1 / Full CIM | PS 3+ / Partial CIM | PS 2.0 / Legacy | `dotnet_fallback` |
+|-------|-------------------|---------------------|-----------------|-------------------|
+| `ProcessId` | populated | populated | populated | populated |
+| `ParentProcessId` | populated | populated | populated | **null** |
+| `Name` | populated | populated | populated | populated (`ProcessName`) |
+| `CommandLine` | populated | populated | populated | **null** |
+| `ExecutablePath` | populated | populated | populated | populated (`MainModule.FileName`) |
+| `CreationDateUTC` | populated (UTC) | populated (UTC) | populated (WMI DMTF converted) | populated (`StartTime` UTC) |
+| `WorkingSetSize` | populated | populated | populated | populated (`WorkingSet64`) |
+| `VirtualSize` | populated | populated | populated | populated (`VirtualMemorySize64`) |
+| `SessionId` | populated | populated | populated | **null** |
+| `HandleCount` | populated | populated | populated | **null** |
+| `SHA256` | populated | populated | populated | populated if path available |
+| `Signature.IsValid` | populated (bool) | populated (bool) | **null** | populated (PS3+) or null (PS2) |
+| `Signature.Thumbprint` | populated | populated | **null** | populated (PS3+) or null (PS2) |
+| `Signature.NotAfter` | populated | populated | **null** | populated (PS3+) or null (PS2) |
+| `Signature.TimeStamper` | populated | populated | **null** | populated (PS3+) or null (PS2) |
+| `Signature.Status` | populated (e.g. `Valid`) | populated | `PS2_SIGNED / PS2_UNSUPPORTED` | populated (PS3+) |
+| `Signature.SignerSubject` | populated | populated | populated (X509 Subject only) | populated (PS3+) |
+
+PS 2.0 Signature uses `X509Certificate.CreateFromSignedFile()` — no `Get-AuthenticodeSignature`. Status is `PS2_SIGNED` or `PS2_UNSUPPORTED` only. `IsValid`, `Thumbprint`, `NotAfter`, `TimeStamper` are always null.
+
+### Coverage Gaps
+
+- **dotnet_fallback field losses**: `ParentProcessId`=null, `CommandLine`=null, `SessionId`=null, `HandleCount`=null — process tree reconstruction impossible for these entries
+- **PS 2.0 Signature limitation**: Binary signed/not-signed status only — no certificate validation detail (`IsValid`, `Thumbprint`, `NotAfter`, `TimeStamper` always null)
+
+
+## Network — TCP Connections
+
+Network — TCP Connections collects active TCP connection details from the target. The collection method and available data fields vary by tier.
+
+### Fallback Chain
+
+| Tier | Condition | Collection Method | `source.network` value |
+|------|-----------|-------------------|------------------------|
+| Full CIM | HasNetTCPIP=true | `Get-CimInstance MSFT_NetTCPConnection` (`ROOT/StandardCimv2`) | `cim` |
+| PS 3+ partial | PSVersion >= 3, HasNetTCPIP=false | `& netstat -ano` (PowerShell invocation) | `netstat_fallback` |
+| PS 2.0 | PSVersion < 3 | `cmd /c "netstat -ano"` | `netstat_legacy` |
+
+### Field Fidelity
+
+| Field | CIM (`cim`) | `netstat_fallback` / `netstat_legacy` |
+|-------|-------------|---------------------------------------|
+| `LocalAddress` | populated | populated (regex parse) |
+| `LocalPort` | populated | populated (regex parse) |
+| `RemoteAddress` | populated | populated (regex parse) |
+| `RemotePort` | populated | populated (regex parse) |
+| `OwningProcess` (PID) | populated | populated (regex parse, last column) |
+| `State` | populated (converted via `ConvertFrom-TcpStateInt`) | populated (string from netstat, e.g. `ESTABLISHED`) |
+| `InterfaceAlias` | populated (CIM-native field) | derived — IP-to-adapter matching via `Resolve-InterfaceAlias`; unmatched IPs get `UNKNOWN` |
+| `CreationTime` | null (all tiers) — `MSFT_NetTCPConnection` does not expose this field | null (all tiers) |
+| `ReverseDns` | populated (post-collection DNS lookup) | populated (same post-collection step) |
+| `DnsMatch` | populated (DNS cache cross-reference) | populated (same step) |
+| `IsPrivateIP` | populated | populated |
+
+### Coverage Gaps
+
+- **No connection creation timestamps**: `CreationTime` is null at ALL tiers — neither CIM nor netstat provides this field; `MSFT_NetTCPConnection` does not expose connection creation time
+- **InterfaceAlias less precise at netstat tiers**: Derived from IP-to-adapter matching, not CIM-native; unmatched addresses return `UNKNOWN`
+- **Netstat parsing on legacy OS**: PS 2.0 targets (Server 2008 R2) may miss short-lived connections on high-churn workloads — T3 test allows 10% miss rate
+
+
+## Network — DNS Cache
+
+Network — DNS Cache collects the DNS resolver cache from the target. The collection method and available data fields vary by tier.
+
+### Fallback Chain
+
+| Tier | Condition | Collection Method | `source.dns` value |
+|------|-----------|-------------------|--------------------|
+| Full CIM | HasDNSClient=true | `Get-CimInstance MSFT_DNSClientCache` (`ROOT/StandardCimv2`) | `cim` |
+| PS 3+ partial | PSVersion >= 3, HasDNSClient=false | `& ipconfig /displaydns` + regex parse | `ipconfig_fallback` |
+| PS 2.0 | PSVersion < 3 | `cmd /c "ipconfig /displaydns"` + regex parse | `ipconfig_legacy` |
+
+### Field Fidelity
+
+| Field | CIM (`cim`) | `ipconfig_fallback` / `ipconfig_legacy` |
+|-------|-------------|----------------------------------------|
+| `Entry` | populated | populated (regex: `Record Name`) |
+| `Name` | populated | populated (same as Entry) |
+| `Data` | populated | populated (IP from `Host Record`) |
+| `Type` | integer (e.g. 1=A, 28=AAAA) | string (regex parse of `Record Type`) |
+| `TTL` | integer | integer (regex parse of `Time To Live` line) |
+
+### Coverage Gaps
+
+- **DNS Type field format difference**: CIM returns integer type code; ipconfig path returns string representation — consumers must handle both formats
+- **TTL parsing fragility**: ipconfig TTL extracted via regex `Time To Live[\s.]*:[\s]*(\d+)` — Windows ipconfig output formatting has varied across OS versions; TTL may be 0 or incorrect on untested OS versions
+
+
+<!-- DLLs, Users, and Toolkit-Wide Coverage Gaps sections follow -->
