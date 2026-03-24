@@ -62,6 +62,15 @@ All behavior detected at runtime — never hardcode targets, credentials, or OS 
 - Read file headers before full files — detail lives in headers not here
 - Use str_replace for edits, never full rewrites
 - One logical change at a time — verify before proceeding
-- Update file header version after every change
-- Update CLAUDE.md if architecture changes
 - Never commit screenshots or unnecessary files
+
+## Living Documents
+CLAUDE.md:
+- Update after every architectural change, file add/remove, or contract change
+- Keep under 80 lines — trim if exceeded; never let it become stale
+File headers:
+- Update version, function list, dependencies, and description after every change
+- A stale header is worse than no header
+End of every task:
+- Review CLAUDE.md and headers of every changed file — fix any drift
+- Commit header updates with the task commit, never without
