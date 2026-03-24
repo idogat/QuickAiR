@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.6                                          ║
+# ║  Version    : 2.7                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -649,7 +649,8 @@ function Build-UI {
     $btnCancelSel = New-BottomBtn 'Cancel Selected'  8   '#8b2020'
     $btnCancelAll = New-BottomBtn 'Cancel All'       146 '#6e2020'
     $btnClearDone = New-BottomBtn 'Clear Done'       284 '#1f4e2e'
-    $btnClose     = New-BottomBtn 'Close'            422 '#21262d'
+    $btnRetrySel  = New-BottomBtn 'Retry Selected'   422 '#1f4e6e'
+    $btnClose     = New-BottomBtn 'Close'            560 '#21262d'
     $script:BtnClose  = $btnClose
 
     $btnCancelSel.Add_Click({
@@ -694,6 +695,33 @@ function Build-UI {
         foreach ($j in $remaining) { Add-GridRow $j }
     })
 
+    $btnRetrySel.Add_Click({
+        foreach ($row in @($script:Grid.SelectedRows)) {
+            $jid = $row.Tag
+            $j   = @($script:Queue.Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
+            if ($null -eq $j -or -not $j.IsDone) { continue }
+            # Skip successful jobs — only retry failures
+            if ($j.Status -eq 'ALIVE' -or $j.Status -eq 'SFX_LAUNCHED') { continue }
+
+            # Clear cached credential so user gets a fresh prompt
+            $targetKey = $j.Target.ToLower()
+            $script:CredCache.Remove($targetKey)
+            if ($j.Credential -and $j.Credential.UserName -match '^([^\\]+)\\') {
+                $script:CredCache.Remove($Matches[1].ToLower())
+            }
+
+            # Reset job to Queued so Invoke-Schedule picks it up
+            $j.Status     = 'Queued'
+            $j.Detail     = ''
+            $j.IsDone     = $false
+            $j.Credential = $null
+            $j.StartTime  = $null
+            if ($null -ne $j.PS_) { try { $j.PS_.Dispose() } catch { } }
+            $j.PS_        = $null
+            $j.RunHandle_ = $null
+        }
+    })
+
     $btnClose.Add_Click({
         $anyRunning = @($script:Queue.Jobs | Where-Object { -not $_.IsDone })
         if ($anyRunning.Count -gt 0) {
@@ -703,7 +731,7 @@ function Build-UI {
         }
     })
 
-    $bottomPanel.Controls.AddRange(@($btnCancelSel, $btnCancelAll, $btnClearDone, $btnClose))
+    $bottomPanel.Controls.AddRange(@($btnCancelSel, $btnCancelAll, $btnClearDone, $btnRetrySel, $btnClose))
 
     # ── Assemble ──────────────────────────────────────────────
     # Add order matters: Fill panel placed first, then docked panels
