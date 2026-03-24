@@ -20,7 +20,7 @@
 # ║  Depends   : Executors\WinRM.psm1  ║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.4                    ║
+# ║  Version   : 1.5                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -39,7 +39,7 @@ param(
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.4"
+$EXECUTOR_VERSION = "1.5"
 
 #region --- Help ---
 if ($Help) {
@@ -129,6 +129,9 @@ if (-not $LocalBinaryPath) {
         }
     } while (-not $LocalBinaryPath)
 }
+# Clean path — strip surrounding quotes, trim whitespace, normalize separators
+$LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
+$LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
 
 $isLocal = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or
             $Target -ieq $env:COMPUTERNAME)

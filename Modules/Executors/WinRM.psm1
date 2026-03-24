@@ -14,7 +14,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.9                    ║
+# ║  Version   : 2.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -84,7 +84,9 @@ function Invoke-Executor {
     }
 
     try {
-        # Step 1 — Verify local binary exists
+        # Step 1 — Clean and verify local binary exists
+        $LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
+        $LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
         if (-not (Test-Path -LiteralPath $LocalBinaryPath)) {
             Add-State "CONNECTION_FAILED" "Local binary not found: $LocalBinaryPath"
             $result.Error = "Local binary not found: $LocalBinaryPath"

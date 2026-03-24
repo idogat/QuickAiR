@@ -9,7 +9,7 @@
 # ║              Update-JobStatus, Get-QueueSummary            ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.1                                          ║
+# ║  Version   : 1.2                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -75,9 +75,9 @@ function New-JobEntry {
                        elseif ($raw.tool -eq 'memory') { 'Memory' }
                        else { 'Memory' }
         Target        = ([string]$raw.target).Trim()
-        Binary        = if ($raw.binary)     { [string]$raw.binary }     else { '' }
-        RemoteDest    = if ($raw.remoteDest) { [string]$raw.remoteDest } else { '' }
-        Arguments     = if ($raw.arguments)  { [string]$raw.arguments }  else { '' }
+        Binary        = if ($raw.binary)     { ([string]$raw.binary).Trim().Trim('"').Trim("'").Trim() }     else { '' }
+        RemoteDest    = if ($raw.remoteDest) { ([string]$raw.remoteDest).Trim().Trim('"').Trim("'").Trim() } else { '' }
+        Arguments     = if ($raw.arguments)  { ([string]$raw.arguments).Trim() }  else { '' }
         Method        = if ($raw.method)     { [string]$raw.method }     else { 'Auto' }
         AliveCheck    = $ac
         Status        = 'Queued'
