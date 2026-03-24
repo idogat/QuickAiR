@@ -14,7 +14,7 @@
 // ║    gotoProcessDlls, renderSignedIcon, ║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -213,7 +213,6 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">CommandLine</span>   <span class="v">${esc(p.CommandLine||'—')}</span>
       <span class="k">ExecutablePath</span> <span class="v">${esc(p.ExecutablePath||'—')}</span>
       <span class="k">CreationDateUTC</span><span class="v">${esc(p.CreationDateUTC||'')}</span>
-      <span class="k">CreationDateLocal</span><span class="v">${esc(p.CreationDateLocal||'')}</span>
       <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
       <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
       <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>

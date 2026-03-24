@@ -79,7 +79,6 @@ $requiredFields = @(
     [PSCustomObject]@{ Field='CommandLine';                  Tab='PROCESSES' },
     [PSCustomObject]@{ Field='ExecutablePath';               Tab='PROCESSES' },
     [PSCustomObject]@{ Field='CreationDateUTC';              Tab='PROCESSES' },
-    [PSCustomObject]@{ Field='CreationDateLocal';            Tab='PROCESSES' },
     [PSCustomObject]@{ Field='WorkingSetSize';               Tab='PROCESSES' },
     [PSCustomObject]@{ Field='VirtualSize';                  Tab='PROCESSES' },
     [PSCustomObject]@{ Field='SessionId';                    Tab='PROCESSES' },

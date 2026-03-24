@@ -13,7 +13,7 @@
 # ║               errors=[] }           ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -168,7 +168,7 @@ $script:PROC_SB_CIM = {
         try { $entry.CommandLine     = $p.CommandLine } catch {}
         try { $entry.ExecutablePath  = $p.ExecutablePath } catch {}
         try { $entry.CreationDateUtc = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch {}
-        try { $entry.CreationDate    = if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { $null } } catch {}
+        try { $entry.CreationDate    = $null } catch {}
         try { $entry.WorkingSetSize  = [long]$p.WorkingSetSize } catch {}
         try { $entry.VirtualSize     = [long]$p.VirtualSize }    catch {}
         try { $entry.SessionId       = [int]$p.SessionId }       catch {}
@@ -322,7 +322,7 @@ function Invoke-Collector {
                 $utcVal = if ($p.CreationDateUtc)  { $p.CreationDateUtc }
                           elseif ($p.CreationDate) { ConvertTo-UtcIso -Value $p.CreationDate -FallbackOffsetMin $TargetCapabilities.TimezoneOffsetMinutes }
                           else                     { $null }
-                $locVal = if ($p.CreationDate -and -not $p.CreationDateUtc) { $p.CreationDate } else { $null }
+                $locVal = $null
                 $pid_   = $null; try { $pid_ = [int]$p.ProcessId } catch {}
                 if ($pid_ -eq $null) { continue }
                 $ppid2 = $null; try { if ($p.ParentProcessId -ne $null) { $ppid2 = [int]$p.ParentProcessId } } catch {}
@@ -401,7 +401,7 @@ function Invoke-Collector {
                     try { $entry.CommandLine      = $p.CommandLine } catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; message=$_.Exception.Message } }
                     try { $entry.ExecutablePath   = $p.ExecutablePath } catch {}
                     try { $entry.CreationDateUTC  = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch {}
-                    try { $entry.CreationDateLocal = if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { $null } } catch {}
+                    try { $entry.CreationDateLocal = $null } catch {}
                     try { $entry.WorkingSetSize   = [long]$p.WorkingSetSize } catch {}
                     try { $entry.VirtualSize      = [long]$p.VirtualSize }   catch {}
                     try { $entry.SessionId        = [int]$p.SessionId }      catch {}
@@ -578,7 +578,7 @@ function Invoke-Collector {
                         CommandLine      = $cmdLine
                         ExecutablePath   = $exePath
                         CreationDateUTC  = $utc
-                        CreationDateLocal = $cd
+                        CreationDateLocal = $null
                         WorkingSetSize   = $ws
                         VirtualSize      = $vs
                         SessionId        = $sid
