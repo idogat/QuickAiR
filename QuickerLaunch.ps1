@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.7                                          ║
+# ║  Version    : 2.8                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -396,6 +396,10 @@ function Start-JobRunspace {
                 $job.Status        = if ($data.FinalState) { [string]$data.FinalState } else { 'FAILED' }
                 if ($data.States -and $data.States.Count -gt 0) {
                     $job.Detail = [string]($data.States[$data.States.Count - 1].Detail)
+                }
+                # Prepend SMB share used (shown on success and failure)
+                if ($data.SmbShare) {
+                    $job.Detail = "Share=$($data.SmbShare) | " + $job.Detail
                 }
                 if ($job.Status -eq 'ALIVE') {
                     $job.Detail = $job.Detail + ' — Tool running. Launcher job complete.'
