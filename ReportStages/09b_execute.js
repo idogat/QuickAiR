@@ -509,7 +509,6 @@ function _queueModalLaunch() {
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
   var uri = 'quicker://batch?jobs=' + encoded;
-  console.log('[Quicker] Batch URI:', uri);
   window.location.href = uri;
   // Show success
   var body = el('qm-body');
