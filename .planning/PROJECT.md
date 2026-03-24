@@ -23,7 +23,7 @@ Analysts can pick up the toolkit and operate it correctly without tribal knowled
 ### Active
 
 - [ ] Operational runbook covering Collector, Executor, and Launcher command usage, parameters, and troubleshooting common failures
-- [ ] Artifact coverage matrix — artifact x data source grid showing what's collected, fallback paths, and coverage gaps
+- [x] Artifact coverage matrix — artifact x data source grid showing what's collected, fallback paths, and coverage gaps (Validated in Phase 01: coverage-matrix)
 - [ ] Analyst interpretation guide for Report.html — navigating tabs, cross-referencing data, and spotting anomalies
 - [ ] All docs in docs/ folder, accessible to mixed-experience IR teams
 
@@ -56,7 +56,7 @@ Analysts can pick up the toolkit and operate it correctly without tribal knowled
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | docs/ folder for all documentation | Keeps docs separate from code, standard repo convention | -- Pending |
-| Matrix-style artifact coverage | Quick visual scan of what's collected and where gaps exist | -- Pending |
+| Matrix-style artifact coverage | Quick visual scan of what's collected and where gaps exist | Delivered — Phase 01 |
 | Report-focused interpretation guide | Analysts interact with data through Report.html, not raw JSON | -- Pending |
 | Combined command reference + troubleshooting in runbook | Mixed team needs both "how to run" and "what went wrong" in one place | -- Pending |
 
@@ -78,4 +78,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-24 after initialization*
+*Last updated: 2026-03-24 after Phase 01 completion*
