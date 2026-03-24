@@ -2,16 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered (assumptions mode)
-last_updated: "2026-03-24T20:56:28.368Z"
-last_activity: 2026-03-24 — Roadmap created; all four phases defined
+status: Ready to execute
+stopped_at: Completed 01-coverage-matrix-01-01-PLAN.md
+last_updated: "2026-03-24T21:32:56.523Z"
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 2
+  completed_plans: 1
 ---
 
 # Project State
@@ -21,16 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-24)
 
 **Core value:** Analysts can pick up the toolkit and operate it correctly without tribal knowledge
-**Current focus:** Phase 1 — Coverage Matrix
+**Current focus:** Phase 01 — coverage-matrix
 
 ## Current Position
 
-Phase: 1 of 4 (Coverage Matrix)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-24 — Roadmap created; all four phases defined
-
-Progress: [░░░░░░░░░░] 0%
+Phase: 01 (coverage-matrix) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -52,6 +46,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01-coverage-matrix P01 | 3 | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -62,6 +57,8 @@ Recent decisions affecting current work:
 
 - Phase 1 prerequisite: Read collector .psm1 source files (Processes.psm1, Network.psm1, DLLs.psm1, Users.psm1) directly before writing matrix — codebase map summary is not sufficient for fallback tier accuracy
 - Phase 2 prerequisite: Read CONCERNS.md before writing troubleshooting section — derive from Known Bugs and Fragile Areas, not inference
+- [Phase 01-coverage-matrix]: Per-collector sub-table pattern for COVERAGE-MATRIX.md — each collector gets its own fallback chain, field fidelity, and coverage gaps tables instead of a monolithic flat table
+- [Phase 01-coverage-matrix]: dotnet_fallback documented as fidelity column (not a separate tier) in Processes section — it is a supplement at all tiers
 
 ### Pending Todos
 
@@ -76,6 +73,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-24T20:56:28.366Z
-Stopped at: Phase 1 context gathered (assumptions mode)
-Resume file: .planning/phases/01-coverage-matrix/01-CONTEXT.md
+Last session: 2026-03-24T21:32:56.521Z
+Stopped at: Completed 01-coverage-matrix-01-01-PLAN.md
+Resume file: None

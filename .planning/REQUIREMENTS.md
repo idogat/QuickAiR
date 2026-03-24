@@ -7,10 +7,10 @@
 
 ### Coverage Matrix
 
-- [ ] **COV-01**: Artifact x data source grid covering all collectors (Processes, Network, DNS, DLLs, Users)
-- [ ] **COV-02**: Fallback path columns showing PS version tiers and collection method per artifact
-- [ ] **COV-03**: Coverage gap column — explicit gaps (no event logs, no registry, no RAM, DLL/Users fallback limitations)
-- [ ] **COV-04**: Fidelity notes per fallback tier (e.g., netstat path loses PID correlation, DNS fallback loses TTL)
+- [x] **COV-01**: Artifact x data source grid covering all collectors (Processes, Network, DNS, DLLs, Users)
+- [x] **COV-02**: Fallback path columns showing PS version tiers and collection method per artifact
+- [x] **COV-03**: Coverage gap column — explicit gaps (no event logs, no registry, no RAM, DLL/Users fallback limitations)
+- [x] **COV-04**: Fidelity notes per fallback tier (e.g., netstat path loses PID correlation, DNS fallback loses TTL)
 
 ### Operational Runbook
 
@@ -52,10 +52,10 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| COV-01 | Phase 1 | Pending |
-| COV-02 | Phase 1 | Pending |
-| COV-03 | Phase 1 | Pending |
-| COV-04 | Phase 1 | Pending |
+| COV-01 | Phase 1 | Complete |
+| COV-02 | Phase 1 | Complete |
+| COV-03 | Phase 1 | Complete |
+| COV-04 | Phase 1 | Complete |
 | RUN-01 | Phase 2 | Pending |
 | RUN-02 | Phase 2 | Pending |
 | RUN-03 | Phase 2 | Pending |
