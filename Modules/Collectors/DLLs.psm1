@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -181,7 +181,7 @@ $script:DLL_SB_WMI = {
         $procId   = $null
         try { $pName = $p.Name }      catch {}
         try { $procId   = [int]$p.ProcessId } catch {}
-        if (-not $procId -and $procId -ne 0) { continue }
+        if ($null -eq $procId) { continue }
         if (-not $pName) { continue }
 
         $pNameNoExt = $pName -replace '\.exe$',''
