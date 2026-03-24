@@ -1,4 +1,4 @@
-// ── EXECUTE TAB ─────────────────────────────────────────────── v1.1 (banner)─
+// ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
 (function injectExecuteCSS() {
   var s = document.createElement('style');
   s.textContent = [
@@ -52,7 +52,7 @@ var _execTabRemoteDestModified = false;
 var _bulkSel = {};          // { hostname: { mem, disk } }
 var _toolsManifest       = null;   // cached tools.json data
 var _toolsManifestLoaded = false;  // true once fetch attempt completed
-var _qmRemoteDestModified = false; // tracks manual edits to qm-remote-dest
+var _qmRemoteDestModified = false; // legacy — kept for _execTabRemoteDestModified compat
 
 function _loadToolsManifest(callback) {
   if (!_toolsManifestLoaded) {
@@ -530,7 +530,7 @@ function _qmGetBinValue(type) {
   return sel.value;
 }
 
-// Called when a binary dropdown changes
+// Called when a binary dropdown changes — updates remote dest for matching rows
 function _qmBinChange(type) {
   var sel    = el('qm-' + type + '-bin');
   var custom = el('qm-' + type + '-bin-custom');
@@ -540,28 +540,29 @@ function _qmBinChange(type) {
     return;
   }
   if (custom) custom.style.display = 'none';
-  if (!_qmRemoteDestModified) {
-    var fname = sel.value.split('\\').pop();
-    var rdEl  = el('qm-remote-dest');
-    if (rdEl && fname) rdEl.value = 'C:\\Windows\\Temp\\' + fname;
-  }
+  // Update remote dest for all rows of this tool type (unless manually edited)
+  var toolMatch = (type === 'mem') ? 'memory' : 'disk';
+  var fname = sel.value.split('\\').pop();
+  if (!fname) return;
+  var jobs = window._queueJobs || [];
+  jobs.forEach(function(j, idx) {
+    if (j.tool === toolMatch && !_qmRowRdModified[idx]) {
+      var rdEl = el('qm-rd-' + idx);
+      if (rdEl) rdEl.value = 'C:\\Windows\\Temp\\' + fname;
+    }
+  });
 }
+
+// Per-row tracking: which remote-dest inputs were manually edited
+var _qmRowRdModified = {};
 
 function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
   var defaults = (typeof _toolDefaults !== 'undefined') ? _toolDefaults : null;
   var memDef  = defaults && defaults.memory ? defaults.memory : null;
   var diskDef = defaults && defaults.disk   ? defaults.disk   : null;
+  _qmRowRdModified = {};
 
-  var jobRows = jobs.map(function(j) {
-    return '<tr>' +
-      '<td>' + esc(j.target) + '</td>' +
-      '<td>' + (j.tool === 'memory' ? 'Memory' : 'Disk') + '</td>' +
-      '<td style="color:var(--green)">Ready</td>' +
-      '</tr>';
-  }).join('');
-
-  // Binary fields: always use dropdown when manifest has tools;
-  // pass tool-defaults binary as pre-selection hint (validated against manifest)
+  // Binary fields
   var memField = '';
   if (hasMemJobs) {
     var memPreselect = (memDef && memDef.binary) ? memDef.binary : null;
@@ -573,47 +574,70 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
     diskField = _buildBinField('disk', 'Disk Binary', manifest, diskPreselect);
   }
 
-  // Compute defaults for shared fields (prefer memory defaults, then disk)
-  var activeDef = (hasMemJobs && memDef) ? memDef : (hasDiskJobs && diskDef) ? diskDef : null;
-  var remoteDestDefault = activeDef ? activeDef.remoteDest : 'C:\\Windows\\Temp\\tool.exe';
-  var argsDefault       = activeDef ? (activeDef.arguments || '') : '';
-  var methodDefault     = activeDef ? (activeDef.method    || 'Auto') : 'Auto';
-  var aliveDefault      = activeDef ? (activeDef.aliveCheck || 30) : 30;
+  // Compute per-tool defaults
+  var memRdDefault   = (memDef  && memDef.remoteDest)  ? memDef.remoteDest  : 'C:\\Windows\\Temp\\tool.exe';
+  var diskRdDefault  = (diskDef && diskDef.remoteDest)  ? diskDef.remoteDest  : 'C:\\Windows\\Temp\\tool.exe';
+  var memArgsDefault  = (memDef  && memDef.arguments)  ? memDef.arguments  : '';
+  var diskArgsDefault = (diskDef && diskDef.arguments)  ? diskDef.arguments  : '';
+  var memMethodDef    = (memDef  && memDef.method)     ? memDef.method     : 'Auto';
+  var diskMethodDef   = (diskDef && diskDef.method)     ? diskDef.method     : 'Auto';
+  var memAliveDef     = (memDef  && memDef.aliveCheck)  ? memDef.aliveCheck  : 30;
+  var diskAliveDef    = (diskDef && diskDef.aliveCheck)  ? diskDef.aliveCheck  : 30;
 
   // If no defaults, try manifest for remoteDest
-  if (!activeDef && manifest && manifest.tools) {
-    var firstTool = null;
+  if (!memDef && manifest && manifest.tools) {
     manifest.tools.forEach(function(t) {
-      if (firstTool) return;
       var cat = t.category || 'custom';
-      if (hasMemJobs  && (cat === 'memory' || cat === 'memory+disk' || cat === 'custom')) firstTool = t;
-      if (!firstTool && hasDiskJobs && (cat === 'disk' || cat === 'memory+disk' || cat === 'custom')) firstTool = t;
+      if (memRdDefault === 'C:\\Windows\\Temp\\tool.exe' && (cat === 'memory' || cat === 'memory+disk'))
+        memRdDefault = 'C:\\Windows\\Temp\\' + t.filename;
     });
-    if (firstTool) remoteDestDefault = 'C:\\Windows\\Temp\\' + firstTool.filename;
+  }
+  if (!diskDef && manifest && manifest.tools) {
+    manifest.tools.forEach(function(t) {
+      var cat = t.category || 'custom';
+      if (diskRdDefault === 'C:\\Windows\\Temp\\tool.exe' && (cat === 'disk' || cat === 'memory+disk'))
+        diskRdDefault = 'C:\\Windows\\Temp\\' + t.filename;
+    });
   }
 
-  var methodOpts = ['Auto', 'WinRM', 'WMI'].map(function(m) {
-    return '<option value="' + m + '"' + (m === methodDefault ? ' selected' : '') + '>' + m + '</option>';
+  // Build per-row editable table
+  function methodOpts(selected) {
+    return ['Auto', 'WinRM', 'WMI'].map(function(m) {
+      return '<option value="' + m + '"' + (m === selected ? ' selected' : '') + '>' + m + '</option>';
+    }).join('');
+  }
+
+  var settingsRows = jobs.map(function(j, idx) {
+    var isMem = (j.tool === 'memory');
+    var rd    = isMem ? memRdDefault   : diskRdDefault;
+    var args  = isMem ? memArgsDefault : diskArgsDefault;
+    var meth  = isMem ? memMethodDef   : diskMethodDef;
+    var alive = isMem ? memAliveDef    : diskAliveDef;
+    return '<tr>' +
+      '<td class="qm-cell-host">' + esc(j.target) + '</td>' +
+      '<td class="qm-cell-type">' + (isMem ? 'Memory' : 'Disk') + '</td>' +
+      '<td><input id="qm-rd-' + idx + '" value="' + esc(rd) + '" ' +
+        'oninput="_qmRowRdModified[' + idx + ']=true" placeholder="C:\\Windows\\Temp\\tool.exe"></td>' +
+      '<td><input id="qm-args-' + idx + '" value="' + esc(args) + '" placeholder="optional"></td>' +
+      '<td><select id="qm-method-' + idx + '">' + methodOpts(meth) + '</select></td>' +
+      '<td><input type="number" id="qm-alive-' + idx + '" value="' + alive + '" min="1" max="3600" style="width:60px"></td>' +
+      '</tr>';
   }).join('');
 
   var body = el('qm-body');
   if (body) body.innerHTML =
-    '<div class="qm-job-list">' +
-      '<table class="qm-job-tbl">' +
-        '<thead><tr><th>Host</th><th>Collection Type</th><th>Status</th></tr></thead>' +
-        '<tbody>' + jobRows + '</tbody>' +
-      '</table>' +
-    '</div>' +
-    '<div class="qm-section-title">Shared Settings</div>' +
+    '<div class="qm-section-title">Tool Binaries</div>' +
     memField + diskField +
-    '<div class="qm-field"><label>Remote Destination</label>' +
-      '<input type="text" id="qm-remote-dest" value="' + esc(remoteDestDefault) + '" placeholder="C:\\Windows\\Temp\\tool.exe" oninput="_qmRemoteDestModified=true"></div>' +
-    '<div class="qm-field"><label>Arguments</label>' +
-      '<input type="text" id="qm-args" value="' + esc(argsDefault) + '" placeholder="optional arguments"></div>' +
-    '<div class="qm-field"><label>Method</label>' +
-      '<select id="qm-method">' + methodOpts + '</select></div>' +
-    '<div class="qm-field"><label>Alive Check (s)</label>' +
-      '<input type="number" id="qm-alive" value="' + aliveDefault + '" min="1" max="3600" style="width:80px"></div>';
+    '<div class="qm-section-title">Job Settings</div>' +
+    '<div class="qm-settings-wrap">' +
+      '<table class="qm-settings-tbl">' +
+        '<thead><tr>' +
+          '<th>Host</th><th>Type</th><th>Remote Destination</th>' +
+          '<th>Arguments</th><th>Method</th><th>Alive</th>' +
+        '</tr></thead>' +
+        '<tbody>' + settingsRows + '</tbody>' +
+      '</table>' +
+    '</div>';
 
   var actions = el('qm-actions');
   if (actions) actions.innerHTML =
@@ -632,19 +656,15 @@ function _queueModalLaunch() {
   var jobs      = window._queueJobs || [];
   var memBin    = _qmGetBinValue('mem');
   var diskBin   = _qmGetBinValue('disk');
-  var remoteDest= (el('qm-remote-dest')  || {}).value || '';
-  var args      = (el('qm-args')         || {}).value || '';
-  var method    = (el('qm-method')       || {}).value || 'Auto';
-  var alive     = parseInt((el('qm-alive') || {}).value || '10', 10) || 10;
-  var payload = jobs.map(function(j) {
+  var payload = jobs.map(function(j, idx) {
     return {
       target:     j.target,
       type:       j.tool === 'memory' ? 'Memory' : 'Disk',
       binary:     j.tool === 'memory' ? memBin : diskBin,
-      remoteDest: remoteDest,
-      arguments:  args,
-      method:     method,
-      aliveCheck: alive
+      remoteDest: (el('qm-rd-' + idx) || {}).value || '',
+      arguments:  (el('qm-args-' + idx) || {}).value || '',
+      method:     (el('qm-method-' + idx) || {}).value || 'Auto',
+      aliveCheck: parseInt((el('qm-alive-' + idx) || {}).value || '30', 10) || 30
     };
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
