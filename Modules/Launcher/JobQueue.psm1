@@ -84,6 +84,7 @@ function New-JobEntry {
         Detail        = ''
         DisplayMethod = ''
         StartTime     = [DateTime]::MinValue
+        EndTime       = [DateTime]::MinValue
         IsDone        = $false
         IsCancelled   = $false
         Credential    = $null
@@ -113,6 +114,7 @@ function New-FailedEntry {
         Detail        = $detail
         DisplayMethod = ''
         StartTime     = [DateTime]::MinValue
+        EndTime       = [DateTime]::UtcNow
         IsDone        = $true
         IsCancelled   = $false
         Credential    = $null
@@ -228,7 +230,10 @@ function Update-JobStatus {
 
     $j.Status = $Status
     if ($null -ne $Detail) { $j.Detail = $Detail }
-    if ($Status -in $script:TerminalStatuses) { $j.IsDone = $true }
+    if ($Status -in $script:TerminalStatuses) {
+        $j.IsDone  = $true
+        $j.EndTime = [DateTime]::UtcNow
+    }
     return $true
 }
 

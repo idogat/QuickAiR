@@ -450,7 +450,9 @@ function Add-GridRow {
 
 function Update-GridRow {
     param([object]$job)
-    $elapsed = if ($job.StartTime -ne [DateTime]::MinValue) {
+    $elapsed = if ($job.IsDone -and $job.EndTime -ne [DateTime]::MinValue -and $job.StartTime -ne [DateTime]::MinValue) {
+        [int]($job.EndTime - $job.StartTime).TotalSeconds
+    } elseif ($job.StartTime -ne [DateTime]::MinValue) {
         [int]([DateTime]::UtcNow - $job.StartTime).TotalSeconds
     } else { 0 }
     $timeStr = if ($job.StartTime -ne [DateTime]::MinValue) { "${elapsed}s" } else { '' }

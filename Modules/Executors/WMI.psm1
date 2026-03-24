@@ -163,9 +163,8 @@ function Invoke-Executor {
             $sfxType = $result.BinaryType.SFXType
             Add-State "LAUNCHED" "SFX type=$sfxType detected; using exit code check"
 
-            $sfxDeadline = [System.DateTime]::UtcNow.AddSeconds(120)
-            $sfxExited   = $false
-            while ([System.DateTime]::UtcNow -lt $sfxDeadline) {
+            $sfxExited = $false
+            while (-not $sfxExited) {
                 Start-Sleep -Seconds 2
                 $checkParams = @{
                     Class        = 'Win32_Process'
@@ -176,16 +175,11 @@ function Invoke-Executor {
                 if ($Credential) { $checkParams['Credential'] = $Credential }
                 try {
                     $p = Get-WmiObject @checkParams
-                    if ($null -eq $p) { $sfxExited = $true; break }
-                } catch { $sfxExited = $true; break }
+                    if ($null -eq $p) { $sfxExited = $true }
+                } catch { $sfxExited = $true }
             }
 
-            if ($sfxExited) {
-                Add-State "SFX_LAUNCHED" "SFX exited within 120s (exit code unavailable via WMI)"
-            } else {
-                Add-State "LAUNCH_FAILED" "SFX timed out after 120s"
-                $result.Error = "SFX timed out after 120s"
-            }
+            Add-State "SFX_LAUNCHED" "SFX exited (exit code unavailable via WMI)"
 
         } else {
             Add-State "LAUNCHED" "PID=$launchPID"

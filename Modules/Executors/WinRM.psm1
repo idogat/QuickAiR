@@ -291,7 +291,7 @@ function Invoke-Executor {
         $isSFX = $result.BinaryType -and $result.BinaryType.IsSFX
 
         if ($isSFX) {
-            # SFX flow: launch and wait for exit (up to 120s), check exit code
+            # SFX flow: launch and wait for exit, check exit code
             $sfxType = $result.BinaryType.SFXType
             Add-State "LAUNCHED" "SFX type=$sfxType detected; using exit code check"
 
@@ -307,12 +307,8 @@ function Invoke-Executor {
                     $proc = [System.Diagnostics.Process]::Start($psi)
                     if (-not $proc) { throw "Process.Start returned null" }
                     $pid_ = $proc.Id
-                    $exited = $proc.WaitForExit(120000)
-                    if (-not $exited) {
-                        try { $proc.Kill() } catch { }
-                        return [PSCustomObject]@{ TimedOut=$true; ExitCode=$null; PID=$pid_ }
-                    }
-                    return [PSCustomObject]@{ TimedOut=$false; ExitCode=$proc.ExitCode; PID=$pid_ }
+                    $proc.WaitForExit()
+                    return [PSCustomObject]@{ ExitCode=$proc.ExitCode; PID=$pid_ }
                 } -ArgumentList @($RemoteDestPath, $Arguments)
             } catch {
                 Add-State "LAUNCH_FAILED" $_.Exception.Message
@@ -322,10 +318,7 @@ function Invoke-Executor {
 
             $result.PID = [int]$sfxResult.PID
 
-            if ([bool]$sfxResult.TimedOut) {
-                Add-State "LAUNCH_FAILED" "SFX timed out after 120s"
-                $result.Error = "SFX timed out after 120s"
-            } elseif ([int]$sfxResult.ExitCode -eq 0) {
+            if ([int]$sfxResult.ExitCode -eq 0) {
                 Add-State "SFX_LAUNCHED" "SFX exited with code 0"
             } else {
                 $ec = $sfxResult.ExitCode
