@@ -1,14 +1,14 @@
 {
   "memory": {
-    "binary": "C:\\DFIRLab\\tools\\winpmem_64.exe",
-    "remoteDest": "C:\\Windows\\Temp\\winpmem_64.exe",
+    "binary": "C:\\DFIRLab\\tools\\Collector_velociraptor-v0.75.2-windows-amd64.exe",
+    "remoteDest": "C:\\Windows\\Temp\\memory.exe",
     "arguments": "",
     "method": "Auto",
     "aliveCheck": 30
   },
   "disk": {
-    "binary": "C:\\DFIRLab\\tools\\DumpIt.exe",
-    "remoteDest": "C:\\Windows\\Temp\\DumpIt.exe",
+    "binary": "C:\\DFIRLab\\tools\\Autoruns64.exe",
+    "remoteDest": "C:\\Windows\\Temp\\Autoruns64.exe",
     "arguments": "",
     "method": "Auto",
     "aliveCheck": 30
