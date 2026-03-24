@@ -24,6 +24,17 @@ if (Test-Path $toolsJsonPath) {
 $output = $output.Replace('<script>', "<script>$embed")
 #endregion
 
+#region --- Embed tool-defaults.json as JS variable ---
+$defaultsPath = Join-Path $PSScriptRoot "tool-defaults.json"
+if (Test-Path $defaultsPath) {
+    $defaultsJson = [System.IO.File]::ReadAllText($defaultsPath, [System.Text.Encoding]::UTF8).Trim()
+    $embedDefaults = "`nvar _toolDefaults = $defaultsJson;`n"
+} else {
+    $embedDefaults = "`nvar _toolDefaults = null;`n"
+}
+$output = $output.Replace($embed, "$embed$embedDefaults")
+#endregion
+
 $outPath = Join-Path $PSScriptRoot "Report.html"
 [System.IO.File]::WriteAllText($outPath, $output, [System.Text.Encoding]::UTF8)
 $size = (Get-Item $outPath).Length

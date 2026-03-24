@@ -1,0 +1,16 @@
+{
+  "memory": {
+    "binary": "C:\\DFIRLab\\tools\\winpmem_64.exe",
+    "remoteDest": "C:\\Windows\\Temp\\winpmem_64.exe",
+    "arguments": "",
+    "method": "Auto",
+    "aliveCheck": 30
+  },
+  "disk": {
+    "binary": "C:\\DFIRLab\\tools\\DumpIt.exe",
+    "remoteDest": "C:\\Windows\\Temp\\DumpIt.exe",
+    "arguments": "",
+    "method": "Auto",
+    "aliveCheck": 30
+  }
+}

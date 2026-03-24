@@ -540,6 +540,10 @@ function _qmBinChange(type) {
 }
 
 function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
+  var defaults = (typeof _toolDefaults !== 'undefined') ? _toolDefaults : null;
+  var memDef  = defaults && defaults.memory ? defaults.memory : null;
+  var diskDef = defaults && defaults.disk   ? defaults.disk   : null;
+
   var jobRows = jobs.map(function(j) {
     return '<tr>' +
       '<td>' + esc(j.target) + '</td>' +
@@ -548,12 +552,35 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
       '</tr>';
   }).join('');
 
-  var memField  = hasMemJobs  ? _buildBinField('mem',  'Memory Binary', manifest) : '';
-  var diskField = hasDiskJobs ? _buildBinField('disk', 'Disk Binary',   manifest) : '';
+  // Binary fields: pre-fill from defaults or show dropdown/fallback
+  var memField = '';
+  if (hasMemJobs) {
+    if (memDef && memDef.binary) {
+      memField = '<div class="qm-field"><label>Memory Binary</label>' +
+        '<input type="text" id="qm-mem-bin" value="' + esc(memDef.binary) + '"></div>';
+    } else {
+      memField = _buildBinField('mem', 'Memory Binary', manifest);
+    }
+  }
+  var diskField = '';
+  if (hasDiskJobs) {
+    if (diskDef && diskDef.binary) {
+      diskField = '<div class="qm-field"><label>Disk Binary</label>' +
+        '<input type="text" id="qm-disk-bin" value="' + esc(diskDef.binary) + '"></div>';
+    } else {
+      diskField = _buildBinField('disk', 'Disk Binary', manifest);
+    }
+  }
 
-  // Compute default Remote Dest from first matching tool in manifest
-  var remoteDestDefault = 'C:\\Windows\\Temp\\tool.exe';
-  if (manifest && manifest.tools) {
+  // Compute defaults for shared fields (prefer memory defaults, then disk)
+  var activeDef = (hasMemJobs && memDef) ? memDef : (hasDiskJobs && diskDef) ? diskDef : null;
+  var remoteDestDefault = activeDef ? activeDef.remoteDest : 'C:\\Windows\\Temp\\tool.exe';
+  var argsDefault       = activeDef ? (activeDef.arguments || '') : '';
+  var methodDefault     = activeDef ? (activeDef.method    || 'Auto') : 'Auto';
+  var aliveDefault      = activeDef ? (activeDef.aliveCheck || 30) : 30;
+
+  // If no defaults, try manifest for remoteDest
+  if (!activeDef && manifest && manifest.tools) {
     var firstTool = null;
     manifest.tools.forEach(function(t) {
       if (firstTool) return;
@@ -563,6 +590,10 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
     });
     if (firstTool) remoteDestDefault = 'C:\\Windows\\Temp\\' + firstTool.filename;
   }
+
+  var methodOpts = ['Auto', 'WinRM', 'WMI'].map(function(m) {
+    return '<option value="' + m + '"' + (m === methodDefault ? ' selected' : '') + '>' + m + '</option>';
+  }).join('');
 
   var body = el('qm-body');
   if (body) body.innerHTML =
@@ -577,11 +608,11 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
     '<div class="qm-field"><label>Remote Destination</label>' +
       '<input type="text" id="qm-remote-dest" value="' + esc(remoteDestDefault) + '" placeholder="C:\\Windows\\Temp\\tool.exe" oninput="_qmRemoteDestModified=true"></div>' +
     '<div class="qm-field"><label>Arguments</label>' +
-      '<input type="text" id="qm-args" placeholder="optional arguments"></div>' +
+      '<input type="text" id="qm-args" value="' + esc(argsDefault) + '" placeholder="optional arguments"></div>' +
     '<div class="qm-field"><label>Method</label>' +
-      '<select id="qm-method"><option value="Auto">Auto</option><option value="WinRM">WinRM</option><option value="WMI">WMI</option></select></div>' +
+      '<select id="qm-method">' + methodOpts + '</select></div>' +
     '<div class="qm-field"><label>Alive Check (s)</label>' +
-      '<input type="number" id="qm-alive" value="30" min="1" max="3600" style="width:80px"></div>';
+      '<input type="number" id="qm-alive" value="' + aliveDefault + '" min="1" max="3600" style="width:80px"></div>';
 
   var actions = el('qm-actions');
   if (actions) actions.innerHTML =
