@@ -5,15 +5,24 @@
 # ║  (PS2). Includes .NET fallback.     ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : Invoke-Collector       ║
+# ║  Helpers   : _sha256, _getSigPS3    ║
+# ║  SB helpers: _sha256, _getSigPS2    ║
+# ║              (WMI), _getSigPS3 (CIM)║
 # ║  Inputs    : -Session               ║
 # ║              -TargetPSVersion       ║
 # ║              -TargetCapabilities    ║
 # ║  Output    : @{ data=processes[];   ║
 # ║               source=string;        ║
 # ║               errors=[] }           ║
+# ║  Fields    : ProcessId, PPID, Name, ║
+# ║    CommandLine, ExecutablePath,      ║
+# ║    CreationDateUTC, WorkingSetSize,  ║
+# ║    VirtualSize, SessionId,           ║
+# ║    HandleCount, Owner, SHA256,       ║
+# ║    SHA256Error, Signature, source    ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -36,8 +45,28 @@ $script:PROC_SB_WMI = {
             else { return @($null, "COMPUTE_ERROR: $m") }
         }
     }
+    function _getSigPS2($path) {
+        if (-not $path) { return $null }
+        try {
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($path)
+            return New-Object PSObject -Property @{
+                IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
+                SignerSubject=$cert.Subject; SignerCompany=$null; Issuer=$cert.Issuer
+                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                IsOSBinary=$null; SignatureType=$null
+            }
+        } catch {
+            return New-Object PSObject -Property @{
+                IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
+                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                IsOSBinary=$null; SignatureType=$null
+            }
+        }
+    }
     $out = @()
     $outerErrors = @()
+    $sha256Cache = @{}
     $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
     $searcher.Options.ReturnImmediately = $false
     $searcher.Options.Rewindable = $false
@@ -56,29 +85,27 @@ $script:PROC_SB_WMI = {
         try { $sid    = [int]$p.SessionId }        catch {}
         try { $hc     = [int]$p.HandleCount }      catch {}
 
-        # SHA256
-        $r = _sha256 $exePath; $sha256Val = $r[0]; $sha256Err = $r[1]
-
-        # Signature inline (PS 2.0 compatible)
-        $sigObj = $null
-        if ($exePath) {
-            try {
-                $cert2 = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($exePath)
-                $sigObj = New-Object PSObject -Property @{
-                    IsSigned = $true; IsValid = $null; Status = 'PS2_CERT_PRESENT'
-                    SignerSubject = $cert2.Subject; SignerCompany = $null; Issuer = $cert2.Issuer
-                    Thumbprint = $null; NotAfter = $null; TimeStamper = $null
-                    IsOSBinary = $null; SignatureType = $null
-                }
-            } catch {
-                $sigObj = New-Object PSObject -Property @{
-                    IsSigned = $null; IsValid = $null; Status = 'PS2_UNSUPPORTED'
-                    SignerSubject = $null; SignerCompany = $null; Issuer = $null
-                    Thumbprint = $null; NotAfter = $null; TimeStamper = $null
-                    IsOSBinary = $null; SignatureType = $null
-                }
+        # Owner via GetOwner()
+        $owner = $null
+        try {
+            $ownerInfo = $p.InvokeMethod('GetOwner', $null)
+            if ($ownerInfo -and $ownerInfo['ReturnValue'] -eq 0) {
+                $d = $ownerInfo['Domain']; $u = $ownerInfo['User']
+                $owner = if ($d) { "$d\$u" } else { $u }
             }
+        } catch {}
+
+        # SHA256 with cache
+        $sha256Val = $null; $sha256Err = $null
+        if ($exePath -and $sha256Cache.ContainsKey($exePath)) {
+            $sha256Val = $sha256Cache[$exePath][0]; $sha256Err = $sha256Cache[$exePath][1]
+        } else {
+            $r = _sha256 $exePath; $sha256Val = $r[0]; $sha256Err = $r[1]
+            if ($exePath) { $sha256Cache[$exePath] = @($sha256Val, $sha256Err) }
         }
+
+        # Signature (PS 2.0 compatible)
+        $sigObj = _getSigPS2 $exePath
 
         if ($pid_ -ne $null) {
             $out += New-Object PSObject -Property @{
@@ -92,6 +119,7 @@ $script:PROC_SB_WMI = {
                 VirtualSize     = $vs
                 SessionId       = $sid
                 HandleCount     = $hc
+                Owner           = $owner
                 SHA256          = $sha256Val
                 SHA256Error     = $sha256Err
                 Signature       = $sigObj
@@ -110,42 +138,35 @@ $script:PROC_SB_WMI = {
         $wmiPids = @{}; foreach ($x in $out) { $wmiPids[$x.ProcessId] = $true }
         foreach ($dp in $dnProcs) {
             if (-not $wmiPids.ContainsKey([int]$dp.Id)) {
-                $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
                 try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
                 try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
-                $r = _sha256 $exeFn; $sha256Fb = $r[0]; $sha256ErrFb = $r[1]
-                # Signature (PS 2.0 compatible)
-                $sigFb = $null
-                if ($exeFn) {
-                    try {
-                        $certFb = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($exeFn)
-                        $sigFb = New-Object PSObject -Property @{
-                            IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
-                            SignerSubject=$certFb.Subject; SignerCompany=$null; Issuer=$certFb.Issuer
-                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                            IsOSBinary=$null; SignatureType=$null
-                        }
-                    } catch {
-                        $sigFb = New-Object PSObject -Property @{
-                            IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
-                            SignerSubject=$null; SignerCompany=$null; Issuer=$null
-                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                            IsOSBinary=$null; SignatureType=$null
-                        }
-                    }
+                try { $sid2   = [int]$dp.SessionId }                                               catch {}
+                try { $hc2    = [int]$dp.HandleCount }                                             catch {}
+                # SHA256 with cache
+                $sha256Fb = $null; $sha256ErrFb = $null
+                if ($exeFn -and $sha256Cache.ContainsKey($exeFn)) {
+                    $sha256Fb = $sha256Cache[$exeFn][0]; $sha256ErrFb = $sha256Cache[$exeFn][1]
+                } else {
+                    $r = _sha256 $exeFn; $sha256Fb = $r[0]; $sha256ErrFb = $r[1]
+                    if ($exeFn) { $sha256Cache[$exeFn] = @($sha256Fb, $sha256ErrFb) }
                 }
+                $sigFb = _getSigPS2 $exeFn
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
                     CreationDate = $startT; WorkingSetSize = $ws2; VirtualSize = $vs2
-                    SessionId = $null; HandleCount = $null; SHA256 = $sha256Fb; SHA256Error = $sha256ErrFb; Signature = $sigFb
+                    SessionId = $sid2; HandleCount = $hc2; Owner = $null
+                    SHA256 = $sha256Fb; SHA256Error = $sha256ErrFb; Signature = $sigFb
                     source = 'dotnet_fallback'
                 }
             }
         }
-    } catch {}
+    } catch {
+        $outerErrors += ".NET cross-check failed: $($_.Exception.Message)"
+    }
     $out += $dotnet
     New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
 }
@@ -167,8 +188,41 @@ $script:PROC_SB_CIM = {
             else { return @($null, "COMPUTE_ERROR: $m") }
         }
     }
+    function _getSigPS3($path) {
+        if (-not $path) { return $null }
+        try {
+            $sig = Get-AuthenticodeSignature -FilePath $path -ErrorAction Stop
+            $cn = $null
+            if ($sig.SignerCertificate -and $sig.SignerCertificate.Subject -match 'CN=([^,]+)') {
+                $cn = $Matches[1].Trim()
+            }
+            $isOSBin = $null; try { $isOSBin = $sig.IsOSBinary } catch {}
+            $sigType = $null; try { $sigType = $sig.SignatureType.ToString() } catch {}
+            return New-Object PSObject -Property @{
+                IsSigned      = ($sig.Status -ne 'NotSigned')
+                IsValid       = ($sig.Status -eq 'Valid')
+                Status        = $sig.Status.ToString()
+                SignerSubject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { $null }
+                SignerCompany = $cn
+                Issuer        = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { $null }
+                Thumbprint    = if ($sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
+                NotAfter      = if ($sig.SignerCertificate) { $sig.SignerCertificate.NotAfter.ToString('o') } else { $null }
+                TimeStamper   = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
+                IsOSBinary    = $isOSBin
+                SignatureType = $sigType
+            }
+        } catch {
+            return New-Object PSObject -Property @{
+                IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
+                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                IsOSBinary=$null; SignatureType=$null
+            }
+        }
+    }
     $out = @()
     $outerErrors = @()
+    $sha256Cache = @{}
     $raw = Get-CimInstance Win32_Process -OperationTimeoutSec 60
     foreach ($p in $raw) {
         try {
@@ -182,7 +236,7 @@ $script:PROC_SB_CIM = {
             CommandLine = $null; ExecutablePath = $null
             CreationDateUtc = $null; CreationDate = $null
             WorkingSetSize = [long]0; VirtualSize = [long]0
-            SessionId = $null; HandleCount = $null
+            SessionId = $null; HandleCount = $null; Owner = $null
             SHA256 = $null; SHA256Error = $null; Signature = $null
             source = 'cim'
         }
@@ -195,48 +249,25 @@ $script:PROC_SB_CIM = {
         try { $entry.SessionId       = [int]$p.SessionId }       catch {}
         try { $entry.HandleCount     = [int]$p.HandleCount }     catch {}
 
-        # SHA256
-        $r = _sha256 $entry.ExecutablePath; $entry.SHA256 = $r[0]; $entry.SHA256Error = $r[1]
-
-        # Signature inline (PS 3+)
-        if ($entry.ExecutablePath) {
-            try {
-                $sig3 = Get-AuthenticodeSignature -FilePath $entry.ExecutablePath -ErrorAction Stop
-                $cert3 = $null; $cn3 = $null
-                if ($sig3.SignerCertificate) {
-                    $subj3 = $sig3.SignerCertificate.Subject
-                    $cn3 = if ($subj3 -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
-                    $cert3 = New-Object PSObject -Property @{
-                        Subject=$subj3; Issuer=$sig3.SignerCertificate.Issuer
-                        Thumbprint=$sig3.SignerCertificate.Thumbprint
-                        NotAfter=$sig3.SignerCertificate.NotAfter.ToString('o'); CN=$cn3
-                    }
-                }
-                # IsOSBinary & SignatureType available on PS 5.1+
-                $isOSBin3 = $null; try { $isOSBin3 = $sig3.IsOSBinary } catch {}
-                $sigType3 = $null; try { $sigType3 = $sig3.SignatureType.ToString() } catch {}
-                $entry.Signature = New-Object PSObject -Property @{
-                    IsSigned  = ($sig3.Status -ne 'NotSigned')
-                    IsValid   = ($sig3.Status -eq 'Valid')
-                    Status    = $sig3.Status.ToString()
-                    SignerSubject = if ($cert3) { $cert3.Subject } else { $null }
-                    SignerCompany = if ($cert3) { $cert3.CN } else { $null }
-                    Issuer        = if ($cert3) { $cert3.Issuer } else { $null }
-                    Thumbprint    = if ($cert3) { $cert3.Thumbprint } else { $null }
-                    NotAfter      = if ($cert3) { $cert3.NotAfter } else { $null }
-                    TimeStamper   = if ($sig3.TimeStamperCertificate) { $sig3.TimeStamperCertificate.Subject } else { $null }
-                    IsOSBinary    = $isOSBin3
-                    SignatureType = $sigType3
-                }
-            } catch {
-                $entry.Signature = New-Object PSObject -Property @{
-                    IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
-                    SignerSubject=$null; SignerCompany=$null; Issuer=$null
-                    Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                    IsOSBinary=$null; SignatureType=$null
-                }
+        # Owner via Invoke-CimMethod
+        try {
+            $ownerResult = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop
+            if ($ownerResult.ReturnValue -eq 0) {
+                $d = $ownerResult.Domain; $u = $ownerResult.User
+                $entry.Owner = if ($d) { "$d\$u" } else { $u }
             }
+        } catch {}
+
+        # SHA256 with cache
+        if ($entry.ExecutablePath -and $sha256Cache.ContainsKey($entry.ExecutablePath)) {
+            $entry.SHA256 = $sha256Cache[$entry.ExecutablePath][0]; $entry.SHA256Error = $sha256Cache[$entry.ExecutablePath][1]
+        } else {
+            $r = _sha256 $entry.ExecutablePath; $entry.SHA256 = $r[0]; $entry.SHA256Error = $r[1]
+            if ($entry.ExecutablePath) { $sha256Cache[$entry.ExecutablePath] = @($entry.SHA256, $entry.SHA256Error) }
         }
+
+        # Signature (PS 3+)
+        $entry.Signature = _getSigPS3 $entry.ExecutablePath
 
         $out += $entry
         } catch {
@@ -251,48 +282,36 @@ $script:PROC_SB_CIM = {
         $cimPids = @{}; foreach ($x in $out) { $cimPids[$x.ProcessId] = $true }
         foreach ($dp in $dnProcs) {
             if (-not $cimPids.ContainsKey([int]$dp.Id)) {
-                $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
                 try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
                 try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
-                $r = _sha256 $exeFn; $sha256Fb2 = $r[0]; $sha256ErrFb2 = $r[1]
-                $sigFb2 = $null
-                if ($exeFn) {
-                    try {
-                        $sigX = Get-AuthenticodeSignature -FilePath $exeFn -ErrorAction Stop
-                        $certX = $null; $cnX = $null
-                        if ($sigX.SignerCertificate) {
-                            $subjX = $sigX.SignerCertificate.Subject
-                            $cnX = if ($subjX -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
-                        }
-                        $isOSBinX = $null; try { $isOSBinX = $sigX.IsOSBinary } catch {}
-                        $sigTypeX = $null; try { $sigTypeX = $sigX.SignatureType.ToString() } catch {}
-                        $sigFb2 = New-Object PSObject -Property @{
-                            IsSigned=($sigX.Status -ne 'NotSigned'); IsValid=($sigX.Status -eq 'Valid')
-                            Status=$sigX.Status.ToString()
-                            SignerSubject=if ($sigX.SignerCertificate){$sigX.SignerCertificate.Subject}else{$null}
-                            SignerCompany=$cnX
-                            Issuer=if($sigX.SignerCertificate){$sigX.SignerCertificate.Issuer}else{$null}
-                            Thumbprint=if($sigX.SignerCertificate){$sigX.SignerCertificate.Thumbprint}else{$null}
-                            NotAfter=if($sigX.SignerCertificate){$sigX.SignerCertificate.NotAfter.ToString('o')}else{$null}
-                            TimeStamper=if($sigX.TimeStamperCertificate){$sigX.TimeStamperCertificate.Subject}else{$null}
-                            IsOSBinary=$isOSBinX; SignatureType=$sigTypeX
-                        }
-                    } catch {}
+                try { $sid2   = [int]$dp.SessionId }                                               catch {}
+                try { $hc2    = [int]$dp.HandleCount }                                             catch {}
+                # SHA256 with cache
+                $sha256Fb2 = $null; $sha256ErrFb2 = $null
+                if ($exeFn -and $sha256Cache.ContainsKey($exeFn)) {
+                    $sha256Fb2 = $sha256Cache[$exeFn][0]; $sha256ErrFb2 = $sha256Cache[$exeFn][1]
+                } else {
+                    $r = _sha256 $exeFn; $sha256Fb2 = $r[0]; $sha256ErrFb2 = $r[1]
+                    if ($exeFn) { $sha256Cache[$exeFn] = @($sha256Fb2, $sha256ErrFb2) }
                 }
+                $sigFb2 = _getSigPS3 $exeFn
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
                     CreationDateUtc = $startT; CreationDate = $null
                     WorkingSetSize = $ws2; VirtualSize = $vs2
-                    SessionId = $null; HandleCount = $null
+                    SessionId = $sid2; HandleCount = $hc2; Owner = $null
                     SHA256 = $sha256Fb2; SHA256Error = $sha256ErrFb2; Signature = $sigFb2
                     source = 'dotnet_fallback'
                 }
             }
         }
-    } catch {}
+    } catch {
+        $outerErrors += ".NET cross-check failed: $($_.Exception.Message)"
+    }
     $out += $dotnet
     New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
 }
@@ -310,6 +329,39 @@ function _sha256($p) {
         if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
         elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
         else { return @($null, "COMPUTE_ERROR: $m") }
+    }
+}
+
+function _getSigPS3($path) {
+    if (-not $path) { return $null }
+    try {
+        $sig = Get-AuthenticodeSignature -FilePath $path -ErrorAction Stop
+        $cn = $null
+        if ($sig.SignerCertificate -and $sig.SignerCertificate.Subject -match 'CN=([^,]+)') {
+            $cn = $Matches[1].Trim()
+        }
+        $isOSBin = $null; try { $isOSBin = $sig.IsOSBinary } catch {}
+        $sigType = $null; try { $sigType = $sig.SignatureType.ToString() } catch {}
+        return @{
+            IsSigned      = ($sig.Status -ne 'NotSigned')
+            IsValid       = ($sig.Status -eq 'Valid')
+            Status        = $sig.Status.ToString()
+            SignerSubject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { $null }
+            SignerCompany = $cn
+            Issuer        = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { $null }
+            Thumbprint    = if ($sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
+            NotAfter      = if ($sig.SignerCertificate) { $sig.SignerCertificate.NotAfter.ToString('o') } else { $null }
+            TimeStamper   = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
+            IsOSBinary    = $isOSBin
+            SignatureType = $sigType
+        }
+    } catch {
+        return @{
+            IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
+            SignerSubject=$null; SignerCompany=$null; Issuer=$null
+            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+            IsOSBinary=$null; SignatureType=$null
+        }
     }
 }
 
@@ -380,6 +432,7 @@ function Invoke-Collector {
                     VirtualSize      = $vs2
                     SessionId        = $p.SessionId
                     HandleCount      = $p.HandleCount
+                    Owner            = $p.Owner
                     SHA256           = $p.SHA256
                     SHA256Error      = $p.SHA256Error
                     Signature        = $sigOut
@@ -393,6 +446,7 @@ function Invoke-Collector {
             }
         } else {
             # Local path
+            $sha256Cache = @{}
             if ($TargetCapabilities.PSVersion -ge 3) {
                 # CIM path - per-process try/catch to never silently drop
                 $raw = Get-CimInstance Win32_Process -OperationTimeoutSec 60
@@ -417,6 +471,7 @@ function Invoke-Collector {
                         VirtualSize      = [long]0
                         SessionId        = $null
                         HandleCount      = $null
+                        Owner            = $null
                         SHA256           = $null
                         SHA256Error      = $null
                         Signature        = $null
@@ -431,42 +486,25 @@ function Invoke-Collector {
                     try { $entry.SessionId        = [int]$p.SessionId }      catch {}
                     try { $entry.HandleCount      = [int]$p.HandleCount }    catch {}
 
-                    # SHA256
-                    $r = _sha256 $entry.ExecutablePath; $entry.SHA256 = $r[0]; $entry.SHA256Error = $r[1]
-
-                    # Signature inline (local CIM path, PS 3+)
-                    if ($entry.ExecutablePath) {
-                        try {
-                            $sigL = Get-AuthenticodeSignature -FilePath $entry.ExecutablePath -ErrorAction Stop
-                            $certL = $null; $cnL = $null
-                            if ($sigL.SignerCertificate) {
-                                $subjL = $sigL.SignerCertificate.Subject
-                                $cnL = if ($subjL -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
-                            }
-                            $isOSBinL = $null; try { $isOSBinL = $sigL.IsOSBinary } catch {}
-                            $sigTypeL = $null; try { $sigTypeL = $sigL.SignatureType.ToString() } catch {}
-                            $entry.Signature = @{
-                                IsSigned      = ($sigL.Status -ne 'NotSigned')
-                                IsValid       = ($sigL.Status -eq 'Valid')
-                                Status        = $sigL.Status.ToString()
-                                SignerSubject = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Subject } else { $null }
-                                SignerCompany = $cnL
-                                Issuer        = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Issuer } else { $null }
-                                Thumbprint    = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Thumbprint } else { $null }
-                                NotAfter      = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.NotAfter.ToString('o') } else { $null }
-                                TimeStamper   = if ($sigL.TimeStamperCertificate) { $sigL.TimeStamperCertificate.Subject } else { $null }
-                                IsOSBinary    = $isOSBinL
-                                SignatureType = $sigTypeL
-                            }
-                        } catch {
-                            $entry.Signature = @{
-                                IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
-                                SignerSubject=$null; SignerCompany=$null; Issuer=$null
-                                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                                IsOSBinary=$null; SignatureType=$null
-                            }
+                    # Owner via Invoke-CimMethod
+                    try {
+                        $ownerResult = Invoke-CimMethod -InputObject $p -MethodName GetOwner -ErrorAction Stop
+                        if ($ownerResult.ReturnValue -eq 0) {
+                            $d = $ownerResult.Domain; $u = $ownerResult.User
+                            $entry.Owner = if ($d) { "$d\$u" } else { $u }
                         }
+                    } catch {}
+
+                    # SHA256 with cache
+                    if ($entry.ExecutablePath -and $sha256Cache.ContainsKey($entry.ExecutablePath)) {
+                        $entry.SHA256 = $sha256Cache[$entry.ExecutablePath][0]; $entry.SHA256Error = $sha256Cache[$entry.ExecutablePath][1]
+                    } else {
+                        $r = _sha256 $entry.ExecutablePath; $entry.SHA256 = $r[0]; $entry.SHA256Error = $r[1]
+                        if ($entry.ExecutablePath) { $sha256Cache[$entry.ExecutablePath] = @($entry.SHA256, $entry.SHA256Error) }
                     }
+
+                    # Signature (local CIM path, PS 3+)
+                    $entry.Signature = _getSigPS3 $entry.ExecutablePath
 
                     $procs += $entry
                     } catch {
@@ -483,32 +521,22 @@ function Invoke-Collector {
                     foreach ($x in $procs) { $collectedPIDs[[int]$x.ProcessId] = $true }
                     foreach ($dp in $dnProcs) {
                         if (-not $collectedPIDs.ContainsKey([int]$dp.Id)) {
-                            $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                            $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
                             try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
                             try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                             try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                             try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
-                            $r = _sha256 $exeFn; $sha256Fb3 = $r[0]; $sha256ErrFb3 = $r[1]; $sigFb3 = $null
-                            if ($exeFn) {
-                                try {
-                                    $sigFb3x = Get-AuthenticodeSignature -FilePath $exeFn -ErrorAction Stop
-                                    $cnFb3 = $null
-                                    if ($sigFb3x.SignerCertificate -and $sigFb3x.SignerCertificate.Subject -match 'CN=([^,]+)') { $cnFb3 = $Matches[1].Trim() }
-                                    $isOSBinFb3 = $null; try { $isOSBinFb3 = $sigFb3x.IsOSBinary } catch {}
-                                    $sigTypeFb3 = $null; try { $sigTypeFb3 = $sigFb3x.SignatureType.ToString() } catch {}
-                                    $sigFb3 = @{
-                                        IsSigned=($sigFb3x.Status -ne 'NotSigned'); IsValid=($sigFb3x.Status -eq 'Valid')
-                                        Status=$sigFb3x.Status.ToString()
-                                        SignerSubject=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.Subject}else{$null}
-                                        SignerCompany=$cnFb3
-                                        Issuer=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.Issuer}else{$null}
-                                        Thumbprint=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.Thumbprint}else{$null}
-                                        NotAfter=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.NotAfter.ToString('o')}else{$null}
-                                        TimeStamper=if($sigFb3x.TimeStamperCertificate){$sigFb3x.TimeStamperCertificate.Subject}else{$null}
-                                        IsOSBinary=$isOSBinFb3; SignatureType=$sigTypeFb3
-                                    }
-                                } catch {}
-                            } else { $sha256ErrFb3 = 'PATH_NULL' }
+                            try { $sid2   = [int]$dp.SessionId }                                               catch {}
+                            try { $hc2    = [int]$dp.HandleCount }                                             catch {}
+                            # SHA256 with cache
+                            $sha256Fb3 = $null; $sha256ErrFb3 = $null
+                            if ($exeFn -and $sha256Cache.ContainsKey($exeFn)) {
+                                $sha256Fb3 = $sha256Cache[$exeFn][0]; $sha256ErrFb3 = $sha256Cache[$exeFn][1]
+                            } else {
+                                $r = _sha256 $exeFn; $sha256Fb3 = $r[0]; $sha256ErrFb3 = $r[1]
+                                if ($exeFn) { $sha256Cache[$exeFn] = @($sha256Fb3, $sha256ErrFb3) }
+                            }
+                            if (-not $exeFn) { $sha256ErrFb3 = 'PATH_NULL' }
                             $procs += @{
                                 ProcessId        = [int]$dp.Id
                                 ParentProcessId  = $null
@@ -519,11 +547,12 @@ function Invoke-Collector {
                                 CreationDateLocal = $null
                                 WorkingSetSize   = $ws2
                                 VirtualSize      = $vs2
-                                SessionId        = $null
-                                HandleCount      = $null
+                                SessionId        = $sid2
+                                HandleCount      = $hc2
+                                Owner            = $null
                                 SHA256           = $sha256Fb3
                                 SHA256Error      = $sha256ErrFb3
-                                Signature        = $sigFb3
+                                Signature        = _getSigPS3 $exeFn
                                 source           = 'dotnet_fallback'
                             }
                             $fallbackCount++
@@ -535,11 +564,12 @@ function Invoke-Collector {
                         $sourceStr = 'cim+dotnet_fallback'
                     }
                 } catch {
+                    $errors += @{ artifact='dotnet_crosscheck'; message=$_.Exception.Message }
                     Write-Log 'WARN' ".NET cross-check failed: $($_.Exception.Message)"
                 }
 
             } else {
-                # WMI path
+                # WMI path — local collection runs on analyst machine (PS 5.1+)
                 $sourceStr = 'wmi'
                 $fallbackCount = 0
                 $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
@@ -562,8 +592,27 @@ function Invoke-Collector {
                     try { $sid     = [int]$p.SessionId }      catch {}
                     try { $hc      = [int]$p.HandleCount }    catch {}
 
-                    # SHA256
-                    $r = _sha256 $exePath; $sha256W = $r[0]; $sha256ErrW = $r[1]
+                    # Owner via GetOwner()
+                    $ownerW = $null
+                    try {
+                        $ownerInfoW = $p.InvokeMethod('GetOwner', $null)
+                        if ($ownerInfoW -and $ownerInfoW['ReturnValue'] -eq 0) {
+                            $dW = $ownerInfoW['Domain']; $uW = $ownerInfoW['User']
+                            $ownerW = if ($dW) { "$dW\$uW" } else { $uW }
+                        }
+                    } catch {}
+
+                    # SHA256 with cache
+                    $sha256W = $null; $sha256ErrW = $null
+                    if ($exePath -and $sha256Cache.ContainsKey($exePath)) {
+                        $sha256W = $sha256Cache[$exePath][0]; $sha256ErrW = $sha256Cache[$exePath][1]
+                    } else {
+                        $r = _sha256 $exePath; $sha256W = $r[0]; $sha256ErrW = $r[1]
+                        if ($exePath) { $sha256Cache[$exePath] = @($sha256W, $sha256ErrW) }
+                    }
+
+                    # Signature (analyst machine is PS 5.1+, Get-AuthenticodeSignature available)
+                    $sigW = _getSigPS3 $exePath
 
                     $procs += @{
                         ProcessId        = $pid_
@@ -577,9 +626,10 @@ function Invoke-Collector {
                         VirtualSize      = $vs
                         SessionId        = $sid
                         HandleCount      = $hc
+                        Owner            = $ownerW
                         SHA256           = $sha256W
                         SHA256Error      = $sha256ErrW
-                        Signature        = $null
+                        Signature        = $sigW
                         source           = 'wmi'
                     }
                     } catch {
@@ -596,11 +646,22 @@ function Invoke-Collector {
                     foreach ($x in $procs) { $collectedPIDs[[int]$x.ProcessId] = $true }
                     foreach ($dp in $dnProcs) {
                         if (-not $collectedPIDs.ContainsKey([int]$dp.Id)) {
-                            $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0
+                            $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
                             try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
                             try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                             try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                             try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
+                            try { $sid2   = [int]$dp.SessionId }                                               catch {}
+                            try { $hc2    = [int]$dp.HandleCount }                                             catch {}
+                            # SHA256 with cache
+                            $sha256WFb = $null; $sha256ErrWFb = $null
+                            if ($exeFn -and $sha256Cache.ContainsKey($exeFn)) {
+                                $sha256WFb = $sha256Cache[$exeFn][0]; $sha256ErrWFb = $sha256Cache[$exeFn][1]
+                            } else {
+                                $r = _sha256 $exeFn; $sha256WFb = $r[0]; $sha256ErrWFb = $r[1]
+                                if ($exeFn) { $sha256Cache[$exeFn] = @($sha256WFb, $sha256ErrWFb) }
+                            }
+                            if (-not $exeFn) { $sha256ErrWFb = 'PATH_NULL' }
                             $procs += @{
                                 ProcessId        = [int]$dp.Id
                                 ParentProcessId  = $null
@@ -611,11 +672,12 @@ function Invoke-Collector {
                                 CreationDateLocal = $null
                                 WorkingSetSize   = $ws2
                                 VirtualSize      = $vs2
-                                SessionId        = $null
-                                HandleCount      = $null
-                                SHA256           = $null
-                                SHA256Error      = if ($exeFn) { $null } else { 'PATH_NULL' }
-                                Signature        = $null
+                                SessionId        = $sid2
+                                HandleCount      = $hc2
+                                Owner            = $null
+                                SHA256           = $sha256WFb
+                                SHA256Error      = $sha256ErrWFb
+                                Signature        = _getSigPS3 $exeFn
                                 source           = 'dotnet_fallback'
                             }
                             $fallbackCount++
@@ -627,6 +689,7 @@ function Invoke-Collector {
                         $sourceStr = 'wmi+dotnet_fallback'
                     }
                 } catch {
+                    $errors += @{ artifact='dotnet_crosscheck'; message=$_.Exception.Message }
                     Write-Log 'WARN' ".NET cross-check failed: $($_.Exception.Message)"
                 }
             }
