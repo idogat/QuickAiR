@@ -319,7 +319,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-03-24T18:33:56.2193839Z",
+    "generated":  "2026-03-25T20:50:00.3869108Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -1463,7 +1463,8 @@ function fleetSortBy(col) {
 // ║  Quicker — 05_processes.js           ║
 // ║  Processes tab render, virtual       ║
 // ║  scroll, row expand, inline network  ║
-// ║  detail, DLL count display           ║
+// ║  detail, DLL count, Owner,           ║
+// ║  IntegrityLevel display              ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : activeHost.Processes,     ║
 // ║             activeHost.DLLs           ║
@@ -1473,9 +1474,10 @@ function fleetSortBy(col) {
 // ║    onProcRowClick, gotoProcessPid,    ║
 // ║    gotoNetworkPid, gotoNetworkIp,     ║
 // ║    gotoProcessDlls, renderSignedIcon, ║
+// ║    integrityRank, renderIntegrityBadge║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.41                      ║
+// ║  Version  : 3.50                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -1491,16 +1493,45 @@ function renderSignedIcon(sig) {
   return '<span style="color:var(--amber)">?</span>';
 }
 
+function integrityRank(level) {
+  if (!level) return 0;
+  switch (level) {
+    case 'System':           return 7;
+    case 'ProtectedProcess': return 6;
+    case 'High':             return 5;
+    case 'MediumPlus':       return 4;
+    case 'Medium':           return 3;
+    case 'Low':              return 2;
+    case 'Untrusted':        return 1;
+    default:                 return 0;
+  }
+}
+
+function renderIntegrityBadge(level) {
+  if (!level) return '<span style="color:var(--muted)">&mdash;</span>';
+  switch (level) {
+    case 'System':
+    case 'High':
+      return '<span style="color:var(--red)">' + esc(level) + '</span>';
+    case 'Low':
+    case 'Untrusted':
+    case 'MediumPlus':
+      return '<span style="color:var(--amber)">' + esc(level) + '</span>';
+    default:
+      return '<span>' + esc(level) + '</span>';
+  }
+}
+
 function renderProcesses() {
   const panel  = el('panel-processes');
   const d      = activeData();
   if (!d) { panel.innerHTML = '<div class="solo-notice">No file loaded.</div>'; return; }
 
-  const COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px';
+  const COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px 120px 80px';
 
   panel.innerHTML = `
     <div class="filter-bar">
-      <input type="text" id="proc-search" placeholder="Search name, PID, path, cmdline&hellip;" style="width:280px"
+      <input type="text" id="proc-search" placeholder="Search name, PID, path, cmdline, owner&hellip;" style="width:280px"
              oninput="procFilters.search=this.value;applyProcFilters()">
       <span id="proc-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
     </div>
@@ -1514,7 +1545,7 @@ function renderProcesses() {
   applyProcFilters();
 }
 
-const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px';
+const PROC_COLS = '60px 60px 120px 160px 300px 1fr 80px 55px 40px 120px 130px 120px 80px';
 
 function buildProcHeader(COLS) {
   const headers = [
@@ -1529,12 +1560,14 @@ function buildProcHeader(COLS) {
     { key:'_signed',         label:'Sig'    },
     { key:'_signerCompany',  label:'Signer' },
     { key:'_sha256Short',    label:'SHA256' },
+    { key:'Owner',           label:'Owner'  },
+    { key:'IntegrityLevel',  label:'Integrity' },
   ];
   const h = el('proc-header');
   if (!h) return;
   restoreColWidths('processes', 'proc-header');
   h.innerHTML = headers.map(hd => {
-    const numeric = /Id$|PID$|PPID$|Count$|Session$|Handle$/.test(hd.key);
+    const numeric = /Id$|PID$|PPID$|Count$|Session$|Handle$|^IntegrityLevel$/.test(hd.key);
     const arrow = (sortState.tab === 'processes' && sortState.column === hd.key)
       ? (sortState.dir === 'asc' ? '↑' : sortState.dir === 'desc' ? '↓' : '⇅') : '⇅';
     const arrowCls = (sortState.tab === 'processes' && sortState.column === hd.key && sortState.dir !== 'none')
@@ -1567,17 +1600,21 @@ function applyProcFilters() {
       _signed:        sig ? sig.IsSigned : null,
       _signerCompany: sig ? (sig.SignerCompany || '') : '',
       _sha256Short:   sha256Short,
+      _intRank:       integrityRank(p.IntegrityLevel),
     });
   });
 
   if (lq) rows = rows.filter(p =>
     str(p.Name).toLowerCase().includes(lq) || str(p.ProcessId).includes(lq) ||
-    str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq)
+    str(p.ExecutablePath).toLowerCase().includes(lq) || str(p.CommandLine).toLowerCase().includes(lq) ||
+    str(p.Owner).toLowerCase().includes(lq)
   );
   // Apply sortTable if active for this tab
-  const numericProcCols = new Set(['ProcessId','ParentProcessId','_connCount','DLLCount','SessionId','HandleCount']);
+  const numericProcCols = new Set(['ProcessId','ParentProcessId','_connCount','DLLCount','SessionId','HandleCount','_intRank']);
   if (sortState.tab === 'processes' && sortState.column && sortState.dir !== 'none') {
-    rows = applySortToRows(rows, sortState.column, numericProcCols.has(sortState.column));
+    let sortCol = sortState.column;
+    if (sortCol === 'IntegrityLevel') sortCol = '_intRank';
+    rows = applySortToRows(rows, sortCol, numericProcCols.has(sortCol));
   } else {
     rows.sort((a,b) => {
       const av = a[procSort.col]; const bv = b[procSort.col];
@@ -1618,7 +1655,9 @@ function renderProcRow(p, i) {
     <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
     <div class="td dim">${esc(p._signerCompany||'')}</div>
-    <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>`;
+    <div class="td mono dim" title="${esc(p.SHA256||'')}">${esc(p._sha256Short||'')}</div>
+    <div class="td dim">${esc(p.Owner||'')}</div>
+    <div class="td">${renderIntegrityBadge(p.IntegrityLevel)}</div>`;
 }
 
 function onProcRowClick(i, p, rowEl) {
@@ -1678,6 +1717,9 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
       <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>
       <span class="k">HandleCount</span>    <span class="v">${p.HandleCount}</span>
+      <span class="k">Owner</span>          <span class="v">${esc(p.Owner||'—')}</span>
+      <span class="k">IntegrityLevel</span> <span class="v">${esc(p.IntegrityLevel||'—')}</span>
+      ${!p.IntegrityLevel && p.IntegrityLevelError ? '<span class="k">IntegrityError</span><span class="v" style="color:var(--amber)">' + esc(p.IntegrityLevelError) + '</span>' : ''}
       <span class="k">Loaded DLLs</span>   ${dllCountHTML}
       ${p.SHA256 ? `<span class="k">SHA256</span><span class="v mono">${esc(p.SHA256)}</span>` : ''}
       ${!p.SHA256 && p.SHA256Error ? `<span class="k">SHA256Error</span><span class="v" style="color:var(--amber)">${esc(p.SHA256Error)}</span>` : ''}
