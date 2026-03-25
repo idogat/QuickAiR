@@ -349,14 +349,17 @@ function Invoke-Collector {
             if ($entry.Signature -ne $null) {
                 try {
                     $sigOut2 = @{
-                        IsSigned     = $entry.Signature.IsSigned
-                        IsValid      = $entry.Signature.IsValid
-                        Status       = $entry.Signature.Status
+                        IsSigned      = $entry.Signature.IsSigned
+                        IsValid       = $entry.Signature.IsValid
+                        Status        = $entry.Signature.Status
                         SignerSubject = $entry.Signature.SignerSubject
                         SignerCompany = $entry.Signature.SignerCompany
-                        Thumbprint   = $entry.Signature.Thumbprint
-                        NotAfter     = $entry.Signature.NotAfter
-                        TimeStamper  = $entry.Signature.TimeStamper
+                        Issuer        = $entry.Signature.Issuer
+                        Thumbprint    = $entry.Signature.Thumbprint
+                        NotAfter      = $entry.Signature.NotAfter
+                        TimeStamper   = $entry.Signature.TimeStamper
+                        IsOSBinary    = $entry.Signature.IsOSBinary
+                        SignatureType = $entry.Signature.SignatureType
                     }
                 } catch {}
             }

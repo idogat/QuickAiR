@@ -354,14 +354,17 @@ function Invoke-Collector {
                 if ($p.Signature -ne $null) {
                     try {
                         $sigOut = @{
-                            IsSigned     = $p.Signature.IsSigned
-                            IsValid      = $p.Signature.IsValid
-                            Status       = $p.Signature.Status
+                            IsSigned      = $p.Signature.IsSigned
+                            IsValid       = $p.Signature.IsValid
+                            Status        = $p.Signature.Status
                             SignerSubject = $p.Signature.SignerSubject
                             SignerCompany = $p.Signature.SignerCompany
-                            Thumbprint   = $p.Signature.Thumbprint
-                            NotAfter     = $p.Signature.NotAfter
-                            TimeStamper  = $p.Signature.TimeStamper
+                            Issuer        = $p.Signature.Issuer
+                            Thumbprint    = $p.Signature.Thumbprint
+                            NotAfter      = $p.Signature.NotAfter
+                            TimeStamper   = $p.Signature.TimeStamper
+                            IsOSBinary    = $p.Signature.IsOSBinary
+                            SignatureType = $p.Signature.SignatureType
                         }
                     } catch {}
                 }
@@ -440,20 +443,27 @@ function Invoke-Collector {
                                 $subjL = $sigL.SignerCertificate.Subject
                                 $cnL = if ($subjL -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
                             }
+                            $isOSBinL = $null; try { $isOSBinL = $sigL.IsOSBinary } catch {}
+                            $sigTypeL = $null; try { $sigTypeL = $sigL.SignatureType.ToString() } catch {}
                             $entry.Signature = @{
-                                IsSigned     = ($sigL.Status -ne 'NotSigned')
-                                IsValid      = ($sigL.Status -eq 'Valid')
-                                Status       = $sigL.Status.ToString()
+                                IsSigned      = ($sigL.Status -ne 'NotSigned')
+                                IsValid       = ($sigL.Status -eq 'Valid')
+                                Status        = $sigL.Status.ToString()
                                 SignerSubject = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Subject } else { $null }
                                 SignerCompany = $cnL
-                                Thumbprint   = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Thumbprint } else { $null }
-                                NotAfter     = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.NotAfter.ToString('o') } else { $null }
-                                TimeStamper  = if ($sigL.TimeStamperCertificate) { $sigL.TimeStamperCertificate.Subject } else { $null }
+                                Issuer        = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Issuer } else { $null }
+                                Thumbprint    = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.Thumbprint } else { $null }
+                                NotAfter      = if ($sigL.SignerCertificate) { $sigL.SignerCertificate.NotAfter.ToString('o') } else { $null }
+                                TimeStamper   = if ($sigL.TimeStamperCertificate) { $sigL.TimeStamperCertificate.Subject } else { $null }
+                                IsOSBinary    = $isOSBinL
+                                SignatureType = $sigTypeL
                             }
                         } catch {
                             $entry.Signature = @{
                                 IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
-                                SignerSubject=$null; SignerCompany=$null; Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                                IsOSBinary=$null; SignatureType=$null
                             }
                         }
                     }
@@ -484,14 +494,18 @@ function Invoke-Collector {
                                     $sigFb3x = Get-AuthenticodeSignature -FilePath $exeFn -ErrorAction Stop
                                     $cnFb3 = $null
                                     if ($sigFb3x.SignerCertificate -and $sigFb3x.SignerCertificate.Subject -match 'CN=([^,]+)') { $cnFb3 = $Matches[1].Trim() }
+                                    $isOSBinFb3 = $null; try { $isOSBinFb3 = $sigFb3x.IsOSBinary } catch {}
+                                    $sigTypeFb3 = $null; try { $sigTypeFb3 = $sigFb3x.SignatureType.ToString() } catch {}
                                     $sigFb3 = @{
                                         IsSigned=($sigFb3x.Status -ne 'NotSigned'); IsValid=($sigFb3x.Status -eq 'Valid')
                                         Status=$sigFb3x.Status.ToString()
                                         SignerSubject=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.Subject}else{$null}
                                         SignerCompany=$cnFb3
+                                        Issuer=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.Issuer}else{$null}
                                         Thumbprint=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.Thumbprint}else{$null}
                                         NotAfter=if($sigFb3x.SignerCertificate){$sigFb3x.SignerCertificate.NotAfter.ToString('o')}else{$null}
                                         TimeStamper=if($sigFb3x.TimeStamperCertificate){$sigFb3x.TimeStamperCertificate.Subject}else{$null}
+                                        IsOSBinary=$isOSBinFb3; SignatureType=$sigTypeFb3
                                     }
                                 } catch {}
                             } else { $sha256ErrFb3 = 'PATH_NULL' }
