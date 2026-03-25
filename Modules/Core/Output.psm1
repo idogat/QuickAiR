@@ -73,9 +73,10 @@ function Write-JsonOutput {
         [System.Text.Encoding]::UTF8.GetBytes($json))
     $sha256 = ($sha256bytes | ForEach-Object { $_.ToString('X2') }) -join ''
 
-    # Embed SHA256
-    $json2 = $json -replace '"sha256":\s+null', ('"sha256": "' + $sha256 + '"')
-    if ($json2 -eq $json) { $json2 = $json -replace '"sha256":\s*null', ('"sha256": "' + $sha256 + '"') }
+    # Embed SHA256 — case-sensitive replace to only match manifest's lowercase "sha256",
+    # not collector fields like "SHA256" which would get corrupted
+    $json2 = $json -creplace '"sha256":\s+null', ('"sha256": "' + $sha256 + '"')
+    if ($json2 -eq $json) { $json2 = $json -creplace '"sha256":\s*null', ('"sha256": "' + $sha256 + '"') }
 
     [System.IO.File]::WriteAllText($outFile, $json2, [System.Text.Encoding]::UTF8)
 

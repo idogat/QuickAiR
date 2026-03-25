@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 2.7                         ║
+# ║  Version   : 2.8                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -77,6 +77,8 @@ $script:PROC_SB_WMI = {
 using System;
 using System.Runtime.InteropServices;
 public class IntegrityHelper {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("advapi32.dll", SetLastError=true)]
     static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
     [DllImport("advapi32.dll", SetLastError=true)]
@@ -84,29 +86,33 @@ public class IntegrityHelper {
     [DllImport("advapi32.dll", CharSet=CharSet.Auto)]
     static extern bool ConvertSidToStringSid(IntPtr pSid, out string strSid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr hObject);
-    public static int GetIntegrityRid(IntPtr processHandle) {
-        IntPtr hToken;
-        if (!OpenProcessToken(processHandle, 0x0008, out hToken)) return -1;
+    public static int GetIntegrityRidByPid(int pid) {
+        IntPtr hProc = OpenProcess(0x0400, false, pid);
+        if (hProc == IntPtr.Zero) hProc = OpenProcess(0x1000, false, pid);
+        if (hProc == IntPtr.Zero) return -5;
         try {
-            int len;
-            GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
-            if (len == 0) return -2;
-            IntPtr buf = Marshal.AllocHGlobal(len);
+            IntPtr hToken;
+            if (!OpenProcessToken(hProc, 0x0008, out hToken)) return -1;
             try {
-                if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
-                IntPtr pSid = Marshal.ReadIntPtr(buf);
-                string sidStr;
-                if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
-                string[] parts = sidStr.Split(new char[]{'-'});
-                return int.Parse(parts[parts.Length - 1]);
-            } finally { Marshal.FreeHGlobal(buf); }
-        } finally { CloseHandle(hToken); }
+                int len;
+                GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
+                if (len == 0) return -2;
+                IntPtr buf = Marshal.AllocHGlobal(len);
+                try {
+                    if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
+                    IntPtr pSid = Marshal.ReadIntPtr(buf);
+                    string sidStr;
+                    if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
+                    string[] parts = sidStr.Split(new char[]{'-'});
+                    return int.Parse(parts[parts.Length - 1]);
+                } finally { Marshal.FreeHGlobal(buf); }
+            } finally { CloseHandle(hToken); }
+        } finally { CloseHandle(hProc); }
     }
 }
 '@ -ErrorAction Stop
             }
-            $proc = [System.Diagnostics.Process]::GetProcessById($pid_)
-            $rid = [IntegrityHelper]::GetIntegrityRid($proc.Handle)
+            $rid = [IntegrityHelper]::GetIntegrityRidByPid($pid_)
             if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
             $label = switch ($rid) {
                 0x0000 { 'Untrusted' }
@@ -300,6 +306,8 @@ $script:PROC_SB_CIM = {
 using System;
 using System.Runtime.InteropServices;
 public class IntegrityHelper {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("advapi32.dll", SetLastError=true)]
     static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
     [DllImport("advapi32.dll", SetLastError=true)]
@@ -307,29 +315,33 @@ public class IntegrityHelper {
     [DllImport("advapi32.dll", CharSet=CharSet.Auto)]
     static extern bool ConvertSidToStringSid(IntPtr pSid, out string strSid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr hObject);
-    public static int GetIntegrityRid(IntPtr processHandle) {
-        IntPtr hToken;
-        if (!OpenProcessToken(processHandle, 0x0008, out hToken)) return -1;
+    public static int GetIntegrityRidByPid(int pid) {
+        IntPtr hProc = OpenProcess(0x0400, false, pid);
+        if (hProc == IntPtr.Zero) hProc = OpenProcess(0x1000, false, pid);
+        if (hProc == IntPtr.Zero) return -5;
         try {
-            int len;
-            GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
-            if (len == 0) return -2;
-            IntPtr buf = Marshal.AllocHGlobal(len);
+            IntPtr hToken;
+            if (!OpenProcessToken(hProc, 0x0008, out hToken)) return -1;
             try {
-                if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
-                IntPtr pSid = Marshal.ReadIntPtr(buf);
-                string sidStr;
-                if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
-                string[] parts = sidStr.Split(new char[]{'-'});
-                return int.Parse(parts[parts.Length - 1]);
-            } finally { Marshal.FreeHGlobal(buf); }
-        } finally { CloseHandle(hToken); }
+                int len;
+                GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
+                if (len == 0) return -2;
+                IntPtr buf = Marshal.AllocHGlobal(len);
+                try {
+                    if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
+                    IntPtr pSid = Marshal.ReadIntPtr(buf);
+                    string sidStr;
+                    if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
+                    string[] parts = sidStr.Split(new char[]{'-'});
+                    return int.Parse(parts[parts.Length - 1]);
+                } finally { Marshal.FreeHGlobal(buf); }
+            } finally { CloseHandle(hToken); }
+        } finally { CloseHandle(hProc); }
     }
 }
 '@ -ErrorAction Stop
             }
-            $proc = [System.Diagnostics.Process]::GetProcessById($pid_)
-            $rid = [IntegrityHelper]::GetIntegrityRid($proc.Handle)
+            $rid = [IntegrityHelper]::GetIntegrityRidByPid($pid_)
             if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
             $label = switch ($rid) {
                 0x0000 { 'Untrusted' }
@@ -510,6 +522,8 @@ function _getIntegrityLevel($pid_) {
 using System;
 using System.Runtime.InteropServices;
 public class IntegrityHelper {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
     [DllImport("advapi32.dll", SetLastError=true)]
     static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
     [DllImport("advapi32.dll", SetLastError=true)]
@@ -517,30 +531,34 @@ public class IntegrityHelper {
     [DllImport("advapi32.dll", CharSet=CharSet.Auto)]
     static extern bool ConvertSidToStringSid(IntPtr pSid, out string strSid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr hObject);
-    public static int GetIntegrityRid(IntPtr processHandle) {
-        IntPtr hToken;
-        if (!OpenProcessToken(processHandle, 0x0008, out hToken)) return -1;
+    public static int GetIntegrityRidByPid(int pid) {
+        IntPtr hProc = OpenProcess(0x0400, false, pid);
+        if (hProc == IntPtr.Zero) hProc = OpenProcess(0x1000, false, pid);
+        if (hProc == IntPtr.Zero) return -5;
         try {
-            int len;
-            GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
-            if (len == 0) return -2;
-            IntPtr buf = Marshal.AllocHGlobal(len);
+            IntPtr hToken;
+            if (!OpenProcessToken(hProc, 0x0008, out hToken)) return -1;
             try {
-                if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
-                IntPtr pSid = Marshal.ReadIntPtr(buf);
-                string sidStr;
-                if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
-                string[] parts = sidStr.Split(new char[]{'-'});
-                return int.Parse(parts[parts.Length - 1]);
-            } finally { Marshal.FreeHGlobal(buf); }
-        } finally { CloseHandle(hToken); }
+                int len;
+                GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
+                if (len == 0) return -2;
+                IntPtr buf = Marshal.AllocHGlobal(len);
+                try {
+                    if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
+                    IntPtr pSid = Marshal.ReadIntPtr(buf);
+                    string sidStr;
+                    if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
+                    string[] parts = sidStr.Split(new char[]{'-'});
+                    return int.Parse(parts[parts.Length - 1]);
+                } finally { Marshal.FreeHGlobal(buf); }
+            } finally { CloseHandle(hToken); }
+        } finally { CloseHandle(hProc); }
     }
 }
 '@ -ErrorAction Stop
             $script:_integrityTypeAdded = $true
         }
-        $proc = [System.Diagnostics.Process]::GetProcessById($pid_)
-        $rid = [IntegrityHelper]::GetIntegrityRid($proc.Handle)
+        $rid = [IntegrityHelper]::GetIntegrityRidByPid($pid_)
         if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
         $label = switch ($rid) {
             0x0000 { 'Untrusted' }
@@ -603,25 +621,42 @@ function Invoke-Collector {
                 $ppid2 = $null; try { if ($p.ParentProcessId -ne $null) { $ppid2 = [int]$p.ParentProcessId } } catch {}
                 $ws2   = [long]0; try { $ws2 = [long]$p.WorkingSetSize } catch {}
                 $vs2   = [long]0; try { $vs2 = [long]$p.VirtualSize }    catch {}
-                # Extract Signature hashtable from PSObject
+                # Extract Signature hashtable from PSObject — defensive access for
+                # properties that may be absent after WinRM deserialization on older PS
                 $sigOut = $null
                 if ($p.Signature -ne $null) {
                     try {
+                        $s_ = $p.Signature
                         $sigOut = @{
-                            IsSigned      = $p.Signature.IsSigned
-                            IsValid       = $p.Signature.IsValid
-                            Status        = $p.Signature.Status
-                            SignerSubject = $p.Signature.SignerSubject
-                            SignerCompany = $p.Signature.SignerCompany
-                            Issuer        = $p.Signature.Issuer
-                            Thumbprint    = $p.Signature.Thumbprint
-                            NotAfter      = $p.Signature.NotAfter
-                            TimeStamper   = $p.Signature.TimeStamper
-                            IsOSBinary    = $p.Signature.IsOSBinary
-                            SignatureType = $p.Signature.SignatureType
+                            IsSigned      = $(if ($s_.PSObject.Properties['IsSigned'])      { $s_.IsSigned }      else { $null })
+                            IsValid       = $(if ($s_.PSObject.Properties['IsValid'])       { $s_.IsValid }       else { $null })
+                            Status        = $(if ($s_.PSObject.Properties['Status'])        { $s_.Status }        else { $null })
+                            SignerSubject = $(if ($s_.PSObject.Properties['SignerSubject']) { $s_.SignerSubject } else { $null })
+                            SignerCompany = $(if ($s_.PSObject.Properties['SignerCompany']) { $s_.SignerCompany } else { $null })
+                            Issuer        = $(if ($s_.PSObject.Properties['Issuer'])        { $s_.Issuer }        else { $null })
+                            Thumbprint    = $(if ($s_.PSObject.Properties['Thumbprint'])    { $s_.Thumbprint }    else { $null })
+                            NotAfter      = $(if ($s_.PSObject.Properties['NotAfter'] -and $s_.NotAfter) {
+                                                    # Normalize to UTC Z — remoting may return local time with offset
+                                                    $naVal = $s_.NotAfter
+                                                    if ($naVal -is [datetime]) {
+                                                        $naVal.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                                                    } elseif ($naVal -is [string] -and $naVal -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$') {
+                                                        $naVal  # Already correct UTC Z format
+                                                    } elseif ($naVal -is [string]) {
+                                                        try { ([datetime]::Parse($naVal)).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+                                                        catch { $naVal }
+                                                    } else { $naVal }
+                                                } else { $null })
+                            TimeStamper   = $(if ($s_.PSObject.Properties['TimeStamper'])   { $s_.TimeStamper }   else { $null })
+                            IsOSBinary    = $(if ($s_.PSObject.Properties['IsOSBinary'])    { $s_.IsOSBinary }    else { $null })
+                            SignatureType = $(if ($s_.PSObject.Properties['SignatureType']) { $s_.SignatureType } else { $null })
                         }
                     } catch {}
                 }
+                # Enforce SHA256 XOR contract: hash or error, never both
+                $sha256Out = $(if ($p.PSObject.Properties['SHA256'])      { $p.SHA256 }      else { $null })
+                $sha256ErrOut = $(if ($p.PSObject.Properties['SHA256Error']) { $p.SHA256Error } else { $null })
+                if ($sha256Out -and $sha256ErrOut) { $sha256ErrOut = $null }
                 $procs += @{
                     ProcessId        = $pid_
                     ParentProcessId  = $ppid2
@@ -634,11 +669,11 @@ function Invoke-Collector {
                     VirtualSize      = $vs2
                     SessionId        = $p.SessionId
                     HandleCount      = $p.HandleCount
-                    Owner            = $p.Owner
-                    IntegrityLevel   = $p.IntegrityLevel
-                    IntegrityLevelError = $p.IntegrityLevelError
-                    SHA256           = $p.SHA256
-                    SHA256Error      = $p.SHA256Error
+                    Owner            = $(if ($p.PSObject.Properties['Owner'])            { $p.Owner }            else { $null })
+                    IntegrityLevel   = $(if ($p.PSObject.Properties['IntegrityLevel']) { $p.IntegrityLevel } else { $null })
+                    IntegrityLevelError = $(if ($p.PSObject.Properties['IntegrityLevelError']) { $p.IntegrityLevelError } else { $null })
+                    SHA256           = $sha256Out
+                    SHA256Error      = $sha256ErrOut
                     Signature        = $sigOut
                     source           = $p.source
                 }
