@@ -13,7 +13,7 @@
 # ║               errors=[] }           ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -65,15 +65,17 @@ $script:PROC_SB_WMI = {
             try {
                 $cert2 = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($exePath)
                 $sigObj = New-Object PSObject -Property @{
-                    IsSigned = $true; IsValid = $null; Status = 'PS2_SIGNED'
-                    SignerSubject = $cert2.Subject; SignerCompany = $null
+                    IsSigned = $true; IsValid = $null; Status = 'PS2_CERT_PRESENT'
+                    SignerSubject = $cert2.Subject; SignerCompany = $null; Issuer = $cert2.Issuer
                     Thumbprint = $null; NotAfter = $null; TimeStamper = $null
+                    IsOSBinary = $null; SignatureType = $null
                 }
             } catch {
                 $sigObj = New-Object PSObject -Property @{
                     IsSigned = $null; IsValid = $null; Status = 'PS2_UNSUPPORTED'
-                    SignerSubject = $null; SignerCompany = $null
+                    SignerSubject = $null; SignerCompany = $null; Issuer = $null
                     Thumbprint = $null; NotAfter = $null; TimeStamper = $null
+                    IsOSBinary = $null; SignatureType = $null
                 }
             }
         }
@@ -114,11 +116,31 @@ $script:PROC_SB_WMI = {
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
                 $r = _sha256 $exeFn; $sha256Fb = $r[0]; $sha256ErrFb = $r[1]
+                # Signature (PS 2.0 compatible)
+                $sigFb = $null
+                if ($exeFn) {
+                    try {
+                        $certFb = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($exeFn)
+                        $sigFb = New-Object PSObject -Property @{
+                            IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
+                            SignerSubject=$certFb.Subject; SignerCompany=$null; Issuer=$certFb.Issuer
+                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                            IsOSBinary=$null; SignatureType=$null
+                        }
+                    } catch {
+                        $sigFb = New-Object PSObject -Property @{
+                            IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
+                            SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                            IsOSBinary=$null; SignatureType=$null
+                        }
+                    }
+                }
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
                     CreationDate = $startT; WorkingSetSize = $ws2; VirtualSize = $vs2
-                    SessionId = $null; HandleCount = $null; SHA256 = $sha256Fb; SHA256Error = $sha256ErrFb; Signature = $null
+                    SessionId = $null; HandleCount = $null; SHA256 = $sha256Fb; SHA256Error = $sha256ErrFb; Signature = $sigFb
                     source = 'dotnet_fallback'
                 }
             }
@@ -190,20 +212,28 @@ $script:PROC_SB_CIM = {
                         NotAfter=$sig3.SignerCertificate.NotAfter.ToString('o'); CN=$cn3
                     }
                 }
+                # IsOSBinary & SignatureType available on PS 5.1+
+                $isOSBin3 = $null; try { $isOSBin3 = $sig3.IsOSBinary } catch {}
+                $sigType3 = $null; try { $sigType3 = $sig3.SignatureType.ToString() } catch {}
                 $entry.Signature = New-Object PSObject -Property @{
                     IsSigned  = ($sig3.Status -ne 'NotSigned')
                     IsValid   = ($sig3.Status -eq 'Valid')
                     Status    = $sig3.Status.ToString()
                     SignerSubject = if ($cert3) { $cert3.Subject } else { $null }
                     SignerCompany = if ($cert3) { $cert3.CN } else { $null }
+                    Issuer        = if ($cert3) { $cert3.Issuer } else { $null }
                     Thumbprint    = if ($cert3) { $cert3.Thumbprint } else { $null }
                     NotAfter      = if ($cert3) { $cert3.NotAfter } else { $null }
                     TimeStamper   = if ($sig3.TimeStamperCertificate) { $sig3.TimeStamperCertificate.Subject } else { $null }
+                    IsOSBinary    = $isOSBin3
+                    SignatureType = $sigType3
                 }
             } catch {
                 $entry.Signature = New-Object PSObject -Property @{
                     IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
-                    SignerSubject=$null; SignerCompany=$null; Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                    SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                    Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                    IsOSBinary=$null; SignatureType=$null
                 }
             }
         }
@@ -236,13 +266,18 @@ $script:PROC_SB_CIM = {
                             $subjX = $sigX.SignerCertificate.Subject
                             $cnX = if ($subjX -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
                         }
+                        $isOSBinX = $null; try { $isOSBinX = $sigX.IsOSBinary } catch {}
+                        $sigTypeX = $null; try { $sigTypeX = $sigX.SignatureType.ToString() } catch {}
                         $sigFb2 = New-Object PSObject -Property @{
                             IsSigned=($sigX.Status -ne 'NotSigned'); IsValid=($sigX.Status -eq 'Valid')
                             Status=$sigX.Status.ToString()
                             SignerSubject=if ($sigX.SignerCertificate){$sigX.SignerCertificate.Subject}else{$null}
-                            SignerCompany=$cnX; Thumbprint=if($sigX.SignerCertificate){$sigX.SignerCertificate.Thumbprint}else{$null}
+                            SignerCompany=$cnX
+                            Issuer=if($sigX.SignerCertificate){$sigX.SignerCertificate.Issuer}else{$null}
+                            Thumbprint=if($sigX.SignerCertificate){$sigX.SignerCertificate.Thumbprint}else{$null}
                             NotAfter=if($sigX.SignerCertificate){$sigX.SignerCertificate.NotAfter.ToString('o')}else{$null}
                             TimeStamper=if($sigX.TimeStamperCertificate){$sigX.TimeStamperCertificate.Subject}else{$null}
+                            IsOSBinary=$isOSBinX; SignatureType=$sigTypeX
                         }
                     } catch {}
                 }

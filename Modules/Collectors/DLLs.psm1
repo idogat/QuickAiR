@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -114,20 +114,27 @@ $script:DLL_SB_DOTNET = {
                         $subjD3 = $sigD3.SignerCertificate.Subject
                         $cnD3 = if ($subjD3 -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
                     }
+                    $isOSBinD = $null; try { $isOSBinD = $sigD3.IsOSBinary } catch {}
+                    $sigTypeD = $null; try { $sigTypeD = $sigD3.SignatureType.ToString() } catch {}
                     $sigD = New-Object PSObject -Property @{
                         IsSigned     = ($sigD3.Status -ne 'NotSigned')
                         IsValid      = ($sigD3.Status -eq 'Valid')
                         Status       = $sigD3.Status.ToString()
                         SignerSubject = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Subject } else { $null }
                         SignerCompany = $cnD3
+                        Issuer       = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Issuer } else { $null }
                         Thumbprint   = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Thumbprint } else { $null }
                         NotAfter     = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.NotAfter.ToString('o') } else { $null }
                         TimeStamper  = if ($sigD3.TimeStamperCertificate) { $sigD3.TimeStamperCertificate.Subject } else { $null }
+                        IsOSBinary   = $isOSBinD
+                        SignatureType = $sigTypeD
                     }
                 } catch {
                     $sigD = New-Object PSObject -Property @{
                         IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
-                        SignerSubject=$null; SignerCompany=$null; Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                        SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                        Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                        IsOSBinary=$null; SignatureType=$null
                     }
                 }
             }
@@ -281,15 +288,17 @@ $script:DLL_SB_WMI = {
             try {
                 $certW = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($mPath)
                 $sigW = New-Object PSObject -Property @{
-                    IsSigned=$true; IsValid=$null; Status='PS2_SIGNED'
-                    SignerSubject=$certW.Subject; SignerCompany=$null
+                    IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
+                    SignerSubject=$certW.Subject; SignerCompany=$null; Issuer=$certW.Issuer
                     Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                    IsOSBinary=$null; SignatureType=$null
                 }
             } catch {
                 $sigW = New-Object PSObject -Property @{
                     IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
-                    SignerSubject=$null; SignerCompany=$null
+                    SignerSubject=$null; SignerCompany=$null; Issuer=$null
                     Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                    IsOSBinary=$null; SignatureType=$null
                 }
             }
 

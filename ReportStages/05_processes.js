@@ -14,7 +14,7 @@
 // ║    gotoProcessDlls, renderSignedIcon, ║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -220,9 +220,12 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">Loaded DLLs</span>   ${dllCountHTML}
       ${p.SHA256 ? `<span class="k">SHA256</span><span class="v mono">${esc(p.SHA256)}</span>` : ''}
       ${!p.SHA256 && p.SHA256Error ? `<span class="k">SHA256Error</span><span class="v" style="color:var(--amber)">${esc(p.SHA256Error)}</span>` : ''}
-      ${p.Signature ? `<span class="k">Sig Status</span>   <span class="v">${esc(p.Signature.Status||'—')}</span>
+      ${p.Signature ? `<span class="k">Sig Status</span>   <span class="v${/^PS2_/.test(p.Signature.Status||'')?' style="color:var(--amber)"':''}">${esc(p.Signature.Status||'—')}${/^PS2_/.test(p.Signature.Status||'')?' (unvalidated)':''}</span>
+      <span class="k">IsOSBinary</span>   <span class="v" style="color:${p.Signature.IsOSBinary===true?'var(--green)':p.Signature.IsOSBinary===false?'var(--red)':'var(--muted)'}">${p.Signature.IsOSBinary===true?'Yes':p.Signature.IsOSBinary===false?'No':'—'}</span>
+      <span class="k">SignatureType</span><span class="v">${esc(p.Signature.SignatureType||'—')}</span>
       <span class="k">SignerSubject</span> <span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
       <span class="k">SignerCompany</span> <span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
+      <span class="k">Issuer</span>       <span class="v">${esc(p.Signature.Issuer||'—')}</span>
       <span class="k">Thumbprint</span>   <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
       <span class="k">NotAfter</span>     <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
       <span class="k">TimeStamper</span>  <span class="v">${esc(p.Signature.TimeStamper||'—')}</span>` : ''}
