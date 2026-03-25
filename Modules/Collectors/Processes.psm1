@@ -1,43 +1,47 @@
 #Requires -Version 5.1
-# ╔══════════════════════════════════════╗
-# ║  Quicker — Processes.psm1           ║
-# ║  Process list via CIM (PS3+) or WMI ║
-# ║  (PS2). Includes .NET fallback.     ║
-# ╠══════════════════════════════════════╣
-# ║  Exports   : Invoke-Collector       ║
-# ║  Helpers   : _sha256, _getSigPS3    ║
-# ║  SB helpers: _sha256, _getSigPS2    ║
-# ║              (WMI), _getSigPS3 (CIM)║
-# ║  Inputs    : -Session               ║
-# ║              -TargetPSVersion       ║
-# ║              -TargetCapabilities    ║
-# ║  Output    : @{ data=processes[];   ║
-# ║               source=string;        ║
-# ║               errors=[] }           ║
-# ║  Fields    : ProcessId, PPID, Name, ║
-# ║    CommandLine, ExecutablePath,      ║
-# ║    CreationDateUTC, WorkingSetSize,  ║
-# ║    VirtualSize, SessionId,           ║
-# ║    HandleCount, Owner, SHA256,       ║
-# ║    SHA256Error, Signature, source    ║
-# ║  Depends   : Core\DateTime.psm1     ║
-# ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.6                    ║
-# ╚══════════════════════════════════════╝
+# ╔══════════════════════════════════════════╗
+# ║  Quicker — Processes.psm1               ║
+# ║  Process list via CIM (PS3+) or WMI     ║
+# ║  (PS2). Includes .NET fallback.         ║
+# ╠══════════════════════════════════════════╣
+# ║  Exports   : Invoke-Collector            ║
+# ║  Helpers   : _sha256, _getSigPS3,       ║
+# ║              _getIntegrityLevel          ║
+# ║  SB helpers: _sha256, _getSigPS2 (WMI), ║
+# ║    _getSigPS3 (CIM), _getIntegrityLevel ║
+# ║  Inputs    : -Session                    ║
+# ║              -TargetPSVersion            ║
+# ║              -TargetCapabilities         ║
+# ║  Output    : @{ data=processes[];        ║
+# ║               source=string;             ║
+# ║               errors=[] }                ║
+# ║  Fields    : ProcessId, PPID, Name,      ║
+# ║    CommandLine, ExecutablePath,           ║
+# ║    CreationDateUTC, WorkingSetSize,       ║
+# ║    VirtualSize, SessionId, HandleCount,   ║
+# ║    Owner, IntegrityLevel,                 ║
+# ║    IntegrityLevelError, SHA256,           ║
+# ║    SHA256Error, Signature, source         ║
+# ║  Depends   : Core\DateTime.psm1          ║
+# ║  PS compat : 2.0+ (target-side)          ║
+# ║  Version   : 2.7                         ║
+# ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 # PS 2.0-compatible WMI process enumeration scriptblock
 $script:PROC_SB_WMI = {
+    # SYNC: _sha256 and _getSigPS2 are duplicated here because scriptblocks
+    # sent via Invoke-Command cannot reference module-scope functions.
+    # Any changes must be mirrored in all copies (WMI SB, CIM SB, module scope).
     function _sha256($p) {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $s = [Security.Cryptography.SHA256]::Create()
             $st = [System.IO.File]::OpenRead($p)
-            $h = $s.ComputeHash($st)
-            $st.Close(); $s.Dispose()
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -63,6 +67,62 @@ $script:PROC_SB_WMI = {
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
                 IsOSBinary=$null; SignatureType=$null
             }
+        }
+    }
+    function _getIntegrityLevel($pid_) {
+        if ($null -eq $pid_ -or $pid_ -eq 0) { return @($null, 'PID_ZERO_OR_NULL') }
+        try {
+            if (-not ('IntegrityHelper' -as [type])) {
+                Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class IntegrityHelper {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool GetTokenInformation(IntPtr TokenHandle, int TokenInformationClass, IntPtr TokenInformation, int TokenInformationLength, out int ReturnLength);
+    [DllImport("advapi32.dll", CharSet=CharSet.Auto)]
+    static extern bool ConvertSidToStringSid(IntPtr pSid, out string strSid);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr hObject);
+    public static int GetIntegrityRid(IntPtr processHandle) {
+        IntPtr hToken;
+        if (!OpenProcessToken(processHandle, 0x0008, out hToken)) return -1;
+        try {
+            int len;
+            GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
+            if (len == 0) return -2;
+            IntPtr buf = Marshal.AllocHGlobal(len);
+            try {
+                if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
+                IntPtr pSid = Marshal.ReadIntPtr(buf);
+                string sidStr;
+                if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
+                string[] parts = sidStr.Split(new char[]{'-'});
+                return int.Parse(parts[parts.Length - 1]);
+            } finally { Marshal.FreeHGlobal(buf); }
+        } finally { CloseHandle(hToken); }
+    }
+}
+'@ -ErrorAction Stop
+            }
+            $proc = [System.Diagnostics.Process]::GetProcessById($pid_)
+            $rid = [IntegrityHelper]::GetIntegrityRid($proc.Handle)
+            if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
+            $label = switch ($rid) {
+                0x0000 { 'Untrusted' }
+                0x1000 { 'Low' }
+                0x2000 { 'Medium' }
+                0x2100 { 'MediumPlus' }
+                0x3000 { 'High' }
+                0x4000 { 'System' }
+                0x5000 { 'ProtectedProcess' }
+                default { "RID_$rid" }
+            }
+            return @($label, $null)
+        } catch {
+            $m = $_.Exception.Message
+            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+            return @($null, "IL_ERROR: $m")
         }
     }
     $out = @()
@@ -108,6 +168,9 @@ $script:PROC_SB_WMI = {
         # Signature (PS 2.0 compatible)
         $sigObj = _getSigPS2 $exePath
 
+        # IntegrityLevel
+        $ilResult = _getIntegrityLevel $pid_
+
         if ($pid_ -ne $null) {
             $out += New-Object PSObject -Property @{
                 ProcessId       = $pid_
@@ -121,6 +184,8 @@ $script:PROC_SB_WMI = {
                 SessionId       = $sid
                 HandleCount     = $hc
                 Owner           = $owner
+                IntegrityLevel  = $ilResult[0]
+                IntegrityLevelError = $ilResult[1]
                 SHA256          = $sha256Val
                 SHA256Error     = $sha256Err
                 Signature       = $sigObj
@@ -155,14 +220,17 @@ $script:PROC_SB_WMI = {
                     if ($exeFn) { $sha256Cache[$exeFn] = @($sha256Fb, $sha256ErrFb) }
                 }
                 $sigFb = _getSigPS2 $exeFn
+                $ilFb = _getIntegrityLevel ([int]$dp.Id)
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
                     CreationDate = $startT; WorkingSetSize = $ws2; VirtualSize = $vs2
                     SessionId = $sid2; HandleCount = $hc2; Owner = $null
+                    IntegrityLevel = $ilFb[0]; IntegrityLevelError = $ilFb[1]
                     SHA256 = $sha256Fb; SHA256Error = $sha256ErrFb; Signature = $sigFb
                     source = 'dotnet_fallback'
                 }
+                $outerErrors += "ANOMALY: PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from WMI/CIM - possible DKOM or race condition"
             }
         }
     } catch {
@@ -174,14 +242,16 @@ $script:PROC_SB_WMI = {
 
 # CIM scriptblock for PS 3+ path
 $script:PROC_SB_CIM = {
+    # SYNC: _sha256 and _getSigPS3 are duplicated here because scriptblocks
+    # sent via Invoke-Command cannot reference module-scope functions.
+    # Any changes must be mirrored in all copies (WMI SB, CIM SB, module scope).
     function _sha256($p) {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $s = [Security.Cryptography.SHA256]::Create()
             $st = [System.IO.File]::OpenRead($p)
-            $h = $s.ComputeHash($st)
-            $st.Close(); $s.Dispose()
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -208,7 +278,7 @@ $script:PROC_SB_CIM = {
                 SignerCompany = $cn
                 Issuer        = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { $null }
                 Thumbprint    = if ($sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
-                NotAfter      = if ($sig.SignerCertificate) { $sig.SignerCertificate.NotAfter.ToString('o') } else { $null }
+                NotAfter      = if ($sig.SignerCertificate) { $sig.SignerCertificate.NotAfter.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
                 TimeStamper   = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
                 IsOSBinary    = $isOSBin
                 SignatureType = $sigType
@@ -222,6 +292,62 @@ $script:PROC_SB_CIM = {
             }
         }
     }
+    function _getIntegrityLevel($pid_) {
+        if ($null -eq $pid_ -or $pid_ -eq 0) { return @($null, 'PID_ZERO_OR_NULL') }
+        try {
+            if (-not ('IntegrityHelper' -as [type])) {
+                Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class IntegrityHelper {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool GetTokenInformation(IntPtr TokenHandle, int TokenInformationClass, IntPtr TokenInformation, int TokenInformationLength, out int ReturnLength);
+    [DllImport("advapi32.dll", CharSet=CharSet.Auto)]
+    static extern bool ConvertSidToStringSid(IntPtr pSid, out string strSid);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr hObject);
+    public static int GetIntegrityRid(IntPtr processHandle) {
+        IntPtr hToken;
+        if (!OpenProcessToken(processHandle, 0x0008, out hToken)) return -1;
+        try {
+            int len;
+            GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
+            if (len == 0) return -2;
+            IntPtr buf = Marshal.AllocHGlobal(len);
+            try {
+                if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
+                IntPtr pSid = Marshal.ReadIntPtr(buf);
+                string sidStr;
+                if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
+                string[] parts = sidStr.Split(new char[]{'-'});
+                return int.Parse(parts[parts.Length - 1]);
+            } finally { Marshal.FreeHGlobal(buf); }
+        } finally { CloseHandle(hToken); }
+    }
+}
+'@ -ErrorAction Stop
+            }
+            $proc = [System.Diagnostics.Process]::GetProcessById($pid_)
+            $rid = [IntegrityHelper]::GetIntegrityRid($proc.Handle)
+            if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
+            $label = switch ($rid) {
+                0x0000 { 'Untrusted' }
+                0x1000 { 'Low' }
+                0x2000 { 'Medium' }
+                0x2100 { 'MediumPlus' }
+                0x3000 { 'High' }
+                0x4000 { 'System' }
+                0x5000 { 'ProtectedProcess' }
+                default { "RID_$rid" }
+            }
+            return @($label, $null)
+        } catch {
+            $m = $_.Exception.Message
+            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+            return @($null, "IL_ERROR: $m")
+        }
+    }
     $out = @()
     $outerErrors = @()
     $sha256Cache = @{}
@@ -233,12 +359,14 @@ $script:PROC_SB_CIM = {
         try { $ppid  = [int]$p.ParentProcessId } catch {}
         try { $name_ = $p.Name }                 catch {}
         if ($pid_ -eq $null) { continue }
+        $ilResult = _getIntegrityLevel $pid_
         $entry = New-Object PSObject -Property @{
             ProcessId = $pid_; ParentProcessId = $ppid; Name = $name_
             CommandLine = $null; ExecutablePath = $null
             CreationDateUtc = $null; CreationDate = $null
             WorkingSetSize = [long]0; VirtualSize = [long]0
             SessionId = $null; HandleCount = $null; Owner = $null
+            IntegrityLevel = $ilResult[0]; IntegrityLevelError = $ilResult[1]
             SHA256 = $null; SHA256Error = $null; Signature = $null
             source = 'cim'
         }
@@ -300,15 +428,18 @@ $script:PROC_SB_CIM = {
                     if ($exeFn) { $sha256Cache[$exeFn] = @($sha256Fb2, $sha256ErrFb2) }
                 }
                 $sigFb2 = _getSigPS3 $exeFn
+                $ilFb2 = _getIntegrityLevel ([int]$dp.Id)
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
                     CreationDateUtc = $startT; CreationDate = $null
                     WorkingSetSize = $ws2; VirtualSize = $vs2
                     SessionId = $sid2; HandleCount = $hc2; Owner = $null
+                    IntegrityLevel = $ilFb2[0]; IntegrityLevelError = $ilFb2[1]
                     SHA256 = $sha256Fb2; SHA256Error = $sha256ErrFb2; Signature = $sigFb2
                     source = 'dotnet_fallback'
                 }
+                $outerErrors += "ANOMALY: PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from CIM - possible DKOM or race condition"
             }
         }
     } catch {
@@ -324,8 +455,7 @@ function _sha256($p) {
         if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
         $s = [Security.Cryptography.SHA256]::Create()
         $st = [System.IO.File]::OpenRead($p)
-        $h = $s.ComputeHash($st)
-        $st.Close(); $s.Dispose()
+        try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
         return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
     } catch {
         $m = $_.Exception.Message
@@ -345,7 +475,7 @@ function _getSigPS3($path) {
         }
         $isOSBin = $null; try { $isOSBin = $sig.IsOSBinary } catch {}
         $sigType = $null; try { $sigType = $sig.SignatureType.ToString() } catch {}
-        return @{
+        return [PSCustomObject]@{
             IsSigned      = ($sig.Status -ne 'NotSigned')
             IsValid       = ($sig.Status -eq 'Valid')
             Status        = $sig.Status.ToString()
@@ -353,18 +483,80 @@ function _getSigPS3($path) {
             SignerCompany = $cn
             Issuer        = if ($sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { $null }
             Thumbprint    = if ($sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
-            NotAfter      = if ($sig.SignerCertificate) { $sig.SignerCertificate.NotAfter.ToString('o') } else { $null }
+            NotAfter      = if ($sig.SignerCertificate) { $sig.SignerCertificate.NotAfter.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
             TimeStamper   = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
             IsOSBinary    = $isOSBin
             SignatureType = $sigType
         }
     } catch {
-        return @{
+        return [PSCustomObject]@{
             IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
             SignerSubject=$null; SignerCompany=$null; Issuer=$null
             Thumbprint=$null; NotAfter=$null; TimeStamper=$null
             IsOSBinary=$null; SignatureType=$null
         }
+    }
+}
+
+# IntegrityLevel helper — uses P/Invoke to read process token integrity RID
+# Returns @(levelString, errorString). levelString is one of:
+#   Untrusted, Low, Medium, MediumPlus, High, System, ProtectedProcess, or the raw RID
+$script:_integrityTypeAdded = $false
+function _getIntegrityLevel($pid_) {
+    if ($null -eq $pid_ -or $pid_ -eq 0) { return @($null, 'PID_ZERO_OR_NULL') }
+    try {
+        if (-not $script:_integrityTypeAdded) {
+            Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class IntegrityHelper {
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool OpenProcessToken(IntPtr ProcessHandle, uint DesiredAccess, out IntPtr TokenHandle);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool GetTokenInformation(IntPtr TokenHandle, int TokenInformationClass, IntPtr TokenInformation, int TokenInformationLength, out int ReturnLength);
+    [DllImport("advapi32.dll", CharSet=CharSet.Auto)]
+    static extern bool ConvertSidToStringSid(IntPtr pSid, out string strSid);
+    [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr hObject);
+    public static int GetIntegrityRid(IntPtr processHandle) {
+        IntPtr hToken;
+        if (!OpenProcessToken(processHandle, 0x0008, out hToken)) return -1;
+        try {
+            int len;
+            GetTokenInformation(hToken, 25, IntPtr.Zero, 0, out len);
+            if (len == 0) return -2;
+            IntPtr buf = Marshal.AllocHGlobal(len);
+            try {
+                if (!GetTokenInformation(hToken, 25, buf, len, out len)) return -3;
+                IntPtr pSid = Marshal.ReadIntPtr(buf);
+                string sidStr;
+                if (!ConvertSidToStringSid(pSid, out sidStr)) return -4;
+                string[] parts = sidStr.Split(new char[]{'-'});
+                return int.Parse(parts[parts.Length - 1]);
+            } finally { Marshal.FreeHGlobal(buf); }
+        } finally { CloseHandle(hToken); }
+    }
+}
+'@ -ErrorAction Stop
+            $script:_integrityTypeAdded = $true
+        }
+        $proc = [System.Diagnostics.Process]::GetProcessById($pid_)
+        $rid = [IntegrityHelper]::GetIntegrityRid($proc.Handle)
+        if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
+        $label = switch ($rid) {
+            0x0000 { 'Untrusted' }
+            0x1000 { 'Low' }
+            0x2000 { 'Medium' }
+            0x2100 { 'MediumPlus' }
+            0x3000 { 'High' }
+            0x4000 { 'System' }
+            0x5000 { 'ProtectedProcess' }
+            default { "RID_$rid" }
+        }
+        return @($label, $null)
+    } catch {
+        $m = $_.Exception.Message
+        if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
+        return @($null, "IL_ERROR: $m")
     }
 }
 
@@ -392,6 +584,13 @@ function Invoke-Collector {
             }
             $baseSource = if ($TargetPSVersion -ge 3) { 'cim' } else { 'wmi' }
             $sourceStr  = if ($r.FallbackCount -gt 0) { "$baseSource+dotnet_fallback" } else { $baseSource }
+
+            # Merge remote errors/anomalies into local errors array
+            if ($r.OuterErrors) {
+                foreach ($oe in $r.OuterErrors) {
+                    $errors += @{ artifact = 'dotnet_crosscheck'; message = $oe }
+                }
+            }
 
             foreach ($p in $raw) {
                 try {
@@ -436,6 +635,8 @@ function Invoke-Collector {
                     SessionId        = $p.SessionId
                     HandleCount      = $p.HandleCount
                     Owner            = $p.Owner
+                    IntegrityLevel   = $p.IntegrityLevel
+                    IntegrityLevelError = $p.IntegrityLevelError
                     SHA256           = $p.SHA256
                     SHA256Error      = $p.SHA256Error
                     Signature        = $sigOut
@@ -462,6 +663,7 @@ function Invoke-Collector {
                     try { $ppid  = [int]$p.ParentProcessId } catch {}
                     try { $name_ = $p.Name }                 catch {}
                     if ($pid_ -eq $null) { continue }
+                    $ilLocal = _getIntegrityLevel $pid_
                     $entry = @{
                         ProcessId        = $pid_
                         ParentProcessId  = $ppid
@@ -475,6 +677,8 @@ function Invoke-Collector {
                         SessionId        = $null
                         HandleCount      = $null
                         Owner            = $null
+                        IntegrityLevel   = $ilLocal[0]
+                        IntegrityLevelError = $ilLocal[1]
                         SHA256           = $null
                         SHA256Error      = $null
                         Signature        = $null
@@ -540,6 +744,7 @@ function Invoke-Collector {
                                 if ($exeFn) { $sha256Cache[$exeFn] = @($sha256Fb3, $sha256ErrFb3) }
                             }
                             if (-not $exeFn) { $sha256ErrFb3 = 'PATH_NULL' }
+                            $ilFb3 = _getIntegrityLevel ([int]$dp.Id)
                             $procs += @{
                                 ProcessId        = [int]$dp.Id
                                 ParentProcessId  = $null
@@ -553,12 +758,15 @@ function Invoke-Collector {
                                 SessionId        = $sid2
                                 HandleCount      = $hc2
                                 Owner            = $null
+                                IntegrityLevel   = $ilFb3[0]
+                                IntegrityLevelError = $ilFb3[1]
                                 SHA256           = $sha256Fb3
                                 SHA256Error      = $sha256ErrFb3
                                 Signature        = _getSigPS3 $exeFn
                                 source           = 'dotnet_fallback'
                             }
                             $fallbackCount++
+                            $errors += @{ artifact = 'dotnet_crosscheck'; message = "PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from CIM - possible DKOM or race condition"; severity = 'HIGH' }
                             Write-Log 'WARN' "PID=$($dp.Id) Name=$($dp.ProcessName) absent from WMI/CIM - added via .NET fallback"
                         }
                     }
@@ -617,6 +825,9 @@ function Invoke-Collector {
                     # Signature (analyst machine is PS 5.1+, Get-AuthenticodeSignature available)
                     $sigW = _getSigPS3 $exePath
 
+                    # IntegrityLevel
+                    $ilW = _getIntegrityLevel $pid_
+
                     $procs += @{
                         ProcessId        = $pid_
                         ParentProcessId  = $ppid
@@ -630,6 +841,8 @@ function Invoke-Collector {
                         SessionId        = $sid
                         HandleCount      = $hc
                         Owner            = $ownerW
+                        IntegrityLevel   = $ilW[0]
+                        IntegrityLevelError = $ilW[1]
                         SHA256           = $sha256W
                         SHA256Error      = $sha256ErrW
                         Signature        = $sigW
@@ -665,6 +878,7 @@ function Invoke-Collector {
                                 if ($exeFn) { $sha256Cache[$exeFn] = @($sha256WFb, $sha256ErrWFb) }
                             }
                             if (-not $exeFn) { $sha256ErrWFb = 'PATH_NULL' }
+                            $ilWFb = _getIntegrityLevel ([int]$dp.Id)
                             $procs += @{
                                 ProcessId        = [int]$dp.Id
                                 ParentProcessId  = $null
@@ -678,12 +892,15 @@ function Invoke-Collector {
                                 SessionId        = $sid2
                                 HandleCount      = $hc2
                                 Owner            = $null
+                                IntegrityLevel   = $ilWFb[0]
+                                IntegrityLevelError = $ilWFb[1]
                                 SHA256           = $sha256WFb
                                 SHA256Error      = $sha256ErrWFb
                                 Signature        = _getSigPS3 $exeFn
                                 source           = 'dotnet_fallback'
                             }
                             $fallbackCount++
+                            $errors += @{ artifact = 'dotnet_crosscheck'; message = "PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from WMI - possible DKOM or race condition"; severity = 'HIGH' }
                             Write-Log 'WARN' "PID=$($dp.Id) Name=$($dp.ProcessName) absent from WMI/CIM - added via .NET fallback"
                         }
                     }

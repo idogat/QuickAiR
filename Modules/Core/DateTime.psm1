@@ -9,7 +9,7 @@
 # ║  Output    : UTC ISO 8601 string    ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+                   ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -41,6 +41,9 @@ function ConvertTo-UtcIso {
             return $local.AddMinutes(-$off).ToString('yyyy-MM-ddTHH:mm:ssZ')
         } catch { return $null }
     }
+
+    # Partial DMTF — looks like DMTF but malformed, don't guess
+    if ($s -match '^\d{14}') { return $null }
 
     # Generic parse fallback
     try {
