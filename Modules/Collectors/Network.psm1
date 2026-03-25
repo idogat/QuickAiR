@@ -1,23 +1,26 @@
-#Requires -Version 5.1
-# ╔══════════════════════════════════════╗
-# ║  Quicker — Network.psm1             ║
-# ║  TCP connections (3 tiers), DNS     ║
-# ║  cache (3 tiers), multi-NIC mapping ║
-# ╠══════════════════════════════════════╣
-# ║  Exports   : Invoke-Collector       ║
-# ║  Inputs    : -Session               ║
-# ║              -TargetPSVersion       ║
-# ║              -TargetCapabilities    ║
-# ║  Output    : @{ data=@{tcp=[];      ║
-# ║               dns=[];adapters=[]};  ║
-# ║               source=@{network=;   ║
-# ║               dns=}; errors=[] }   ║
-# ║  Depends   : Core\DateTime.psm1     ║
-# ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.0                    ║
-# ╚══════════════════════════════════════╝
+# ╔══════════════════════════════════════════╗
+# ║  Quicker — Network.psm1                ║
+# ║  TCP+UDP connections (3 tiers), DNS    ║
+# ║  cache (3 tiers), multi-NIC mapping    ║
+# ╠══════════════════════════════════════════╣
+# ║  Exports   : Invoke-Collector          ║
+# ║  Inputs    : -Session                  ║
+# ║              -TargetPSVersion          ║
+# ║              -TargetCapabilities       ║
+# ║  Output    : @{ data=@{tcp=[];udp=[]; ║
+# ║               dns=[];adapters=[]};     ║
+# ║               source=@{network=;      ║
+# ║               udp=;dns=};             ║
+# ║               errors=[] }             ║
+# ║  Helpers   : ConvertFrom-NetstatOutput ║
+# ║              Resolve-InterfaceAlias    ║
+# ║              Add-DnsEnrichment         ║
+# ║              ConvertTo-DnsTypeName     ║
+# ║  Depends   : Core\Connection.psm1     ║
+# ║  PS compat : 2.0+ (target-side)       ║
+# ║  Version   : 2.1                      ║
+# ╚══════════════════════════════════════════╝
 
-Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
 # PS 2.0-compatible netstat scriptblock
@@ -30,10 +33,12 @@ $script:NET_SB_FALLBACK = {
     New-Object PSObject -Property @{ Source = 'netstat_fallback'; Lines = $lines }
 }
 $script:NET_SB_CIM = {
-    $out = @()
+    $out = @(); $udpOut = @()
     try {
         $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection
         foreach ($c in $raw) {
+            $ct = $null
+            if ($c.CreationTime) { $ct = $c.CreationTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
             $out += New-Object PSObject -Property @{
                 LocalAddress   = $c.LocalAddress
                 LocalPort      = [int]$c.LocalPort
@@ -42,9 +47,20 @@ $script:NET_SB_CIM = {
                 OwningProcess  = [int]$c.OwningProcess
                 StateInt       = [int]$c.State
                 InterfaceAlias = $c.InterfaceAlias
+                CreationTime   = $ct
             }
         }
-        New-Object PSObject -Property @{ Source = 'cim'; Connections = $out }
+        try {
+            $rawU = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetUDPEndpoint
+            foreach ($u in $rawU) {
+                $udpOut += New-Object PSObject -Property @{
+                    LocalAddress  = $u.LocalAddress
+                    LocalPort     = [int]$u.LocalPort
+                    OwningProcess = [int]$u.OwningProcess
+                }
+            }
+        } catch {}
+        New-Object PSObject -Property @{ Source = 'cim'; Connections = $out; UdpEndpoints = $udpOut }
     } catch {
         $lines = & netstat -ano 2>&1
         New-Object PSObject -Property @{ Source = 'netstat_fallback'; Lines = $lines }
@@ -165,31 +181,54 @@ $script:ADAPTER_SB_CIM = {
     $out
 }
 
-# Internal helper: parse netstat output lines
+# Internal helper: parse netstat output lines (TCP + UDP)
 function ConvertFrom-NetstatOutput {
     param([string[]]$Lines)
-    $out = @()
+    $tcp = @(); $udp = @()
     foreach ($line in $Lines) {
         $line = $line.Trim()
+        # TCP: has state column
         if ($line -match '^TCP\s+(\[?[\d.:a-fA-F]+\]?):(\d+)\s+(\[?[\d.:a-fA-F*]+\]?):(\d+|\*)\s+(\S+)\s+(\d+)\s*$') {
             $la = $Matches[1] -replace '[\[\]]',''
             $ra = $Matches[3] -replace '[\[\]]',''
-            $out += @{
+            $st = $Matches[5]
+            $tcp += @{
+                Protocol       = 'TCP'
                 LocalAddress   = $la
                 LocalPort      = [int]$Matches[2]
                 RemoteAddress  = $ra
                 RemotePort     = if ($Matches[4] -eq '*') { 0 } else { [int]$Matches[4] }
-                State          = $Matches[5]
+                State          = $st
                 OwningProcess  = [int]$Matches[6]
                 InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
                 CreationTime   = $null
+                IsListener     = ($st -eq 'LISTENING')
+                ReverseDns     = $null
+                DnsMatch       = $null
+                IsPrivateIP    = $false
+            }
+        }
+        # UDP: no state column, remote is *:*
+        elseif ($line -match '^UDP\s+(\[?[\d.:a-fA-F]+\]?):(\d+)\s+\S+\s+(\d+)\s*$') {
+            $la = $Matches[1] -replace '[\[\]]',''
+            $udp += @{
+                Protocol       = 'UDP'
+                LocalAddress   = $la
+                LocalPort      = [int]$Matches[2]
+                RemoteAddress  = $null
+                RemotePort     = $null
+                State          = 'LISTENING'
+                OwningProcess  = [int]$Matches[3]
+                InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
+                CreationTime   = $null
+                IsListener     = $true
                 ReverseDns     = $null
                 DnsMatch       = $null
                 IsPrivateIP    = $false
             }
         }
     }
-    return $out
+    return @{ Tcp = $tcp; Udp = $udp }
 }
 
 # Internal helper: resolve interface alias per connection using adapter list
@@ -234,7 +273,7 @@ function Resolve-InterfaceAlias {
     return $out
 }
 
-# Internal helper: DNS enrichment (reverse DNS + DnsMatch)
+# Internal helper: DNS enrichment (cache-only reverse DNS + DnsMatch)
 function Add-DnsEnrichment {
     param([array]$Connections, [array]$DnsCache)
 
@@ -243,30 +282,42 @@ function Add-DnsEnrichment {
         if ($d.Data -and -not $dnsMap.ContainsKey($d.Data)) { $dnsMap[$d.Data] = $d.Entry }
     }
 
-    $uniqueIPs = @($Connections | Where-Object { $_.RemoteAddress -and $_.RemoteAddress -ne '0.0.0.0' -and $_.RemoteAddress -ne '::' -and $_.RemoteAddress -ne '*' } | ForEach-Object { $_.RemoteAddress } | Sort-Object -Unique)
-
-    $revMap = @{}
-    foreach ($ip in $uniqueIPs) {
-        try {
-            $h = [System.Net.Dns]::GetHostEntry($ip)
-            $revMap[$ip] = $h.HostName
-        } catch {
-            $revMap[$ip] = $ip
-        }
-    }
-
     $out = @()
     foreach ($c in $Connections) {
         $e = $c.Clone()
         $ip = $c.RemoteAddress
         if ($ip) {
-            if ($revMap.ContainsKey($ip)) { $e.ReverseDns  = $revMap[$ip] }
-            if ($dnsMap.ContainsKey($ip)) { $e.DnsMatch    = $dnsMap[$ip] }
+            if ($dnsMap.ContainsKey($ip)) {
+                $e.ReverseDns = $dnsMap[$ip]
+                $e.DnsMatch   = $dnsMap[$ip]
+            }
             $e.IsPrivateIP = Test-PrivateIP $ip
         }
         $out += $e
     }
     return $out
+}
+
+# DNS record type lookup (F-08)
+$script:DNS_TYPE_MAP = @{ 1='A'; 2='NS'; 5='CNAME'; 6='SOA'; 12='PTR'; 15='MX'; 28='AAAA'; 33='SRV' }
+
+function ConvertTo-DnsTypeName {
+    param($Type)
+    if ($Type -is [int] -and $script:DNS_TYPE_MAP.ContainsKey($Type)) { return $script:DNS_TYPE_MAP[$Type] }
+    return "$Type"
+}
+
+# Internal helper: resolve PID to process name
+$script:PROC_SB_PS2 = {
+    $out = @{}
+    $procs = Get-WmiObject Win32_Process | Select-Object ProcessId, Name
+    foreach ($p in $procs) { $out[[int]$p.ProcessId] = $p.Name }
+    $out
+}
+$script:PROC_SB_PS3 = {
+    $out = @{}
+    foreach ($p in (Get-Process)) { $out[[int]$p.Id] = $p.ProcessName }
+    $out
 }
 
 function Invoke-Collector {
@@ -278,14 +329,16 @@ function Invoke-Collector {
 
     $errors        = @()
     $conns         = @()
+    $udpConns      = @()
     $dnsEntries    = @()
     $adapters      = @()
     $networkSource = 'unknown'
+    $udpSource     = 'unknown'
     $dnsSource     = 'unknown'
 
     $OP_TIMEOUT_SEC = 60
 
-    # --- Network TCP collection ---
+    # --- Network TCP + UDP collection ---
     try {
         if ($Session -ne $null) {
             # Remote
@@ -299,22 +352,49 @@ function Invoke-Collector {
             if ($r.Source -eq 'cim' -and $r.Connections) {
                 foreach ($c in $r.Connections) {
                     $la = $c.LocalAddress; $ra = $c.RemoteAddress
+                    $stateStr = ConvertFrom-TcpStateInt $c.StateInt
                     $conns += @{
+                        Protocol       = 'TCP'
                         LocalAddress   = $la
                         LocalPort      = [int]$c.LocalPort
                         RemoteAddress  = $ra
                         RemotePort     = [int]$c.RemotePort
                         OwningProcess  = [int]$c.OwningProcess
-                        State          = ConvertFrom-TcpStateInt $c.StateInt
+                        State          = $stateStr
                         InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { if ($c.InterfaceAlias) { $c.InterfaceAlias } else { $la } }
-                        CreationTime   = $null
+                        CreationTime   = $c.CreationTime
+                        IsListener     = ($stateStr -eq 'LISTEN')
                         ReverseDns     = $null
                         DnsMatch       = $null
                         IsPrivateIP    = Test-PrivateIP $ra
                     }
                 }
+                # UDP from CIM remote
+                $udpSource = 'cim'
+                foreach ($u in @($r.UdpEndpoints)) {
+                    if (-not $u) { continue }
+                    $la = $u.LocalAddress
+                    $udpConns += @{
+                        Protocol       = 'UDP'
+                        LocalAddress   = $la
+                        LocalPort      = [int]$u.LocalPort
+                        RemoteAddress  = $null
+                        RemotePort     = $null
+                        State          = 'LISTENING'
+                        OwningProcess  = [int]$u.OwningProcess
+                        InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
+                        CreationTime   = $null
+                        IsListener     = $true
+                        ReverseDns     = $null
+                        DnsMatch       = $null
+                        IsPrivateIP    = $false
+                    }
+                }
             } elseif ($r.Lines) {
-                $conns = ConvertFrom-NetstatOutput -Lines $r.Lines
+                $parsed = ConvertFrom-NetstatOutput -Lines $r.Lines
+                $conns    = $parsed.Tcp
+                $udpConns = $parsed.Udp
+                $udpSource = $r.Source
             }
         } else {
             # Local
@@ -323,28 +403,64 @@ function Invoke-Collector {
                 $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -OperationTimeoutSec $OP_TIMEOUT_SEC
                 foreach ($c in $raw) {
                     $la = $c.LocalAddress; $ra = $c.RemoteAddress
+                    $stateStr = ConvertFrom-TcpStateInt ([int]$c.State)
+                    $ct = $null
+                    if ($c.CreationTime) { $ct = $c.CreationTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
                     $conns += @{
+                        Protocol       = 'TCP'
                         LocalAddress   = $la
                         LocalPort      = [int]$c.LocalPort
                         RemoteAddress  = $ra
                         RemotePort     = [int]$c.RemotePort
                         OwningProcess  = [int]$c.OwningProcess
-                        State          = ConvertFrom-TcpStateInt ([int]$c.State)
+                        State          = $stateStr
                         InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { if ($c.InterfaceAlias) { $c.InterfaceAlias } else { $la } }
-                        CreationTime   = $null
+                        CreationTime   = $ct
+                        IsListener     = ($stateStr -eq 'LISTEN')
                         ReverseDns     = $null
                         DnsMatch       = $null
                         IsPrivateIP    = Test-PrivateIP $ra
                     }
                 }
+                # UDP local CIM
+                $udpSource = 'cim'
+                try {
+                    $rawU = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetUDPEndpoint -OperationTimeoutSec $OP_TIMEOUT_SEC
+                    foreach ($u in $rawU) {
+                        $la = $u.LocalAddress
+                        $udpConns += @{
+                            Protocol       = 'UDP'
+                            LocalAddress   = $la
+                            LocalPort      = [int]$u.LocalPort
+                            RemoteAddress  = $null
+                            RemotePort     = $null
+                            State          = 'LISTENING'
+                            OwningProcess  = [int]$u.OwningProcess
+                            InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
+                            CreationTime   = $null
+                            IsListener     = $true
+                            ReverseDns     = $null
+                            DnsMatch       = $null
+                            IsPrivateIP    = $false
+                        }
+                    }
+                } catch {
+                    $errors += @{ artifact = 'network_udp'; message = $_.Exception.Message }
+                }
             } elseif ($TargetPSVersion -ge 3) {
                 $networkSource = 'netstat_fallback'
                 $lines  = & netstat -ano 2>&1
-                $conns  = ConvertFrom-NetstatOutput -Lines $lines
+                $parsed = ConvertFrom-NetstatOutput -Lines $lines
+                $conns    = $parsed.Tcp
+                $udpConns = $parsed.Udp
+                $udpSource = $networkSource
             } else {
                 $networkSource = 'netstat_legacy'
                 $lines  = cmd /c "netstat -ano" 2>&1
-                $conns  = ConvertFrom-NetstatOutput -Lines $lines
+                $parsed = ConvertFrom-NetstatOutput -Lines $lines
+                $conns    = $parsed.Tcp
+                $udpConns = $parsed.Udp
+                $udpSource = $networkSource
             }
         }
     } catch {
@@ -368,7 +484,7 @@ function Invoke-Collector {
 
             if ($r.Source -eq 'cim' -and $r.Entries) {
                 foreach ($d in $r.Entries) {
-                    $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=[int]$d.Type; TTL=[int]$d.TTL }
+                    $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=(ConvertTo-DnsTypeName $d.Type); TTL=[int]$d.TTL }
                 }
             } elseif ($r.Lines) {
                 $parsed = & $script:DNS_PARSE_SB -Lines $r.Lines
@@ -380,7 +496,7 @@ function Invoke-Collector {
                 $dnsSource = 'cim'
                 $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache -OperationTimeoutSec $OP_TIMEOUT_SEC
                 foreach ($d in $raw) {
-                    $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=[int]$d.Type; TTL=[int]$d.TimeToLive }
+                    $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=(ConvertTo-DnsTypeName ([int]$d.Type)); TTL=[int]$d.TimeToLive }
                 }
             } elseif ($TargetPSVersion -ge 3) {
                 $dnsSource = 'ipconfig_fallback'
@@ -425,20 +541,43 @@ function Invoke-Collector {
         Write-Log 'ERROR' "Adapter enumeration failed: $($_.Exception.Message)"
     }
 
+    # --- Process name resolution (F-04) ---
+    $pidMap = @{}
+    try {
+        $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
+        if ($Session -ne $null) {
+            $pidMap = Invoke-Command -Session $Session -ScriptBlock $sb
+        } else {
+            $pidMap = & $sb
+        }
+        if (-not $pidMap) { $pidMap = @{} }
+    } catch {
+        $errors += @{ artifact = 'process_names'; message = $_.Exception.Message }
+    }
+
+    foreach ($c in @($conns) + @($udpConns)) {
+        $pid_ = $c.OwningProcess
+        $c.OwningProcessName = if ($pidMap.ContainsKey([int]$pid_)) { $pidMap[[int]$pid_] } else { $null }
+    }
+
     # --- Resolve interface aliases ---
-    $resolvedNet = Resolve-InterfaceAlias -Connections $conns -Adapters $adapters
+    $resolvedTcp = Resolve-InterfaceAlias -Connections $conns -Adapters $adapters
+    $resolvedUdp = Resolve-InterfaceAlias -Connections $udpConns -Adapters $adapters
 
     # --- DNS enrichment ---
-    $enrichedNet = Add-DnsEnrichment -Connections $resolvedNet -DnsCache $dnsEntries
+    $enrichedTcp = Add-DnsEnrichment -Connections $resolvedTcp -DnsCache $dnsEntries
+    $enrichedUdp = Add-DnsEnrichment -Connections $resolvedUdp -DnsCache $dnsEntries
 
     return @{
         data = @{
-            tcp      = $enrichedNet
+            tcp      = $enrichedTcp
+            udp      = $enrichedUdp
             dns      = $dnsEntries
             adapters = $adapters
         }
         source = @{
             network = $networkSource
+            udp     = $udpSource
             dns     = $dnsSource
         }
         errors = $errors
