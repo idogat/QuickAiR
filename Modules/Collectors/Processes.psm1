@@ -22,7 +22,7 @@
 # ║    SHA256Error, Signature, source    ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.5                    ║
+# ║  Version   : 2.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -34,9 +34,10 @@ $script:PROC_SB_WMI = {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $b = [System.IO.File]::ReadAllBytes($p)
             $s = [Security.Cryptography.SHA256]::Create()
-            $h = $s.ComputeHash($b); $s.Dispose()
+            $st = [System.IO.File]::OpenRead($p)
+            $h = $s.ComputeHash($st)
+            $st.Close(); $s.Dispose()
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -177,9 +178,10 @@ $script:PROC_SB_CIM = {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $b = [System.IO.File]::ReadAllBytes($p)
             $s = [Security.Cryptography.SHA256]::Create()
-            $h = $s.ComputeHash($b); $s.Dispose()
+            $st = [System.IO.File]::OpenRead($p)
+            $h = $s.ComputeHash($st)
+            $st.Close(); $s.Dispose()
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -320,9 +322,10 @@ function _sha256($p) {
     if (-not $p) { return @($null, 'PATH_NULL') }
     try {
         if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-        $b = [System.IO.File]::ReadAllBytes($p)
         $s = [Security.Cryptography.SHA256]::Create()
-        $h = $s.ComputeHash($b); $s.Dispose()
+        $st = [System.IO.File]::OpenRead($p)
+        $h = $s.ComputeHash($st)
+        $st.Close(); $s.Dispose()
         return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
     } catch {
         $m = $_.Exception.Message
