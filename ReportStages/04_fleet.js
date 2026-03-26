@@ -11,7 +11,7 @@
 // ║    fleetStartRemove, fleetConfirm-    ║
 // ║    Remove, fleetCancelRemove          ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
@@ -87,8 +87,9 @@ function renderFleet() {
     const rows = hosts.map(h => {
       const d  = state.hosts[h];
       const m  = d.manifest || {};
-      const ac = (d.network_tcp||[]).filter(c=>c.State==='ESTABLISHED').length;
-      const ips = new Set((d.network_tcp||[]).filter(c=>c.RemoteAddress&&c.RemoteAddress!=='0.0.0.0').map(c=>c.RemoteAddress));
+      const allConns = (d.network_tcp||[]).concat(d.network_udp||[]);
+      const ac = allConns.filter(c=>c.State==='ESTABLISHED').length;
+      const ips = new Set(allConns.filter(c=>c.RemoteAddress&&c.RemoteAddress!=='0.0.0.0'&&c.RemoteAddress!=='::').map(c=>c.RemoteAddress));
       const collection_errors = m.collection_errors || [];
       const adapters = m.network_adapters || [];
       return {

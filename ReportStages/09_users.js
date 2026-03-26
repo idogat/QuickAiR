@@ -13,12 +13,12 @@
 // ║  Functions: renderUsers, renderUser-  ║
 // ║    Row, onUserRowClick, buildUser-    ║
 // ║    Expand, usersSortRows, usersApply- ║
-// ║    Filters, fmtUTC, confBadge,       ║
+// ║    Filters, confBadge,                ║
 // ║    acctTypeBadge, usersGetFirstLogon, ║
 // ║    usersGetLastLogon, usersGetBest-   ║
 // ║    Conf                               ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
@@ -57,20 +57,7 @@ const UCOLS = '160px 100px 130px 110px 130px 110px 100px';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function confBadge(c)  { return CONF_BADGE[c] || '<span>' + esc(c || '?') + '</span>'; }
-function fmtUTC(s) {
-  if (!s) return '<span style="color:var(--muted)">&#8212;</span>';
-  try {
-    const d = new Date(s);
-    if (isNaN(d)) return '<span style="color:var(--muted)">&#8212;</span>';
-    const pad = n => String(n).padStart(2, '0');
-    return esc(d.getUTCFullYear() + '-' +
-      pad(d.getUTCMonth() + 1) + '-' +
-      pad(d.getUTCDate()) + ' ' +
-      pad(d.getUTCHours()) + ':' +
-      pad(d.getUTCMinutes()) + ':' +
-      pad(d.getUTCSeconds()) + ' UTC');
-  } catch(e) { return '<span style="color:var(--muted)">&#8212;</span>'; }
-}
+// fmtUTC moved to 03_core.js
 
 function acctTypeBadge(t) {
   const styles = {

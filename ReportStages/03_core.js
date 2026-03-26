@@ -20,9 +20,10 @@
 // ║    buildUserIndex, rebuildUserIndex,  ║
 // ║    navigateToRow, gotoProcess,        ║
 // ║    gotoNetwork, getAdapterAliases,    ║
-// ║    ifaceColor, getProcName            ║
+// ║    ifaceColor, getProcName, fmtUTC,   ║
+// ║    fmtBytes, trunc                    ║
 // ║  Depends  : 02_shell.html (DOM)       ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ const ANALYZER_VERSION = "3.6";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  hosts: {},        // { hostname: { manifest, processes, network_tcp, dns_cache } }
+  hosts: {},        // { hostname: { manifest, processes, network_tcp, network_udp, dns_cache, network_adapters } }
   activeHost: null,
   vsInstances: {},  // virtual scroll instances keyed by id
   expandedRows: {}, // { tableId: rowIndex }
@@ -332,6 +333,8 @@ function loadJsonFile(file, onDone) {
       data.processes   = data.Processes   || data.processes   || [];
       data.network_tcp = (data.Network && data.Network.tcp) || data.network_tcp || [];
       data.dns_cache   = (data.Network && data.Network.dns) || data.dns_cache   || [];
+      data.network_udp = (data.Network && data.Network.udp) || data.network_udp || [];
+      data.network_adapters = (data.manifest && data.manifest.network_adapters) || [];
       // Build DLL count per process (CAPABILITY: DLL Count column)
       const hasDlls = Array.isArray(data.DLLs) && data.DLLs.length > 0;
       const dllCountMap = {};
@@ -506,11 +509,12 @@ function updateBadges() {
   const d = activeData();
   if (!d) { ['b-procs','b-active','b-ips','b-dns'].forEach(id => el(id).textContent = '0'); return; }
   el('b-procs').textContent  = d.processes ? d.processes.length : 0;
-  const active = (d.network_tcp || []).filter(c => c.State === 'ESTABLISHED').length;
+  const allConns = (d.network_tcp || []).concat(d.network_udp || []);
+  const active = allConns.filter(c => c.State === 'ESTABLISHED').length;
   el('b-active').textContent = active;
-  const ips = new Set((d.network_tcp || []).filter(c => c.RemoteAddress && c.RemoteAddress !== '0.0.0.0' && c.RemoteAddress !== '::').map(c => c.RemoteAddress));
+  const ips = new Set(allConns.filter(c => c.RemoteAddress && c.RemoteAddress !== '0.0.0.0' && c.RemoteAddress !== '::').map(c => c.RemoteAddress));
   el('b-ips').textContent   = ips.size;
-  const matches = (d.network_tcp || []).filter(c => c.DnsMatch).length;
+  const matches = allConns.filter(c => c.DnsMatch).length;
   el('b-dns').textContent   = matches;
   if (typeof updateExecuteBadge === 'function') updateExecuteBadge();
 }
@@ -752,6 +756,20 @@ function el(id) { return document.getElementById(id); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function str(v) { return v == null ? '' : String(v).toLowerCase(); }
 function trunc(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
+function fmtUTC(s) {
+  if (!s) return '<span style="color:var(--muted)">&#8212;</span>';
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return '<span style="color:var(--muted)">&#8212;</span>';
+    const pad = n => String(n).padStart(2, '0');
+    return esc(d.getUTCFullYear() + '-' +
+      pad(d.getUTCMonth() + 1) + '-' +
+      pad(d.getUTCDate()) + ' ' +
+      pad(d.getUTCHours()) + ':' +
+      pad(d.getUTCMinutes()) + ':' +
+      pad(d.getUTCSeconds()) + ' UTC');
+  } catch(e) { return '<span style="color:var(--muted)">&#8212;</span>'; }
+}
 
 // Returns ordered list of adapter InterfaceAlias values from active host manifest
 function getAdapterAliases() {

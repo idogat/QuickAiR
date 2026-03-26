@@ -57,7 +57,8 @@ function ConvertFrom-TcpStateInt {
         9  { return 'CLOSING'      }
         10 { return 'LAST_ACK'     }
         11 { return 'TIME_WAIT'    }
-        12 { return 'DELETE_TCB'   }
+        12  { return 'DELETE_TCB'   }
+        100 { return 'BOUND'        }
         default { return $n.ToString() }
     }
 }

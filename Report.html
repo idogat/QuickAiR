@@ -405,9 +405,10 @@ var _toolDefaults = {
 // ║    buildUserIndex, rebuildUserIndex,  ║
 // ║    navigateToRow, gotoProcess,        ║
 // ║    gotoNetwork, getAdapterAliases,    ║
-// ║    ifaceColor, getProcName            ║
+// ║    ifaceColor, getProcName, fmtUTC,   ║
+// ║    fmtBytes, trunc                    ║
 // ║  Depends  : 02_shell.html (DOM)       ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
@@ -415,7 +416,7 @@ const ANALYZER_VERSION = "3.6";
 
 // ── STATE ────────────────────────────────────────────────────────────────────
 const state = {
-  hosts: {},        // { hostname: { manifest, processes, network_tcp, dns_cache } }
+  hosts: {},        // { hostname: { manifest, processes, network_tcp, network_udp, dns_cache, network_adapters } }
   activeHost: null,
   vsInstances: {},  // virtual scroll instances keyed by id
   expandedRows: {}, // { tableId: rowIndex }
@@ -717,6 +718,8 @@ function loadJsonFile(file, onDone) {
       data.processes   = data.Processes   || data.processes   || [];
       data.network_tcp = (data.Network && data.Network.tcp) || data.network_tcp || [];
       data.dns_cache   = (data.Network && data.Network.dns) || data.dns_cache   || [];
+      data.network_udp = (data.Network && data.Network.udp) || data.network_udp || [];
+      data.network_adapters = (data.manifest && data.manifest.network_adapters) || [];
       // Build DLL count per process (CAPABILITY: DLL Count column)
       const hasDlls = Array.isArray(data.DLLs) && data.DLLs.length > 0;
       const dllCountMap = {};
@@ -891,11 +894,12 @@ function updateBadges() {
   const d = activeData();
   if (!d) { ['b-procs','b-active','b-ips','b-dns'].forEach(id => el(id).textContent = '0'); return; }
   el('b-procs').textContent  = d.processes ? d.processes.length : 0;
-  const active = (d.network_tcp || []).filter(c => c.State === 'ESTABLISHED').length;
+  const allConns = (d.network_tcp || []).concat(d.network_udp || []);
+  const active = allConns.filter(c => c.State === 'ESTABLISHED').length;
   el('b-active').textContent = active;
-  const ips = new Set((d.network_tcp || []).filter(c => c.RemoteAddress && c.RemoteAddress !== '0.0.0.0' && c.RemoteAddress !== '::').map(c => c.RemoteAddress));
+  const ips = new Set(allConns.filter(c => c.RemoteAddress && c.RemoteAddress !== '0.0.0.0' && c.RemoteAddress !== '::').map(c => c.RemoteAddress));
   el('b-ips').textContent   = ips.size;
-  const matches = (d.network_tcp || []).filter(c => c.DnsMatch).length;
+  const matches = allConns.filter(c => c.DnsMatch).length;
   el('b-dns').textContent   = matches;
   if (typeof updateExecuteBadge === 'function') updateExecuteBadge();
 }
@@ -1137,6 +1141,20 @@ function el(id) { return document.getElementById(id); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function str(v) { return v == null ? '' : String(v).toLowerCase(); }
 function trunc(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
+function fmtUTC(s) {
+  if (!s) return '<span style="color:var(--muted)">&#8212;</span>';
+  try {
+    const d = new Date(s);
+    if (isNaN(d)) return '<span style="color:var(--muted)">&#8212;</span>';
+    const pad = n => String(n).padStart(2, '0');
+    return esc(d.getUTCFullYear() + '-' +
+      pad(d.getUTCMonth() + 1) + '-' +
+      pad(d.getUTCDate()) + ' ' +
+      pad(d.getUTCHours()) + ':' +
+      pad(d.getUTCMinutes()) + ':' +
+      pad(d.getUTCSeconds()) + ' UTC');
+  } catch(e) { return '<span style="color:var(--muted)">&#8212;</span>'; }
+}
 
 // Returns ordered list of adapter InterfaceAlias values from active host manifest
 function getAdapterAliases() {
@@ -1232,7 +1250,7 @@ window.addEventListener('load', () => {
 // ║    fleetStartRemove, fleetConfirm-    ║
 // ║    Remove, fleetCancelRemove          ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
@@ -1308,8 +1326,9 @@ function renderFleet() {
     const rows = hosts.map(h => {
       const d  = state.hosts[h];
       const m  = d.manifest || {};
-      const ac = (d.network_tcp||[]).filter(c=>c.State==='ESTABLISHED').length;
-      const ips = new Set((d.network_tcp||[]).filter(c=>c.RemoteAddress&&c.RemoteAddress!=='0.0.0.0').map(c=>c.RemoteAddress));
+      const allConns = (d.network_tcp||[]).concat(d.network_udp||[]);
+      const ac = allConns.filter(c=>c.State==='ESTABLISHED').length;
+      const ips = new Set(allConns.filter(c=>c.RemoteAddress&&c.RemoteAddress!=='0.0.0.0'&&c.RemoteAddress!=='::').map(c=>c.RemoteAddress));
       const collection_errors = m.collection_errors || [];
       const adapters = m.network_adapters || [];
       return {
@@ -1477,7 +1496,7 @@ function fleetSortBy(col) {
 // ║    integrityRank, renderIntegrityBadge║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.50                      ║
+// ║  Version  : 3.51                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -1581,9 +1600,9 @@ function applyProcFilters() {
   const d = activeData(); if (!d) return;
   const lq = procFilters.search.toLowerCase();
 
-  // Build connection count map
+  // Build connection count map (TCP + UDP)
   const connMap = {};
-  (d.network_tcp||[]).forEach(c => {
+  (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
     if (c.OwningProcess) connMap[c.OwningProcess] = (connMap[c.OwningProcess]||0)+1;
   });
 
@@ -1672,8 +1691,12 @@ function onProcRowClick(i, p, rowEl) {
 
   const d = activeData();
   const connMap = {};
-  (d.network_tcp||[]).forEach(c => {
-    if (c.OwningProcess == p.ProcessId) connMap[c.RemoteAddress+':'+c.RemotePort] = c;
+  const tcpSet = new Set(d.network_tcp||[]);
+  (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
+    if (c.OwningProcess == p.ProcessId) {
+      const key = (c.RemoteAddress||'')+ ':' + (c.RemotePort||'') + ':' + (c.LocalPort||'');
+      if (!connMap[key]) connMap[key] = Object.assign({ _proto: tcpSet.has(c) ? 'TCP' : 'UDP' }, c);
+    }
   });
   const myConns = Object.values(connMap);
   const children = (d.processes||[]).filter(c => c.ParentProcessId == p.ProcessId);
@@ -1683,14 +1706,15 @@ function onProcRowClick(i, p, rowEl) {
     const adAliases = getAdapterAliases();
     connsHTML = `<h4>Network Connections (${myConns.length})</h4>
     <table class="expand-tbl"><tr>
-      <th>Remote IP</th><th>Port</th><th>State</th><th>DNS Match</th><th>Reverse DNS</th><th>Interface</th><th>Private</th>
+      <th>Proto</th><th>Remote IP</th><th>Port</th><th>State</th><th>DNS Match</th><th>Reverse DNS</th><th>Interface</th><th>Private</th>
     </tr>` +
     myConns.map(c => {
       const ia   = c.InterfaceAlias || '';
       const iCol = ifaceColor(ia, adAliases);
       return `<tr>
-      <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress)}')">${esc(c.RemoteAddress)}</a></td>
-      <td>${c.RemotePort}</td><td>${esc(c.State)}</td>
+      <td>${c._proto}</td>
+      <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress||'')}')">${esc(c.RemoteAddress||'—')}</a></td>
+      <td>${c.RemotePort!=null?c.RemotePort:'—'}</td><td>${esc(c.State||'—')}</td>
       <td>${esc(c.DnsMatch||'')}</td><td>${esc(c.ReverseDns||'')}</td>
       <td><span style="color:${iCol};font-weight:bold">${esc(ia)}</span></td>
       <td>${c.IsPrivateIP?'yes':''}</td></tr>`;
@@ -1770,45 +1794,72 @@ function fmtBytes(b) {
 
 // ╔══════════════════════════════════════╗
 // ║  Quicker — 06_network.js             ║
-// ║  Network tab render, virtual scroll, ║
-// ║  row expand, remote IP summary       ║
-// ║  panel, interface color coding       ║
+// ║  Network tab render, merged TCP+UDP  ║
+// ║  virtual scroll, row expand, remote  ║
+// ║  IP summary, adapter sub-panel,      ║
+// ║  interface color coding              ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : activeHost.Network.tcp,   ║
-// ║             activeHost.Network.dns    ║
+// ║  Reads    : activeHost.network_tcp,   ║
+// ║             activeHost.network_udp,   ║
+// ║             activeHost.network_adapters║
+// ║             activeHost.dns_cache      ║
 // ║  Writes   : netFilters, netSort       ║
 // ║  Functions: renderNetwork,            ║
 // ║    applyNetFilters, renderNetRow,     ║
 // ║    onNetRowClick, buildIpSummary,     ║
-// ║    gotoProcessPid, highlightNetwork-  ║
-// ║    Ip, highlightNetworkPid            ║
-// ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║    buildAdapterPanel, gotoProcessPid, ║
+// ║    highlightNetworkIp,                ║
+// ║    highlightNetworkPid                ║
+// ║  Depends  : 03_core.js (fmtUTC,      ║
+// ║             ifaceColor, createVS)     ║
+// ║  Version  : 4.1                       ║
 // ╚══════════════════════════════════════╝
 
 // ── NETWORK TAB ───────────────────────────────────────────────────────────────
-let netFilters = { search: '', state: '', iface: '' };
+let netFilters = { search: '', state: '', iface: '', proto: '' };
 let netSort    = { col: 'State', dir: 1 };
 let netData    = [];
+
+/** Merge TCP and UDP into a single array with _proto tag */
+function mergeNetConns(d) {
+  const tcp = (d.network_tcp || []).map(c => Object.assign({}, c, { _proto: 'TCP' }));
+  const udp = (d.network_udp || []).map(c => Object.assign({}, c, {
+    _proto: 'UDP',
+    RemoteAddress: c.RemoteAddress || null,
+    RemotePort:    c.RemotePort    || null,
+    State:         c.State         || null,
+    CreationTime:  c.CreationTime  || null,
+    DnsMatch:      c.DnsMatch      || null,
+    ReverseDns:    c.ReverseDns    || null,
+    IsPrivateIP:   c.IsPrivateIP != null ? c.IsPrivateIP : null,
+    InterfaceAlias:c.InterfaceAlias|| null,
+  }));
+  return tcp.concat(udp);
+}
 
 function renderNetwork() {
   const panel = el('panel-network');
   const d     = activeData();
   if (!d) { panel.innerHTML = '<div class="solo-notice">No file loaded.</div>'; return; }
 
-  // Build dropdown options from data
-  const states = [...new Set((d.network_tcp||[]).map(c=>c.State).filter(Boolean))].sort();
-  const ifaces = [...new Set((d.network_tcp||[]).map(c=>c.InterfaceAlias).filter(Boolean))].sort();
+  const allConns = mergeNetConns(d);
+
+  // Build dropdown options from merged data
+  const states = [...new Set(allConns.map(c=>c.State).filter(Boolean))].sort();
+  const ifaces = [...new Set(allConns.map(c=>c.InterfaceAlias).filter(Boolean))].sort();
 
   const stateOpts = `<option value="">All States</option>` + states.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('');
   const ifaceOpts = `<option value="">All Interfaces</option>` + ifaces.map(i=>`<option value="${esc(i)}">${esc(i)}</option>`).join('');
+  const protoOpts = `<option value="">All Protocols</option><option value="TCP">TCP</option><option value="UDP">UDP</option>`;
 
-  const COLS = '140px 60px 130px 60px 140px 60px 160px 160px 140px 100px 55px';
+  // M-3: Protocol | Process | PID | Local Addr | L.Port | Remote Addr | R.Port | State | Created (UTC) | DNS Match | Reverse DNS | Interface | Private
+  const COLS = '48px 130px 55px 130px 55px 130px 55px 100px 150px 150px 150px 120px 50px';
 
   panel.innerHTML = `
     <div class="filter-bar">
       <input type="text" id="net-search" placeholder="IP, port, process, DNS, interface&hellip;" style="width:280px"
              oninput="netFilters.search=this.value;applyNetFilters()">
+      <select onchange="netFilters.proto=this.value;applyNetFilters()">${protoOpts}</select>
       <select onchange="netFilters.state=this.value;applyNetFilters()">${stateOpts}</select>
       <select onchange="netFilters.iface=this.value;applyNetFilters()">${ifaceOpts}</select>
       <span id="net-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
@@ -1822,26 +1873,31 @@ function renderNetwork() {
       <table id="ip-summary-tbl"><thead><tr>
         <th>IP</th><th>Reverse DNS</th><th>DNS Match</th><th>Connections</th><th>Processes</th>
       </tr></thead><tbody id="ip-summary-body"></tbody></table>
-    </div>`;
+    </div>
+    <div id="adapter-panel"></div>`;
 
   state.vsInstances['net'] = null;
   buildNetHeader(COLS);
   applyNetFilters();
+  buildAdapterPanel(d);
 }
 
+// M-3 column order
 function buildNetHeader(COLS) {
   const headers = [
-    {key:'_procName',     label:'Process',    numeric:false },
-    {key:'OwningProcess', label:'PID',        numeric:true  },
-    {key:'LocalAddress',  label:'Local Addr', numeric:false },
-    {key:'LocalPort',     label:'L.Port',     numeric:true  },
-    {key:'RemoteAddress', label:'Remote Addr',numeric:false },
-    {key:'RemotePort',    label:'R.Port',     numeric:true  },
-    {key:'DnsMatch',      label:'DNS Match',  numeric:false },
-    {key:'ReverseDns',    label:'Reverse DNS',numeric:false },
-    {key:'InterfaceAlias',label:'Interface',  numeric:false },
-    {key:'State',         label:'State',      numeric:false },
-    {key:'IsPrivateIP',   label:'Private',    numeric:false },
+    {key:'_proto',        label:'Proto',       numeric:false },
+    {key:'_procName',     label:'Process',     numeric:false },
+    {key:'OwningProcess', label:'PID',         numeric:true  },
+    {key:'LocalAddress',  label:'Local Addr',  numeric:false },
+    {key:'LocalPort',     label:'L.Port',      numeric:true  },
+    {key:'RemoteAddress', label:'Remote Addr', numeric:false },
+    {key:'RemotePort',    label:'R.Port',      numeric:true  },
+    {key:'State',         label:'State',       numeric:false },
+    {key:'CreationTime',  label:'Created (UTC)',numeric:false },
+    {key:'DnsMatch',      label:'DNS Match',   numeric:false },
+    {key:'ReverseDns',    label:'Reverse DNS', numeric:false },
+    {key:'InterfaceAlias',label:'Interface',   numeric:false },
+    {key:'IsPrivateIP',   label:'Private',     numeric:false },
   ];
   const h = el('net-header');
   if (!h) return;
@@ -1859,40 +1915,57 @@ function applyNetFilters() {
   const d = activeData(); if (!d) return;
   const lq = netFilters.search.toLowerCase();
 
-  // Build pid->name map
+  // Build pid->name map for fallback
   const nameMap = {};
   (d.processes||[]).forEach(p => nameMap[p.ProcessId] = p.Name);
 
-  let rows = (d.network_tcp||[]).map(c => Object.assign({}, c, {
-    _procName: nameMap[c.OwningProcess] || String(c.OwningProcess)
+  // I-1: Merge TCP + UDP
+  let rows = mergeNetConns(d).map(c => Object.assign({}, c, {
+    // I-4: Use collector ProcessName, fall back to process-list join
+    _procName: c.OwningProcessName || nameMap[c.OwningProcess] || String(c.OwningProcess)
   }));
 
+  // Text search
   if (lq) rows = rows.filter(c =>
     str(c.RemoteAddress).includes(lq) || str(c.RemotePort).includes(lq) ||
     str(c.LocalAddress).includes(lq)  || str(c.LocalPort).includes(lq) ||
     str(c.State).includes(lq)         || str(c.DnsMatch).includes(lq) ||
     str(c.ReverseDns).includes(lq)    || str(c.InterfaceAlias).includes(lq) ||
-    str(c._procName).includes(lq)     || str(c.OwningProcess).includes(lq)
+    str(c._procName).includes(lq)     || str(c.OwningProcess).includes(lq) ||
+    str(c._proto).includes(lq)        || str(c.CreationTime).includes(lq)
   );
+
+  // Dropdown filters
+  if (netFilters.proto) rows = rows.filter(c => c._proto === netFilters.proto);
   if (netFilters.state) rows = rows.filter(c => c.State === netFilters.state);
   if (netFilters.iface) rows = rows.filter(c => c.InterfaceAlias === netFilters.iface);
 
+  // M-4: Default sort — ESTABLISHED first, then newest CreationTime
   if (sortState.tab === 'network' && sortState.column && sortState.dir !== 'none') {
     const numericNetCols = new Set(['OwningProcess','LocalPort','RemotePort']);
     rows = applySortToRows(rows, sortState.column, numericNetCols.has(sortState.column));
   } else {
     rows.sort((a,b) => {
-      const av = a[netSort.col]; const bv = b[netSort.col];
-      if (typeof av === 'number') return (av-bv)*netSort.dir;
-      return String(av||'').localeCompare(String(bv||''))*netSort.dir;
+      // ESTABLISHED first
+      const aEst = a.State === 'ESTABLISHED' ? 0 : 1;
+      const bEst = b.State === 'ESTABLISHED' ? 0 : 1;
+      if (aEst !== bEst) return aEst - bEst;
+      // Then newest CreationTime (descending)
+      const aT = a.CreationTime || '';
+      const bT = b.CreationTime || '';
+      if (aT !== bT) return bT > aT ? 1 : bT < aT ? -1 : 0;
+      return 0;
     });
   }
   netData = rows;
 
+  // Count label: "N connections (T tcp, U udp)"
+  const tcpCount = rows.filter(c => c._proto === 'TCP').length;
+  const udpCount = rows.filter(c => c._proto === 'UDP').length;
   const cnt = el('net-count');
-  if (cnt) cnt.textContent = rows.length + ' connections';
+  if (cnt) cnt.textContent = rows.length + ' connections (' + tcpCount + ' tcp, ' + udpCount + ' udp)';
 
-  const COLS = '140px 60px 130px 60px 140px 60px 160px 160px 140px 100px 55px';
+  const COLS = '48px 130px 55px 130px 55px 130px 55px 100px 150px 150px 150px 120px 50px';
   state.expandedRows['net'] = null;
 
   if (state.vsInstances['net']) {
@@ -1908,17 +1981,20 @@ function renderNetRow(c, i) {
   const stCls     = c.State==='ESTABLISHED'?'green': c.State==='LISTEN'?'accent':'dim';
   const ifAlias   = c.InterfaceAlias || '';
   const ifColor   = ifaceColor(ifAlias, getAdapterAliases());
+  const protoCls  = c._proto === 'UDP' ? 'amber' : 'dim';
   return `
+    <div class="td ${protoCls}" style="font-size:10px;font-weight:bold">${c._proto}</div>
     <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(c._procName)}</div>
     <div class="td dim">${c.OwningProcess}</div>
     <div class="td mono dim">${esc(c.LocalAddress)}</div>
     <div class="td dim">${c.LocalPort}</div>
-    <div class="td mono">${esc(c.RemoteAddress)}</div>
-    <div class="td">${c.RemotePort}</div>
+    <div class="td mono">${esc(c.RemoteAddress||'—')}</div>
+    <div class="td">${c.RemotePort != null ? c.RemotePort : '—'}</div>
+    <div class="td ${c.State ? stCls : 'dim'}">${esc(c.State||'—')}</div>
+    <div class="td dim">${c.CreationTime ? fmtUTC(c.CreationTime) : '—'}</div>
     <div class="td accent">${esc(c.DnsMatch||'')}</div>
     <div class="td dim">${esc(c.ReverseDns||'')}</div>
     <div class="td"><span style="color:${ifColor};font-weight:bold">${esc(ifAlias)}</span></div>
-    <div class="td ${stCls}">${esc(c.State)}</div>
     <div class="td dim">${c.IsPrivateIP?'yes':''}</div>`;
 }
 
@@ -1934,32 +2010,35 @@ function onNetRowClick(i, c, rowEl) {
 
   const d = activeData();
   const proc = (d.processes||[]).find(p => p.ProcessId == c.OwningProcess);
-  const sameProc = (d.network_tcp||[]).filter(x => x.OwningProcess == c.OwningProcess).slice(0,20);
+  // M-2: Use already-merged netData instead of re-merging
+  const sameProc = netData.filter(x => x.OwningProcess == c.OwningProcess).slice(0,20);
   const sameIP   = c.RemoteAddress && c.RemoteAddress !== '0.0.0.0'
-    ? (d.network_tcp||[]).filter(x => x.RemoteAddress === c.RemoteAddress && x.OwningProcess !== c.OwningProcess).slice(0,20)
+    ? netData.filter(x => x.RemoteAddress === c.RemoteAddress && x.OwningProcess !== c.OwningProcess).slice(0,20)
     : [];
 
   const sameProcHTML = sameProc.length > 1 ? `
     <h4 style="margin-top:8px">All connections from this process (${sameProc.length})</h4>
-    <table class="expand-tbl"><tr><th>Remote</th><th>Port</th><th>State</th><th>DNS</th></tr>` +
-    sameProc.map(x=>`<tr><td class="mono">${esc(x.RemoteAddress)}</td><td>${x.RemotePort}</td><td>${esc(x.State)}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
+    <table class="expand-tbl"><tr><th>Proto</th><th>Remote</th><th>Port</th><th>State</th><th>DNS</th></tr>` +
+    sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?x.RemotePort:'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const sameIPHTML = sameIP.length ? `
     <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIP.length})</h4>
-    <table class="expand-tbl"><tr><th>Process</th><th>PID</th><th>L.Port</th><th>State</th></tr>` +
-    sameIP.map(x=>`<tr><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State)}</td></tr>`).join('') +
+    <table class="expand-tbl"><tr><th>Proto</th><th>Process</th><th>PID</th><th>L.Port</th><th>State</th></tr>` +
+    sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
     '</table>' : '';
 
   const expand = document.createElement('div');
   expand.innerHTML = `
     <div class="kv-grid">
+      <span class="k">Protocol</span>      <span class="v">${c._proto}</span>
       <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${c.OwningProcess})">${esc(c._procName)} [${c.OwningProcess}]</a></span>
       <span class="k">Executable</span>    <span class="v">${esc(proc ? (proc.ExecutablePath||'—') : '—')}</span>
       <span class="k">CommandLine</span>   <span class="v">${esc(proc ? (proc.CommandLine||'—') : '—')}</span>
       <span class="k">Local</span>         <span class="v">${esc(c.LocalAddress)}:${c.LocalPort}</span>
-      <span class="k">Remote</span>        <span class="v">${esc(c.RemoteAddress)}:${c.RemotePort}</span>
-      <span class="k">State</span>         <span class="v">${esc(c.State)}</span>
+      <span class="k">Remote</span>        <span class="v">${c.RemoteAddress ? esc(c.RemoteAddress)+':'+(c.RemotePort!=null?c.RemotePort:'—') : '—'}</span>
+      <span class="k">State</span>         <span class="v">${esc(c.State||'—')}</span>
+      <span class="k">Created (UTC)</span> <span class="v">${c.CreationTime ? fmtUTC(c.CreationTime) : '—'}</span>
       <span class="k">Interface</span>     <span class="v">${esc(c.InterfaceAlias||'')}</span>
       <span class="k">DNS Match</span>     <span class="v">${esc(c.DnsMatch||'—')}</span>
       <span class="k">Reverse DNS</span>   <span class="v">${esc(c.ReverseDns||'—')}</span>
@@ -1976,6 +2055,7 @@ function buildIpSummary(d, filteredConns) {
 
   const dnsIPs = new Set((d.dns_cache||[]).map(e=>e.Data).filter(Boolean));
   const ipMap  = {};
+  // I-6: includes both TCP and UDP (filteredConns is already merged)
   filteredConns.forEach(c => {
     if (!c.RemoteAddress || c.RemoteAddress==='0.0.0.0' || c.RemoteAddress==='::') return;
     if (!ipMap[c.RemoteAddress]) {
@@ -2000,9 +2080,43 @@ function buildIpSummary(d, filteredConns) {
   }).join('');
 }
 
+// I-5: Collapsible Adapters sub-panel
+function buildAdapterPanel(d) {
+  const wrap = el('adapter-panel');
+  if (!wrap) return;
+  const adapters = d.network_adapters || [];
+  if (!adapters.length) { wrap.innerHTML = ''; return; }
+
+  const cards = adapters.map(a => {
+    const ips = Array.isArray(a.IPAddresses) ? a.IPAddresses.join(', ') : (a.IPAddresses || '');
+    const dns = Array.isArray(a.DNSServers)  ? a.DNSServers.join(', ')  : (a.DNSServers  || '');
+    const alias = a.InterfaceAlias || a.AdapterName || '';
+    const ifColor = ifaceColor(alias, getAdapterAliases());
+    return `<div style="display:inline-block;vertical-align:top;width:280px;margin:6px 8px 6px 0;padding:8px 12px;background:var(--row-bg);border-radius:6px;border:1px solid var(--border)">
+      <div style="font-weight:bold;margin-bottom:4px;color:${ifColor}">${esc(alias)}</div>
+      <div class="kv-grid" style="font-size:11px">
+        <span class="k">IP</span><span class="v mono">${esc(ips)}</span>
+        <span class="k">MAC</span><span class="v mono">${esc(a.MACAddress || '')}</span>
+        <span class="k">Gateway</span><span class="v">${esc(a.DefaultGateway || '')}</span>
+        <span class="k">DNS</span><span class="v">${esc(dns)}</span>
+        <span class="k">DHCP</span><span class="v">${a.DHCPEnabled ? 'Yes' : 'No'}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div style="margin-top:12px">
+      <h3 style="cursor:pointer;user-select:none" onclick="var b=this.nextElementSibling;b.style.display=b.style.display==='none'?'':'none';this.querySelector('span').textContent=b.style.display==='none'?'&#9654;':'&#9660;'">
+        <span>&#9660;</span> Network Adapters (${adapters.length})
+      </h3>
+      <div>${cards}</div>
+    </div>`;
+}
+
 function netSortBy(col) {
   if (netSort.col === col) netSort.dir *= -1; else { netSort.col = col; netSort.dir = 1; }
-  buildNetHeader('140px 60px 130px 60px 140px 60px 160px 160px 140px 100px 55px');
+  const COLS = '48px 130px 55px 130px 55px 130px 55px 100px 150px 150px 150px 120px 50px';
+  buildNetHeader(COLS);
   applyNetFilters();
 }
 
@@ -2019,7 +2133,6 @@ function highlightNetworkPid(pid) {
   if (inp) inp.value = String(pid);
   applyNetFilters();
 }
-
 // ╔══════════════════════════════════════╗
 // ║  Quicker — 06b_dlls.js               ║
 // ║  DLLs tab render, virtual scroll,    ║
@@ -2237,14 +2350,15 @@ function dllGotoProcess(pid) { navigateToRow('processes', 'ProcessId', pid); }
 // ║  banner, cross-reference clicks      ║
 // ║  to Processes tab                    ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : activeHost.Network.dns,   ║
-// ║             activeHost.Network.tcp    ║
+// ║  Reads    : activeHost.dns_cache,      ║
+// ║             activeHost.network_tcp,   ║
+// ║             activeHost.network_udp    ║
 // ║  Writes   : dnsFilters, dnsSort       ║
 // ║  Functions: renderDns,                ║
 // ║    applyDnsFilters, renderDnsRow,     ║
 // ║    onDnsRowClick                      ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
@@ -2308,9 +2422,9 @@ function applyDnsFilters() {
   const d  = activeData(); if (!d) return;
   const lq = dnsFilters.search.toLowerCase();
 
-  // Build IP -> (process name, pid) map from network_tcp
+  // Build IP -> (process name, pid) map from network_tcp + network_udp
   const ipToProcMap = {};
-  (d.network_tcp||[]).forEach(c => {
+  (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
     if (c.RemoteAddress && !ipToProcMap[c.RemoteAddress]) {
       ipToProcMap[c.RemoteAddress] = { name: getProcName(c.OwningProcess,d), pid: c.OwningProcess };
     }
@@ -2424,12 +2538,12 @@ function dnsSortBy(col) {
 // ║  Functions: renderUsers, renderUser-  ║
 // ║    Row, onUserRowClick, buildUser-    ║
 // ║    Expand, usersSortRows, usersApply- ║
-// ║    Filters, fmtUTC, confBadge,       ║
+// ║    Filters, confBadge,                ║
 // ║    acctTypeBadge, usersGetFirstLogon, ║
 // ║    usersGetLastLogon, usersGetBest-   ║
 // ║    Conf                               ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
@@ -2468,20 +2582,7 @@ const UCOLS = '160px 100px 130px 110px 130px 110px 100px';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function confBadge(c)  { return CONF_BADGE[c] || '<span>' + esc(c || '?') + '</span>'; }
-function fmtUTC(s) {
-  if (!s) return '<span style="color:var(--muted)">&#8212;</span>';
-  try {
-    const d = new Date(s);
-    if (isNaN(d)) return '<span style="color:var(--muted)">&#8212;</span>';
-    const pad = n => String(n).padStart(2, '0');
-    return esc(d.getUTCFullYear() + '-' +
-      pad(d.getUTCMonth() + 1) + '-' +
-      pad(d.getUTCDate()) + ' ' +
-      pad(d.getUTCHours()) + ':' +
-      pad(d.getUTCMinutes()) + ':' +
-      pad(d.getUTCSeconds()) + ' UTC');
-  } catch(e) { return '<span style="color:var(--muted)">&#8212;</span>'; }
-}
+// fmtUTC moved to 03_core.js
 
 function acctTypeBadge(t) {
   const styles = {

@@ -5,14 +5,15 @@
 // ║  banner, cross-reference clicks      ║
 // ║  to Processes tab                    ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : activeHost.Network.dns,   ║
-// ║             activeHost.Network.tcp    ║
+// ║  Reads    : activeHost.dns_cache,      ║
+// ║             activeHost.network_tcp,   ║
+// ║             activeHost.network_udp    ║
 // ║  Writes   : dnsFilters, dnsSort       ║
 // ║  Functions: renderDns,                ║
 // ║    applyDnsFilters, renderDnsRow,     ║
 // ║    onDnsRowClick                      ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.39                      ║
+// ║  Version  : 3.40                      ║
 // ╚══════════════════════════════════════╝
 
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
@@ -76,9 +77,9 @@ function applyDnsFilters() {
   const d  = activeData(); if (!d) return;
   const lq = dnsFilters.search.toLowerCase();
 
-  // Build IP -> (process name, pid) map from network_tcp
+  // Build IP -> (process name, pid) map from network_tcp + network_udp
   const ipToProcMap = {};
-  (d.network_tcp||[]).forEach(c => {
+  (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
     if (c.RemoteAddress && !ipToProcMap[c.RemoteAddress]) {
       ipToProcMap[c.RemoteAddress] = { name: getProcName(c.OwningProcess,d), pid: c.OwningProcess };
     }

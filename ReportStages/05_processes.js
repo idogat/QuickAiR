@@ -16,7 +16,7 @@
 // ║    integrityRank, renderIntegrityBadge║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.50                      ║
+// ║  Version  : 3.51                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -120,9 +120,9 @@ function applyProcFilters() {
   const d = activeData(); if (!d) return;
   const lq = procFilters.search.toLowerCase();
 
-  // Build connection count map
+  // Build connection count map (TCP + UDP)
   const connMap = {};
-  (d.network_tcp||[]).forEach(c => {
+  (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
     if (c.OwningProcess) connMap[c.OwningProcess] = (connMap[c.OwningProcess]||0)+1;
   });
 
@@ -211,8 +211,12 @@ function onProcRowClick(i, p, rowEl) {
 
   const d = activeData();
   const connMap = {};
-  (d.network_tcp||[]).forEach(c => {
-    if (c.OwningProcess == p.ProcessId) connMap[c.RemoteAddress+':'+c.RemotePort] = c;
+  const tcpSet = new Set(d.network_tcp||[]);
+  (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
+    if (c.OwningProcess == p.ProcessId) {
+      const key = (c.RemoteAddress||'')+ ':' + (c.RemotePort||'') + ':' + (c.LocalPort||'');
+      if (!connMap[key]) connMap[key] = Object.assign({ _proto: tcpSet.has(c) ? 'TCP' : 'UDP' }, c);
+    }
   });
   const myConns = Object.values(connMap);
   const children = (d.processes||[]).filter(c => c.ParentProcessId == p.ProcessId);
@@ -222,14 +226,15 @@ function onProcRowClick(i, p, rowEl) {
     const adAliases = getAdapterAliases();
     connsHTML = `<h4>Network Connections (${myConns.length})</h4>
     <table class="expand-tbl"><tr>
-      <th>Remote IP</th><th>Port</th><th>State</th><th>DNS Match</th><th>Reverse DNS</th><th>Interface</th><th>Private</th>
+      <th>Proto</th><th>Remote IP</th><th>Port</th><th>State</th><th>DNS Match</th><th>Reverse DNS</th><th>Interface</th><th>Private</th>
     </tr>` +
     myConns.map(c => {
       const ia   = c.InterfaceAlias || '';
       const iCol = ifaceColor(ia, adAliases);
       return `<tr>
-      <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress)}')">${esc(c.RemoteAddress)}</a></td>
-      <td>${c.RemotePort}</td><td>${esc(c.State)}</td>
+      <td>${c._proto}</td>
+      <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress||'')}')">${esc(c.RemoteAddress||'—')}</a></td>
+      <td>${c.RemotePort!=null?c.RemotePort:'—'}</td><td>${esc(c.State||'—')}</td>
       <td>${esc(c.DnsMatch||'')}</td><td>${esc(c.ReverseDns||'')}</td>
       <td><span style="color:${iCol};font-weight:bold">${esc(ia)}</span></td>
       <td>${c.IsPrivateIP?'yes':''}</td></tr>`;
