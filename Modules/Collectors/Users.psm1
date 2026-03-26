@@ -1,4 +1,3 @@
-#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
 # ║  Quicker — Users.psm1               ║
 # ║  User account collection            ║
@@ -12,8 +11,22 @@
 # ║               users=[],            ║
 # ║               domain_accounts=[]   ║
 # ║             }; source="";errors=[]}║
+# ║  Fields   : SID, Username, Domain, ║
+# ║    AccountType, FirstLogon{UTC,     ║
+# ║    Confidence}, LastLogonUTC,       ║
+# ║    LastLogonSource, ProfilePath,    ║
+# ║    IsLoaded, HasLocalAccount,       ║
+# ║    LocalDisabled, SIDMetadata       ║
+# ║  DC fields: SamAccountName,        ║
+# ║    DisplayName, SID, Enabled,      ║
+# ║    WhenCreatedUTC, LastLogonUTC,    ║
+# ║    PasswordLastSetUTC, LockedOut,   ║
+# ║    BadLogonCount, Source            ║
+# ║  Helpers  : ComputeFirstLogonConf, ║
+# ║    GetSidAccountType, GetSidDomain,║
+# ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.1                    ║
+# ║  Version  : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -445,8 +458,7 @@ function Invoke-Collector {
                 TimestampMismatch = $fl.TimestampMismatch
             }
             LastLogonUTC    = $p.LastUseRaw
-            LastLogonLocal  = $p.LastUseRaw
-            LastLogonSource = 'ProfileList LastUseTime'
+            LastLogonSource = 'ProfileList LocalProfileLoadTime'
             ProfilePath     = $p.ProfilePath
             IsLoaded        = $isLoaded
         }
@@ -481,8 +493,7 @@ function Invoke-Collector {
                 TimestampMismatch = $false
             }
             LastLogonUTC    = $null
-            LastLogonLocal  = $null
-            LastLogonSource = 'ProfileList LastUseTime'
+            LastLogonSource = 'ProfileList LocalProfileLoadTime'
             ProfilePath     = $null
             IsLoaded        = $false
         }
@@ -500,7 +511,6 @@ function Invoke-Collector {
             SID               = $u.SID
             Enabled           = [bool]$u.Enabled
             WhenCreatedUTC    = $u.WhenCreated
-            WhenCreatedLocal  = $u.WhenCreated
             LastLogonUTC      = $u.LastLogon
             PasswordLastSetUTC= $u.PasswordLastSet
             LockedOut         = [bool]$u.LockedOut

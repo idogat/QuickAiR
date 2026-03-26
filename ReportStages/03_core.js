@@ -257,24 +257,33 @@ function buildUserIndex(allHosts) {
       });
     }
 
-    // Enrich with DC domain_accounts by SID
+    // Enrich with DC domain_accounts by SID — create entry if not yet seen
     if (u.domain_accounts) {
       u.domain_accounts.forEach(da => {
         const key = da.SID;
         if (!key) return;
-        if (idx[key]) {
-          idx[key].domainInfo = {
-            dcHost:          hostname,
-            WhenCreated:     da.WhenCreatedUTC,
-            LastLogonAD:     da.LastLogonUTC,
-            PasswordLastSet: da.PasswordLastSetUTC,
-            Enabled:         da.Enabled,
-            LockedOut:       da.LockedOut,
-            BadLogonCount:   da.BadLogonCount,
-            Source:          da.Source
+        if (!idx[key]) {
+          idx[key] = {
+            SID:         da.SID,
+            Username:    da.SamAccountName || da.DisplayName || '?',
+            Domain:      u.domain_name || '',
+            AccountType: 'Domain',
+            SIDMetadata: { WellKnown: false, Description: '' },
+            domainInfo:  null,
+            machines:    []
           };
-          if (da.SamAccountName) idx[key].Username = da.SamAccountName;
         }
+        idx[key].domainInfo = {
+          dcHost:          hostname,
+          WhenCreated:     da.WhenCreatedUTC,
+          LastLogonAD:     da.LastLogonUTC,
+          PasswordLastSet: da.PasswordLastSetUTC,
+          Enabled:         da.Enabled,
+          LockedOut:       da.LockedOut,
+          BadLogonCount:   da.BadLogonCount,
+          Source:          da.Source
+        };
+        if (da.SamAccountName) idx[key].Username = da.SamAccountName;
       });
     }
   });
