@@ -319,7 +319,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-03-25T20:50:00.3869108Z",
+    "generated":  "2026-03-26T19:42:32.3419909Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -2138,7 +2138,7 @@ function highlightNetworkPid(pid) {
 // ║  DLLs tab render, virtual scroll,    ║
 // ║  row expand, signature display,      ║
 // ║  SHA256 display, private path        ║
-// ║  highlighting                        ║
+// ║  highlighting, quick-filters         ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : activeHost.DLLs           ║
 // ║  Writes   : dllFilters, dllSort       ║
@@ -2146,7 +2146,7 @@ function highlightNetworkPid(pid) {
 // ║    applyDllFilters, renderDllRow,     ║
 // ║    onDllRowClick, dllGotoProcess      ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.50                      ║
 // ╚══════════════════════════════════════╝
 
 // ── DLLs TAB ──────────────────────────────────────────────────────────────────
@@ -2158,7 +2158,7 @@ function highlightNetworkPid(pid) {
   document.head.appendChild(s);
 })();
 
-let dllFilters = { search: '' };
+let dllFilters = { search: '', unsignedOnly: false, privateOnly: false };
 let dllSort    = { col: 'ProcessName', dir: 1 };
 let dllData    = [];
 
@@ -2177,8 +2177,10 @@ function renderDlls() {
 
   panel.innerHTML = `
     <div class="filter-bar" id="dlls-filter-bar">
-      <input type="text" id="dlls-search" placeholder="Process, DLL name, path, company&hellip;" style="width:280px"
+      <input type="text" id="dlls-search" placeholder="Process, DLL, path, company, signer&hellip;" style="width:280px"
              oninput="dllFilters.search=this.value;applyDllFilters()">
+      <label style="margin-left:12px;font-size:11px;cursor:pointer"><input type="checkbox" id="dlls-unsigned" onchange="dllFilters.unsignedOnly=this.checked;applyDllFilters()"> Unsigned only</label>
+      <label style="margin-left:8px;font-size:11px;cursor:pointer"><input type="checkbox" id="dlls-private" onchange="dllFilters.privateOnly=this.checked;applyDllFilters()"> Private path only</label>
       <span id="dlls-count" style="color:var(--muted);font-size:11px;margin-left:8px"></span>
     </div>
     <div class="tbl-wrap">
@@ -2231,8 +2233,13 @@ function applyDllFilters() {
     str(e.ModuleName).includes(lq)  ||
     str(e.ModulePath).includes(lq)  ||
     str(e.Company).includes(lq)     ||
-    str(e.ProcessId).includes(lq)
+    str(e.ProcessId).includes(lq)   ||
+    str(e.FileHash).includes(lq)    ||
+    str(e._signerCo).includes(lq)   ||
+    (e.Signature ? str(e.Signature.Status).includes(lq) : false)
   );
+  if (dllFilters.unsignedOnly) rows = rows.filter(e => !e._signed);
+  if (dllFilters.privateOnly)  rows = rows.filter(e => e.IsPrivatePath === true);
   if (sortState.tab === 'dlls' && sortState.column && sortState.dir !== 'none') {
     const numericDllCols = new Set(['ProcessId']);
     rows = applySortToRows(rows, sortState.column, numericDllCols.has(sortState.column));
@@ -2275,7 +2282,7 @@ function renderDllRow(e, i) {
     <div class="td dim">${esc(e.Company||'')}</div>
     <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
-    <div class="td">${renderSignedIcon(sig)}</div>
+    <div class="td" title="${sig && /^PS2_/.test(sig.Status||'') ? 'PS2: unvalidated (cert presence only)' : (sig ? (sig.Status||'') : '')}">${renderSignedIcon(sig)}${sig && /^PS2_/.test(sig.Status||'') ? '<span style="font-size:8px;color:var(--amber)" title="PS2 — signature not validated">&#9679;</span>' : ''}</div>
     <div class="td dim">${esc(signerCo)}</div>`;
 }
 
@@ -2292,14 +2299,19 @@ function onDllRowClick(i, e, rowEl) {
   state.expandedRows['dlls'] = i;
 
   const d = activeData();
+  // Show all sibling DLLs (unfiltered) for forensic completeness
   const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e);
-  const shown = allSameProc.slice(0, 30);
+  const INITIAL_SHOW = 30;
+  const shown = allSameProc.slice(0, INITIAL_SHOW);
   const more  = allSameProc.length - shown.length;
+  const sameProcRows = items => items.map(x => `<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td></tr>`).join('');
+  const expandId = '_dllExpand_' + i;
   const sameProcHTML = shown.length ? `
-    <h4 style="margin-top:8px">Other DLLs loaded by this process (${shown.length}${more > 0 ? ', ' + more + ' more exist' : ''})</h4>
+    <h4 style="margin-top:8px">Other DLLs loaded by this process (${allSameProc.length})</h4>
     <table class="expand-tbl"><tr><th>DLL Name</th><th>Path</th></tr>` +
-    shown.map(x => `<tr><td class="mono">${esc(x.ModuleName||'')}</td><td class="mono">${esc(x.ModulePath||'')}</td></tr>`).join('') +
-    '</table>' : '';
+    sameProcRows(shown) +
+    `<tbody id="${expandId}"></tbody></table>` +
+    (more > 0 ? `<a id="${expandId}_link" style="cursor:pointer;font-size:11px;color:var(--link)">${more} more &mdash; show all</a>` : '') : '';
 
   const privBadge = e.IsPrivatePath
     ? `<span style="background:rgba(255,180,0,0.3);padding:1px 6px;border-radius:3px;color:var(--amber)">PRIVATE PATH</span>`
@@ -2329,11 +2341,25 @@ function onDllRowClick(i, e, rowEl) {
       <span class="k">Thumbprint</span>   <span class="v mono">${esc(sig2.Thumbprint||'—')}</span>
       <span class="k">NotAfter</span>     <span class="v">${esc(sig2.NotAfter||'—')}</span>
       <span class="k">TimeStamper</span>  <span class="v">${esc(sig2.TimeStamper||'—')}</span>` : ''}
+      ${e.source ? `<span class="k">Source</span><span class="v">${esc(e.source)}</span>` : ''}
       ${e.reason ? `<span class="k">Reason</span><span class="v" style="color:var(--red)">${esc(e.reason)}</span>` : ''}
     </div>
     ${sameProcHTML}`;
 
   if (vs) vs.expand(i, expand);
+
+  // Attach show-all handler via DOM (avoids inline HTML injection)
+  if (more > 0) {
+    const link = document.getElementById(expandId + '_link');
+    if (link) {
+      const extraRows = allSameProc.slice(INITIAL_SHOW);
+      link.addEventListener('click', function() {
+        this.style.display = 'none';
+        const tbody = document.getElementById(expandId);
+        if (tbody) tbody.innerHTML = sameProcRows(extraRows);
+      });
+    }
+  }
 }
 
 function dllSortBy(col) {

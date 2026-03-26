@@ -2,7 +2,7 @@
 # ╔══════════════════════════════════════╗
 # ║  Quicker — DLLs.psm1                ║
 # ║  Loaded modules per process.        ║
-# ║  SHA256 for non-system DLLs.        ║
+# ║  SHA256 for all DLLs.              ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : Invoke-Collector       ║
 # ║  Inputs    : -Session               ║
@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -25,9 +25,9 @@ $script:DLL_SB_DOTNET = {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $b = [System.IO.File]::ReadAllBytes($p)
-            $s = [Security.Cryptography.SHA256]::Create()
-            $h = $s.ComputeHash($b); $s.Dispose()
+            $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            $s  = [Security.Cryptography.SHA256]::Create()
+            $h  = $s.ComputeHash($fs); $fs.Dispose(); $s.Dispose()
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -40,6 +40,7 @@ $script:DLL_SB_DOTNET = {
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
     $out = @()
+    $skippedProcs = @()
     $allProcs = $null
     try { $allProcs = [System.Diagnostics.Process]::GetProcesses() } catch { $allProcs = @() }
 
@@ -50,7 +51,11 @@ $script:DLL_SB_DOTNET = {
 
         $skip = $false
         foreach ($pp in $PROTECTED_PROCS) { if ($pName -ieq $pp) { $skip = $true; break } }
-        if ($skip) { continue }
+        if ($skip) {
+            $spId = $null; try { $spId = [int]$p.Id } catch {}
+            $skippedProcs += New-Object PSObject -Property @{ ProcessId=$spId; ProcessName=$pName }
+            continue
+        }
 
         $procId = $null
         try { $procId = [int]$p.Id } catch {}
@@ -72,7 +77,7 @@ $script:DLL_SB_DOTNET = {
                 SHA256Error   = $null
                 IsPrivatePath = $null
                 Signature     = $null
-                LoadedAt      = $null
+
                 reason        = $reason
                 source        = 'dotnet'
             }
@@ -124,7 +129,7 @@ $script:DLL_SB_DOTNET = {
                         SignerCompany = $cnD3
                         Issuer       = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Issuer } else { $null }
                         Thumbprint   = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Thumbprint } else { $null }
-                        NotAfter     = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.NotAfter.ToString('o') } else { $null }
+                        NotAfter     = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.NotAfter.ToUniversalTime().ToString('o') } else { $null }
                         TimeStamper  = if ($sigD3.TimeStamperCertificate) { $sigD3.TimeStamperCertificate.Subject } else { $null }
                         IsOSBinary   = $isOSBinD
                         SignatureType = $sigTypeD
@@ -150,13 +155,13 @@ $script:DLL_SB_DOTNET = {
                 SHA256Error   = $sha256Err
                 IsPrivatePath = $isPrivate
                 Signature     = $sigD
-                LoadedAt      = $null
+
                 reason        = $null
                 source        = 'dotnet'
             }
         }
     }
-    $out
+    New-Object PSObject -Property @{ _dlls = $out; _skipped = $skippedProcs }
 }
 
 # ── WMI scriptblock (PS 2.0) ─────────────────────────────────────────────────
@@ -165,9 +170,9 @@ $script:DLL_SB_WMI = {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $b = [System.IO.File]::ReadAllBytes($p)
-            $s = [Security.Cryptography.SHA256]::Create()
-            $h = $s.ComputeHash($b); $s.Dispose()
+            $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            $s  = [Security.Cryptography.SHA256]::Create()
+            $h  = $s.ComputeHash($fs); $fs.Dispose(); $s.Dispose()
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -180,6 +185,7 @@ $script:DLL_SB_WMI = {
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
     $out = @()
+    $skippedProcs = @()
     $procs = $null
     try { $procs = Get-WmiObject Win32_Process } catch { $procs = @() }
 
@@ -196,7 +202,10 @@ $script:DLL_SB_WMI = {
         foreach ($pp in $PROTECTED_PROCS) {
             if ($pNameNoExt -ieq $pp -or $pName -ieq $pp) { $skip = $true; break }
         }
-        if ($skip) { continue }
+        if ($skip) {
+            $skippedProcs += New-Object PSObject -Property @{ ProcessId=$procId; ProcessName=$pName }
+            continue
+        }
 
         # Try Win32_ProcessVMMapsFiles first, then CIM_ProcessExecutable
         $assocObjs = $null
@@ -221,7 +230,7 @@ $script:DLL_SB_WMI = {
                     SHA256Error   = $null
                     IsPrivatePath = $null
                     Signature     = $null
-                    LoadedAt      = $null
+    
                     reason        = 'WMI_UNAVAILABLE'
                     source        = 'wmi'
                 }
@@ -241,7 +250,7 @@ $script:DLL_SB_WMI = {
                 SHA256Error   = $null
                 IsPrivatePath = $null
                 Signature     = $null
-                LoadedAt      = $null
+
                 reason        = 'WMI_UNAVAILABLE'
                 source        = 'wmi'
             }
@@ -264,6 +273,10 @@ $script:DLL_SB_WMI = {
             if (-not $mPath) { continue }
 
             $mName = [System.IO.Path]::GetFileName($mPath)
+
+            # Filter non-module files (WMI returns all memory-mapped files)
+            $ext = [System.IO.Path]::GetExtension($mPath).ToLower()
+            if ($ext -and $ext -ne '.dll' -and $ext -ne '.exe' -and $ext -ne '.sys' -and $ext -ne '.drv' -and $ext -ne '.ocx' -and $ext -ne '.cpl') { continue }
 
             $isPrivate = $false
             foreach ($marker in $PRIVATE_MARKERS) {
@@ -313,13 +326,13 @@ $script:DLL_SB_WMI = {
                 SHA256Error   = $sha256ErrW
                 IsPrivatePath = $isPrivate
                 Signature     = $sigW
-                LoadedAt      = $null
+
                 reason        = $null
                 source        = 'wmi'
             }
         }
     }
-    $out
+    New-Object PSObject -Property @{ _dlls = $out; _skipped = $skippedProcs }
 }
 
 # ── Invoke-Collector ──────────────────────────────────────────────────────────
@@ -336,6 +349,8 @@ function Invoke-Collector {
     $useDotNet = ([int]$TargetPSVersion -ge 3)
     $sb        = if ($useDotNet) { $script:DLL_SB_DOTNET } else { $script:DLL_SB_WMI }
 
+    $skippedProcs = @()
+
     try {
         if ($Session -ne $null) {
             $raw = Invoke-Command -Session $Session -ScriptBlock $sb
@@ -343,7 +358,16 @@ function Invoke-Collector {
             $raw = & $sb
         }
 
-        foreach ($entry in @($raw)) {
+        # Unwrap wrapper object from scriptblock
+        $rawDlls = @()
+        if ($raw._dlls -ne $null) {
+            $rawDlls      = @($raw._dlls)
+            $skippedProcs = @($raw._skipped)
+        } else {
+            $rawDlls = @($raw)
+        }
+
+        foreach ($entry in $rawDlls) {
             # Extract Signature as hashtable
             $sigOut2 = $null
             if ($entry.Signature -ne $null) {
@@ -374,7 +398,6 @@ function Invoke-Collector {
                 SHA256Error   = $entry.SHA256Error
                 IsPrivatePath = $entry.IsPrivatePath
                 Signature     = $sigOut2
-                LoadedAt      = $entry.LoadedAt
                 reason        = $entry.reason
                 source        = $entry.source
             }
@@ -382,6 +405,13 @@ function Invoke-Collector {
     } catch {
         $errors += @{ artifact = 'DLLs'; message = $_.Exception.Message }
         Write-Log 'ERROR' "DLL collection failed: $($_.Exception.Message)"
+    }
+
+    # Log skipped protected processes
+    if ($skippedProcs.Count -gt 0) {
+        $skippedNames = @()
+        foreach ($sp in $skippedProcs) { $skippedNames += "$($sp.ProcessName)(PID:$($sp.ProcessId))" }
+        $errors += @{ artifact = 'DLLs'; message = "Protected processes skipped for DLL enumeration: $($skippedNames -join ', ')" }
     }
 
     # Determine source string
