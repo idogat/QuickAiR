@@ -17,3 +17,12 @@ Thumbs.db
 test_*.exe
 mock_*.exe
 tools.json
+tool-defaults.json
+tools/
+.claude/
+.planning/
+collector_test_output.txt
+CollectorNoAdmin.ps1
+run_all_remote.ps1
+run_collect.ps1
+run_remote_nocheck.ps1
