@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — Collector.ps1            ║
+# ║  QuickAiR — Collector.ps1            ║
 # ║  Thin orchestrator. Auto-discovers  ║
 # ║  and runs Collectors\*.psm1 plugins ║
 # ╠══════════════════════════════════════╣
@@ -47,7 +47,7 @@ $RETRY_WAIT_SEC    = 5
 #region --- Admin Check ---
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "Quicker requires Administrator. Please restart as Administrator (right-click -> Run as administrator) and re-run." -ForegroundColor Red
+    Write-Host "QuickAiR requires Administrator. Please restart as Administrator (right-click -> Run as administrator) and re-run." -ForegroundColor Red
     exit 1
 }
 #endregion
@@ -64,7 +64,7 @@ if (-not (Test-Path $OutputPath)) {
 }
 Initialize-Log -Path (Join-Path $OutputPath "collection.log") -Quiet:$Quiet.IsPresent
 
-Write-Log 'INFO' "Quicker Collector v$COLLECTOR_VERSION starting"
+Write-Log 'INFO' "QuickAiR Collector v$COLLECTOR_VERSION starting"
 Write-Log 'INFO' "Analyst: $env:COMPUTERNAME, PS $($PSVersionTable.PSVersion), OS: $((Get-WmiObject Win32_OperatingSystem).Caption)"
 Write-Log 'INFO' "OutputPath: $OutputPath"
 

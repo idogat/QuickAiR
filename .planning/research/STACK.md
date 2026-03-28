@@ -43,7 +43,7 @@ Mature IR toolkits (Velociraptor, KAPE, IRIS) structure their runbooks around **
 Recommended structure:
 
 ```
-# Quicker Runbook
+# QuickAiR Runbook
 
 ## Prerequisites
 ## Quick Start (3-command path to first collection)
@@ -57,14 +57,14 @@ Recommended structure:
   ### Usage Examples
   ### Execution States
   ### Common Failures & Fixes
-## QuickerLaunch.ps1 — Job Manager
+## QuickAiRLaunch.ps1 — Job Manager
   ### Starting the Launcher
   ### Adding Jobs
   ### Monitoring Jobs
   ### Common Failures & Fixes
 ## Setup & Configuration
   ### WinRM Setup on Targets
-  ### Register URI Scheme (QuickerProtocol)
+  ### Register URI Scheme (QuickAiRProtocol)
   ### Admin Rights Requirement
 ## Troubleshooting Reference
   (Consolidated cross-component failure table)
@@ -161,7 +161,7 @@ Recommended structure:
   (Manifest tab: what errors mean, source fields, version)
 
 ## Remote Execution via Report
-  (Execute tab workflow, QuickerLaunch integration)
+  (Execute tab workflow, QuickAiRLaunch integration)
 ```
 
 **Why workflows before tab reference:** Analysts approach the tool with a question ("is this process suspicious?"), not with a tab name. Workflow sections teach the IR mental model. Tab reference is a lookup appendix.
@@ -178,7 +178,7 @@ Recommended structure:
 | Section anchors | GitHub auto-generates anchors from headings; use `[text](#heading-slug)` cross-links | Enables cross-doc linking (runbook troubleshooting can link to artifact matrix gaps). Works without a doc site. |
 | Parameter tables | Three-column minimum: Parameter, Required/Optional, Description | Matches PowerShell `Get-Help` output structure analysts already know. Add a "Default" column when a default exists. |
 | Command examples | Always show full command with all required parameters; show `-OutputPath` variation as second example | Analysts copy examples verbatim. Minimal examples (missing common flags) produce support questions. |
-| Version pinning in docs | Include version numbers from script headers in docs (e.g., "Collector v2.2") | Lets analysts verify their docs match their binary. Quicker uses embedded version constants — surface them. |
+| Version pinning in docs | Include version numbers from script headers in docs (e.g., "Collector v2.2") | Lets analysts verify their docs match their binary. QuickAiR uses embedded version constants — surface them. |
 | Error messages verbatim | Troubleshooting sections must quote exact console output that triggers each fix | Analysts Ctrl+F their error message. Paraphrased errors break search. |
 | Cross-reference style | Use relative Markdown links: `[Artifact Matrix](ARTIFACTS.md#processes)` | Works on GitHub, works locally, works in VS Code. Absolute URLs break in air-gap scenarios. |
 
@@ -208,7 +208,7 @@ Recommended structure:
 | Plain Markdown in `docs/` | Confluence / SharePoint wiki | Use when the organization already has a knowledge base platform and docs need to live there. Not repository-native; creates drift risk. |
 | GFM tables | HTML tables | Use HTML tables only if cell content requires line breaks (GFM tables don't support multiline cells). Prefer GFM — HTML tables are hard to read as plain text and harder to maintain. |
 | Task-oriented runbook structure | Component/API reference structure | Use API reference structure when the primary audience is developers integrating the tool. IR analysts are operators, not integrators — task orientation serves them better. |
-| Separate documents per deliverable | Single monolithic doc | Use a monolith only for very small toolsets (< 20 commands). Quicker has three independent entry points — one doc per entry point keeps search results and cross-links manageable. |
+| Separate documents per deliverable | Single monolithic doc | Use a monolith only for very small toolsets (< 20 commands). QuickAiR has three independent entry points — one doc per entry point keeps search results and cross-links manageable. |
 
 ---
 
@@ -274,5 +274,5 @@ Not applicable — documentation format does not have version dependencies. Note
 
 ---
 
-*Stack research for: Quicker DFIR Toolkit — Production Documentation*
+*Stack research for: QuickAiR DFIR Toolkit — Production Documentation*
 *Researched: 2026-03-24*

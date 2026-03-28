@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════════╗
-# ║  Quicker — Processes.psm1               ║
+# ║  QuickAiR — Processes.psm1               ║
 # ║  Process list via CIM (PS3+) or WMI     ║
 # ║  (PS2). Includes .NET fallback.         ║
 # ╠══════════════════════════════════════════╣

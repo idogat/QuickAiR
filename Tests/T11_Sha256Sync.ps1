@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — T11_Sha256Sync.ps1      ║
+# ║  QuickAiR — T11_Sha256Sync.ps1      ║
 # ║  Verify _sha256 function bodies     ║
 # ║  are identical across all copies    ║
 # ╠══════════════════════════════════════╣

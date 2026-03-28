@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # =============================================
-#   Quicker -- T09_Executor.ps1
+#   QuickAiR -- T09_Executor.ps1
 #   T24 WinRM.psm1 imports + exports
 #   T25 WMI.psm1 imports + exports
 #   T26 Unreachable IP returns CONNECTION_FAILED
@@ -141,7 +141,7 @@ try {
 # ---------------------------------------------------------------
 # T28 — localhost notepad.exe smoke test via WinRM
 # ---------------------------------------------------------------
-$t28TempFile = "C:\Windows\Temp\quicker_test_notepad_$(Get-Random).exe"
+$t28TempFile = "C:\Windows\Temp\quickair_test_notepad_$(Get-Random).exe"
 $t28PID      = $null
 
 try {
@@ -298,7 +298,7 @@ try {
     $r32 = Invoke-Executor `
         -ComputerName "localhost" `
         -LocalBinaryPath "C:\Windows\System32\cmd.exe" `
-        -RemoteDestPath "C:\Windows\Temp\quicker_sfx_t32_$(Get-Random).exe" `
+        -RemoteDestPath "C:\Windows\Temp\quickair_sfx_t32_$(Get-Random).exe" `
         -Arguments "/C exit 0" `
         -AliveCheckSeconds 1 `
         -BinaryTypeOverride $mockBT32
@@ -340,7 +340,7 @@ try {
     $r33 = Invoke-Executor `
         -ComputerName "localhost" `
         -LocalBinaryPath "C:\Windows\System32\cmd.exe" `
-        -RemoteDestPath "C:\Windows\Temp\quicker_sfx_t33_$(Get-Random).exe" `
+        -RemoteDestPath "C:\Windows\Temp\quickair_sfx_t33_$(Get-Random).exe" `
         -Arguments "/C exit 1" `
         -AliveCheckSeconds 1 `
         -BinaryTypeOverride $mockBT33
@@ -425,7 +425,7 @@ try {
 #        with a long ping to keep it alive for the alive check.
 #        Verify Method=SMB+WMI, TRANSFERRED+SHA256, reaches ALIVE.
 # ---------------------------------------------------------------
-$t36TempFile = "C:\Windows\Temp\quicker_test_smbwmi_$(Get-Random).exe"
+$t36TempFile = "C:\Windows\Temp\quickair_test_smbwmi_$(Get-Random).exe"
 $t36PID      = $null
 
 try {

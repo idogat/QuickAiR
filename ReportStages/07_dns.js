@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 07_dns.js                 ║
+// ║  QuickAiR — 07_dns.js                 ║
 // ║  DNS tab render, virtual scroll,     ║
 // ║  correlation summary, fallback       ║
 // ║  banner, cross-reference clicks      ║

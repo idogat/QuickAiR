@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  Quicker — JobQueue.psm1                                   ║
+# ║  QuickAiR — JobQueue.psm1                                   ║
 # ║  Thread-safe job queue and state management.               ║
 # ║  Wraps a Generic List with monitor-lock for thread safety. ║
 # ║  Enforces forward-only status transitions.                 ║

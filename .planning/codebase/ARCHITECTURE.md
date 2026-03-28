@@ -17,7 +17,7 @@
 
 **Entry Points Layer:**
 - Purpose: Command-line orchestrators that initiate work
-- Location: `C:\DFIRLab\repo\Collector.ps1`, `C:\DFIRLab\repo\Executor.ps1`, `C:\DFIRLab\repo\QuickerLaunch.ps1`
+- Location: `C:\DFIRLab\repo\Collector.ps1`, `C:\DFIRLab\repo\Executor.ps1`, `C:\DFIRLab\repo\QuickAiRLaunch.ps1`
 - Contains: Parameter validation, target resolution, main loops
 - Depends on: Core modules, Collectors, Executors, Launcher modules
 - Used by: Analyst machines (CLI) and GUI workflow
@@ -61,7 +61,7 @@
   - `JobQueue.psm1`: Thread-safe generic list with forward-only status transitions
   - `PipeListener.psm1`: Named pipe listener for job batch delivery (bridge file support)
 - Depends on: None
-- Used by: QuickerLaunch.ps1 (maintains singleton WinForms application)
+- Used by: QuickAiRLaunch.ps1 (maintains singleton WinForms application)
 
 **Reporting & Visualization Layer:**
 - Purpose: Offline browser-based GUI for analyzing collected data
@@ -122,12 +122,12 @@
 4. Build result object with all state transitions and timestamps
 5. Serialize to `<OutputPath>\<hostname>_execution_<timestamp>.json`
 
-**Launcher Flow (QuickerLaunch.ps1):**
+**Launcher Flow (QuickAiRLaunch.ps1):**
 
 1. Self-elevate if not running as Administrator
 2. Create named mutex to enforce single instance (second instance uses bridge file)
 3. Load JobQueue.psm1 and PipeListener.psm1
-4. Decode URI parameter (quicker://launch?jobs=<base64-json>)
+4. Decode URI parameter (quickair://launch?jobs=<base64-json>)
 5. Parse job array from URI or read from bridge file
 6. Create JobQueue with max concurrent workers (default 5)
 7. Add jobs to queue (validate targets, binaries, paths)
@@ -154,8 +154,8 @@
    - Users: Show active sessions
    - Manifest: Show collection metadata, errors, sources
 6. Execute.js builds job batch JSON and encodes to base64
-7. On "Launch All", trigger quicker://launch?jobs=<base64> (URI scheme)
-8. QuickerLaunch.ps1 receives jobs, displays job manager window
+7. On "Launch All", trigger quickair://launch?jobs=<base64> (URI scheme)
+8. QuickAiRLaunch.ps1 receives jobs, displays job manager window
 9. After jobs complete, user can refresh JSON from ExecutionResults folder
 
 **State Management:**
@@ -163,7 +163,7 @@
 - Collector.ps1: Maintains target loop state; immutable outputs
 - Executor.ps1: Maintains state transitions (queued → transferred → launched → alive)
 - JobQueue: Enforces forward-only status transitions (see StatusOrder hash)
-- QuickerLaunch.ps1: Maintains queue state in memory; UI updates every 500ms
+- QuickAiRLaunch.ps1: Maintains queue state in memory; UI updates every 500ms
 - Report.html: Client-side state (current host, current search filters)
 
 ## Key Abstractions
@@ -203,16 +203,16 @@
 
 **Executor.ps1:**
 - Location: `C:\DFIRLab\repo\Executor.ps1`
-- Triggers: Analyst runs manually or QuickerLaunch.ps1 invokes via `Invoke-Expression`
+- Triggers: Analyst runs manually or QuickAiRLaunch.ps1 invokes via `Invoke-Expression`
 - Responsibilities:
   - Transfers binary to target via WinRM/SMB+WMI/WMI
   - Launches tool and verifies execution
   - Returns state transitions and PID
   - Writes JSON result to ExecutionResults folder
 
-**QuickerLaunch.ps1:**
-- Location: `C:\DFIRLab\repo\QuickerLaunch.ps1`
-- Triggers: Report.html triggers quicker://launch URI scheme (via registry)
+**QuickAiRLaunch.ps1:**
+- Location: `C:\DFIRLab\repo\QuickAiRLaunch.ps1`
+- Triggers: Report.html triggers quickair://launch URI scheme (via registry)
 - Responsibilities:
   - Persistent job manager with WinForms UI
   - Maintains single instance via named mutex
@@ -227,7 +227,7 @@
   - Loads and parses JSON collection files
   - Displays fleet summary, process tree, network connections, DNS cache
   - Provides cross-tab search and correlation
-  - Generates job batches and triggers QuickerLaunch via URI
+  - Generates job batches and triggers QuickAiRLaunch via URI
 
 ## Error Handling
 
@@ -277,12 +277,12 @@
 - WinRM: PSCredential passed to New-RemoteSession; stored in memory only
 - SMB+WMI: PSCredential used for Share enumeration and WMI connection
 - Local collection: Uses process token (no credentials needed)
-- QuickerLaunch: Credential cache keyed by domain\hostname; re-prompted on first use per cache key
+- QuickAiRLaunch: Credential cache keyed by domain\hostname; re-prompted on first use per cache key
 
 **Concurrency:**
 - Collector.ps1: Sequential target loop (one WinRM session per target)
 - Executor.ps1: Single target, no concurrency
-- QuickerLaunch.ps1: JobQueue uses thread-safe Generic List with monitor-lock; multiple jobs execute concurrently (max 5 by default)
+- QuickAiRLaunch.ps1: JobQueue uses thread-safe Generic List with monitor-lock; multiple jobs execute concurrently (max 5 by default)
 - Report.html: Single-threaded JavaScript, no concurrency concerns
 
 **Data Integrity:**

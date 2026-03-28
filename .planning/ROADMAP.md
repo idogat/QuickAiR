@@ -1,4 +1,4 @@
-# Roadmap: Quicker DFIR Toolkit — Production Documentation
+# Roadmap: QuickAiR DFIR Toolkit — Production Documentation
 
 ## Overview
 
@@ -39,8 +39,8 @@ Plans:
 **Depends on**: Phase 1
 **Requirements**: RUN-01, RUN-02, RUN-03, RUN-04
 **Success Criteria** (what must be TRUE):
-  1. An analyst can follow the prerequisites section and configure WinRM, TrustedHosts, credentials, and the quicker:// protocol registration without prior toolkit knowledge
-  2. An analyst can look up any parameter for Collector.ps1, Executor.ps1, or QuickerLaunch.ps1 and find the correct name, type, and default value verified against the actual codebase param blocks
+  1. An analyst can follow the prerequisites section and configure WinRM, TrustedHosts, credentials, and the quickair:// protocol registration without prior toolkit knowledge
+  2. An analyst can look up any parameter for Collector.ps1, Executor.ps1, or QuickAiRLaunch.ps1 and find the correct name, type, and default value verified against the actual codebase param blocks
   3. An analyst can read the architecture overview and understand how Collector, Executor, Launcher, and Report connect end-to-end before running any command
   4. An analyst who encounters a terminal failure (CONNECTION_FAILED, TRANSFER_FAILED, LAUNCH_FAILED, etc.) can find that exact error state in the troubleshooting section and follow concrete resolution steps derived from the actual codebase
 **Plans**: TBD

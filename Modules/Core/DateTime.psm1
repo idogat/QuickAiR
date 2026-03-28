@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — DateTime.psm1            ║
+# ║  QuickAiR — DateTime.psm1            ║
 # ║  UTC normalization, DMTF to ISO 8601║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : ConvertTo-UtcIso       ║

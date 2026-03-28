@@ -33,14 +33,14 @@
 - Recommendations: (1) Document as lab-only workaround; (2) Add `-WarningAction Continue` to alert users; (3) Provide flag `$ValidateCertificates` to allow hardening in production; (4) Validate CA chain when `$ValidateCertificates=$true`
 
 **Credential caching in launcher UI state:**
-- Risk: QuickerLaunch.ps1 line 90 maintains `$script:CredCache` hashtable in memory for multiple executor invocations
-- Files: `/c/DFIRLab/repo/QuickerLaunch.ps1` (line 90)
+- Risk: QuickAiRLaunch.ps1 line 90 maintains `$script:CredCache` hashtable in memory for multiple executor invocations
+- Files: `/c/DFIRLab/repo/QuickAiRLaunch.ps1` (line 90)
 - Current mitigation: Single-instance WinForms app; credentials only held during job execution; cleared only at process exit
 - Recommendations: (1) Clear credentials from `$CredCache` immediately after each job completes; (2) Add [SecureString] wrapper instead of [PSCredential]; (3) Implement credential expiry timer (default 10 minutes); (4) Zero credential on form close
 
 **Hardcoded bridge directory path:**
-- Risk: `/c/DFIRLab/repo/QuickerLaunch.ps1` line 62 hardcodes `$BRIDGE_DIR = 'C:\DFIRLab\QuickerBridge'` for inter-process job handoff
-- Files: `/c/DFIRLab/repo/QuickerLaunch.ps1` (line 62)
+- Risk: `/c/DFIRLab/repo/QuickAiRLaunch.ps1` line 62 hardcodes `$BRIDGE_DIR = 'C:\DFIRLab\QuickAiRBridge'` for inter-process job handoff
+- Files: `/c/DFIRLab/repo/QuickAiRLaunch.ps1` (line 62)
 - Current mitigation: Directory exists only at runtime (created by launcher), requires Administrator access, only used internally
 - Recommendations: (1) Make `$BRIDGE_DIR` parameterizable or derive from `$env:TEMP`; (2) Document security assumption; (3) Add access control check to verify only Administrator can read/write
 
@@ -131,7 +131,7 @@
 - Test coverage: Only tested via end-to-end execution results; no unit tests for state machine logic
 
 **Session-to-JSON correlation in Launcher:**
-- Files: `/c/DFIRLab/repo/QuickerLaunch.ps1` (lines 394: load execution JSON), Executor.ps1 (line 268: write result JSON)
+- Files: `/c/DFIRLab/repo/QuickAiRLaunch.ps1` (lines 394: load execution JSON), Executor.ps1 (line 268: write result JSON)
 - Why fragile: Launcher searches for execution JSON by filename pattern `*_execution_*.json` and assumes first match is result. If multiple jobs write to same directory, glob may match wrong file
 - Safe modification: (1) Include unique job ID in result filename; (2) Pass expected filename to executor; (3) Verify file write before read
 - Test coverage: Single-instance launcher mitigates collision risk in practice; not tested for concurrent executions
@@ -151,7 +151,7 @@
 - Scaling path: (1) Use `Invoke-AsJob` or PowerShell workflow to parallelize target collection; (2) Implement throttle (max 10 concurrent sessions); (3) Monitor job queue progress; (4) Aggregate results into single manifest
 
 **Single-instance launcher architecture:**
-- Current capacity: Launcher uses named mutex (QuickerLauncherMutex) to enforce single instance. Queue held in memory.
+- Current capacity: Launcher uses named mutex (QuickAiRLauncherMutex) to enforce single instance. Queue held in memory.
 - Limit: If queue fills with 500+ jobs, WinForms grid renderer will stall. Mutex file-based; limited to one analyst machine at a time
 - Scaling path: (1) Implement persistent queue (JSON file or SQLite) so launcher can restart without losing jobs; (2) Add queue persistence checkpoint every N jobs; (3) Implement multi-instance launcher with distributed job coordination
 

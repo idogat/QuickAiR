@@ -1,7 +1,7 @@
 #
-# Quicker -- Register-QuickerProtocol.ps1
-# Registers (or removes) the quicker:// URI scheme in HKCU
-# so browsers can invoke QuickerLaunch.ps1.
+# QuickAiR -- Register-QuickAiRProtocol.ps1
+# Registers (or removes) the quickair:// URI scheme in HKCU
+# so browsers can invoke QuickAiRLaunch.ps1.
 #
 # Parameters : -Unregister switch (default: register)
 # Run once   : as Administrator on the analyst machine
@@ -23,26 +23,26 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     exit 1
 }
 
-$ROOT    = 'HKCU:\SOFTWARE\Classes\quicker'
+$ROOT    = 'HKCU:\SOFTWARE\Classes\quickair'
 $CMD_KEY = "$ROOT\shell\open\command"
 
 if ($Unregister) {
     if (Test-Path $ROOT) {
         Remove-Item -Path $ROOT -Recurse -Force
-        Write-Host "quicker:// protocol unregistered"
+        Write-Host "quickair:// protocol unregistered"
     }
     else {
-        Write-Host "quicker:// was not registered -- nothing to remove"
+        Write-Host "quickair:// was not registered -- nothing to remove"
     }
 }
 else {
-    $launchScript = Join-Path $PSScriptRoot 'QuickerLaunch.ps1'
+    $launchScript = Join-Path $PSScriptRoot 'QuickAiRLaunch.ps1'
     $cmd = 'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launchScript + '" -URI "%1"'
 
     if (-not (Test-Path $ROOT)) {
         New-Item -Path $ROOT -Force | Out-Null
     }
-    Set-ItemProperty -Path $ROOT -Name '(Default)'    -Value 'URL:Quicker DFIR Launcher'
+    Set-ItemProperty -Path $ROOT -Name '(Default)'    -Value 'URL:QuickAiR DFIR Launcher'
     New-ItemProperty -Path $ROOT -Name 'URL Protocol'  -Value '' -PropertyType String -Force | Out-Null
 
     if (-not (Test-Path $CMD_KEY)) {
@@ -58,11 +58,11 @@ else {
     }
 
     $storedCmd = (Get-ItemProperty -Path $CMD_KEY -Name '(Default)').'(Default)'
-    if ($storedCmd -notlike "*QuickerLaunch.ps1*") {
+    if ($storedCmd -notlike "*QuickAiRLaunch.ps1*") {
         Write-Error "Registry verification failed -- command value unexpected: $storedCmd"
         exit 1
     }
 
-    Write-Host "quicker:// protocol registered"
-    Write-Host "Test with: Start-Process quicker://test"
+    Write-Host "quickair:// protocol registered"
+    Write-Host "Test with: Start-Process quickair://test"
 }

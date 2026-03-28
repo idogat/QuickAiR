@@ -8,10 +8,10 @@
 C:\DFIRLab\repo/
 ├── Collector.ps1              # Entry point: orchestrates remote data collection
 ├── Executor.ps1               # Entry point: transfers binary to target and launches it
-├── QuickerLaunch.ps1          # Entry point: persistent job manager UI (WinForms)
+├── QuickAiRLaunch.ps1          # Entry point: persistent job manager UI (WinForms)
 ├── Report.html                # Entry point: offline HTML GUI (assembled from ReportStages/)
 ├── TestSuite.ps1              # Test runner: validates collected JSON files
-├── Register-QuickerProtocol.ps1 # Registration: sets up quicker:// URI scheme
+├── Register-QuickAiRProtocol.ps1 # Registration: sets up quickair:// URI scheme
 ├── README.md                   # Project documentation
 ├── Modules/                    # PowerShell plugin modules (imported at runtime)
 │   ├── Core/                   # Shared utilities (lowest layer)
@@ -70,9 +70,9 @@ C:\DFIRLab\repo/
 ## Directory Purposes
 
 **Root Level:**
-- Purpose: Entry points (Collector.ps1, Executor.ps1, QuickerLaunch.ps1, Report.html) and project documentation
+- Purpose: Entry points (Collector.ps1, Executor.ps1, QuickAiRLaunch.ps1, Report.html) and project documentation
 - Contains: Three independent PowerShell orchestrators, HTML GUI, helper scripts
-- Key files: `Collector.ps1` (primary collection), `Executor.ps1` (remote execution), `QuickerLaunch.ps1` (job manager)
+- Key files: `Collector.ps1` (primary collection), `Executor.ps1` (remote execution), `QuickAiRLaunch.ps1` (job manager)
 
 **Modules/Core/:**
 - Purpose: Shared utility modules (lowest architectural layer)
@@ -98,7 +98,7 @@ C:\DFIRLab\repo/
 - Purpose: Job queue management and concurrency control
 - Contains: Thread-safe job queue, named pipe listener for job batch delivery
 - Key files: `JobQueue.psm1` (enforces status transitions), `PipeListener.psm1` (bridge file support)
-- Pattern: Imported by QuickerLaunch.ps1; maintains singleton queue in memory
+- Pattern: Imported by QuickAiRLaunch.ps1; maintains singleton queue in memory
 
 **ReportStages/:**
 - Purpose: HTML and JavaScript components assembled into single-file Report.html
@@ -131,7 +131,7 @@ C:\DFIRLab\repo/
 
 - `C:\DFIRLab\repo\Collector.ps1`: Main collection orchestrator; imports Core modules, auto-discovers Collectors, invokes capability probe, manages target loop
 - `C:\DFIRLab\repo\Executor.ps1`: Remote tool deployment; imports Executors, tries methods in chain (WinRM → SMB+WMI → WMI)
-- `C:\DFIRLab\repo\QuickerLaunch.ps1`: Persistent job manager; WinForms UI, named mutex for singleton, job queue concurrency control
+- `C:\DFIRLab\repo\QuickAiRLaunch.ps1`: Persistent job manager; WinForms UI, named mutex for singleton, job queue concurrency control
 - `C:\DFIRLab\repo\Report.html`: Browser-based GUI; loaded from disk, fully offline, supports drag-and-drop JSON
 
 **Core Infrastructure:**
@@ -170,8 +170,8 @@ C:\DFIRLab\repo/
 
 **Files:**
 
-- `Collector.ps1`, `Executor.ps1`, `QuickerLaunch.ps1`: Entry points (PascalCase, single responsibility)
-- `TestSuite.ps1`, `Register-QuickerProtocol.ps1`: Helper scripts (PascalCase, Verb-Noun pattern)
+- `Collector.ps1`, `Executor.ps1`, `QuickAiRLaunch.ps1`: Entry points (PascalCase, single responsibility)
+- `TestSuite.ps1`, `Register-QuickAiRProtocol.ps1`: Helper scripts (PascalCase, Verb-Noun pattern)
 - `*.psm1`: PowerShell script modules (lowercase, underscore separator for multi-word)
   - `Connection.psm1`, `Output.psm1` (Core modules)
   - `Processes.psm1`, `Network.psm1` (Collectors)

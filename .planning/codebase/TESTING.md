@@ -49,7 +49,7 @@ Tests/
 ├── T07_Signatures.ps1      # File signature verification
 ├── T08_Users.ps1           # User and group enumeration
 ├── T09_Executor.ps1        # Executor.ps1 execution results
-└── T10_Launcher.ps1        # QuickerLaunch.ps1 execution tracking
+└── T10_Launcher.ps1        # QuickAiRLaunch.ps1 execution tracking
 ```
 
 ## Test Structure
@@ -61,7 +61,7 @@ Each test file has this structure:
 ```powershell
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — T##_<Name>.ps1          ║
+# ║  QuickAiR — T##_<Name>.ps1          ║
 # ║  What this test does                ║
 # ╠══════════════════════════════════════╣
 # ║  Inputs    : -JsonPath -HtmlPath    ║

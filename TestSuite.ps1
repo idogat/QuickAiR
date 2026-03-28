@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — TestSuite.ps1            ║
+# ║  QuickAiR — TestSuite.ps1            ║
 # ║  Test runner. Auto-discovers and    ║
 # ║  runs Tests\T*.ps1. Prints summary. ║
 # ╠══════════════════════════════════════╣
@@ -14,7 +14,7 @@
 # ╚══════════════════════════════════════╝
 <#
 .SYNOPSIS
-    Quicker Test Suite - validates collected JSON output and Report.html
+    QuickAiR Test Suite - validates collected JSON output and Report.html
 .DESCRIPTION
     Runs automated checks against the most recent collected JSON and Report.html.
     Auto-discovers test files in Tests\ directory.
@@ -42,7 +42,7 @@ $ErrorActionPreference = 'Continue'
 $SUITE_VERSION = "2.0"
 
 Write-Host "================================" -ForegroundColor Cyan
-Write-Host "Quicker Test Suite v$SUITE_VERSION" -ForegroundColor Cyan
+Write-Host "QuickAiR Test Suite v$SUITE_VERSION" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

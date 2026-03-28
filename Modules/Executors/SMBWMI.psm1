@@ -1,6 +1,6 @@
 #Requires -Version 2.0
 # ╔══════════════════════════════════════╗
-# ║  Quicker — SMBWMI.psm1             ║
+# ║  QuickAiR — SMBWMI.psm1             ║
 # ║  Remote executor via SMB transfer   ║
 # ║  + WMI execution.                  ║
 # ║  Fallback when WinRM unavailable.  ║
@@ -205,7 +205,7 @@ function Invoke-Executor {
 
                     # Test accessibility
                     try {
-                        $testDrive = "QuickerTest_$(Get-Random)"
+                        $testDrive = "QuickAiRTest_$(Get-Random)"
                         $tdParams = @{
                             Name        = $testDrive
                             PSProvider  = 'FileSystem'
@@ -233,7 +233,7 @@ function Invoke-Executor {
             }
         }
         $result.SmbShare = $shareRoot
-        $smbDriveName = "QuickerSMB_$(Get-Random)"
+        $smbDriveName = "QuickAiRSMB_$(Get-Random)"
 
         try {
             $driveParams = @{

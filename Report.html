@@ -1,5 +1,5 @@
 ﻿<!-- ╔══════════════════════════════════════╗ -->
-<!-- ║  Quicker — 01_head.html              ║ -->
+<!-- ║  QuickAiR — 01_head.html              ║ -->
 <!-- ║  CSS variables, dark theme, table     ║ -->
 <!-- ║  styles, modal styles, resize         ║ -->
 <!-- ║  handles, highlight animations        ║ -->
@@ -15,7 +15,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Quicker</title>
+<title>QuickAiR</title>
 <style>
 :root {
   --bg:      #0d1117;
@@ -254,7 +254,7 @@ input::placeholder{color:var(--muted)}
 </style>
 </head>
 <!-- ╔══════════════════════════════════════╗ -->
-<!-- ║  Quicker — 02_shell.html             ║ -->
+<!-- ║  QuickAiR — 02_shell.html             ║ -->
 <!-- ║  Body structure, top bar, tab bar,   ║ -->
 <!-- ║  tab containers, modal placeholder,  ║ -->
 <!-- ║  exec modal. Opens script tag.       ║ -->
@@ -269,7 +269,7 @@ input::placeholder{color:var(--muted)}
 <body>
 <div id="drop-zone">Drop JSON files here</div>
 <div id="placeholder" class="show">
-  <h2>Quicker &mdash; DFIR Volatile Analyzer</h2>
+  <h2>QuickAiR &mdash; DFIR Volatile Analyzer</h2>
   <p>Loading file picker&hellip;</p>
 </div>
 
@@ -281,7 +281,7 @@ input::placeholder{color:var(--muted)}
 <div id="gsearch-panel"></div>
 
 <div id="topbar">
-  <h1>Quicker</h1>
+  <h1>QuickAiR</h1>
   <span class="sep">|</span>
   <button id="loadBtn" onclick="triggerLoad()">&#128193; Load JSON</button>
   <input type="file" id="fileInput" multiple accept=".json" style="display:none" onchange="handleFiles(this.files)">
@@ -319,7 +319,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-03-26T19:42:32.3419909Z",
+    "generated":  "2026-03-26T20:23:17.7136693Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -384,7 +384,7 @@ var _toolDefaults = {
 };
 
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 03_core.js                ║
+// ║  QuickAiR — 03_core.js                ║
 // ║  Global state, file loader, chunked  ║
 // ║  FileReader, tab router, virtual     ║
 // ║  scroll engine, sort engine, resize  ║
@@ -642,24 +642,33 @@ function buildUserIndex(allHosts) {
       });
     }
 
-    // Enrich with DC domain_accounts by SID
+    // Enrich with DC domain_accounts by SID — create entry if not yet seen
     if (u.domain_accounts) {
       u.domain_accounts.forEach(da => {
         const key = da.SID;
         if (!key) return;
-        if (idx[key]) {
-          idx[key].domainInfo = {
-            dcHost:          hostname,
-            WhenCreated:     da.WhenCreatedUTC,
-            LastLogonAD:     da.LastLogonUTC,
-            PasswordLastSet: da.PasswordLastSetUTC,
-            Enabled:         da.Enabled,
-            LockedOut:       da.LockedOut,
-            BadLogonCount:   da.BadLogonCount,
-            Source:          da.Source
+        if (!idx[key]) {
+          idx[key] = {
+            SID:         da.SID,
+            Username:    da.SamAccountName || da.DisplayName || '?',
+            Domain:      u.domain_name || '',
+            AccountType: 'Domain',
+            SIDMetadata: { WellKnown: false, Description: '' },
+            domainInfo:  null,
+            machines:    []
           };
-          if (da.SamAccountName) idx[key].Username = da.SamAccountName;
         }
+        idx[key].domainInfo = {
+          dcHost:          hostname,
+          WhenCreated:     da.WhenCreatedUTC,
+          LastLogonAD:     da.LastLogonUTC,
+          PasswordLastSet: da.PasswordLastSetUTC,
+          Enabled:         da.Enabled,
+          LockedOut:       da.LockedOut,
+          BadLogonCount:   da.BadLogonCount,
+          Source:          da.Source
+        };
+        if (da.SamAccountName) idx[key].Username = da.SamAccountName;
       });
     }
   });
@@ -1238,7 +1247,7 @@ window.addEventListener('load', () => {
 });
 
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 04_fleet.js               ║
+// ║  QuickAiR — 04_fleet.js               ║
 // ║  Fleet tab render, host status       ║
 // ║  table, manifest panel, selection    ║
 // ║  badges                              ║
@@ -1479,7 +1488,7 @@ function fleetSortBy(col) {
 }
 
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 05_processes.js           ║
+// ║  QuickAiR — 05_processes.js           ║
 // ║  Processes tab render, virtual       ║
 // ║  scroll, row expand, inline network  ║
 // ║  detail, DLL count, Owner,           ║
@@ -1793,7 +1802,7 @@ function fmtBytes(b) {
 }
 
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 06_network.js             ║
+// ║  QuickAiR — 06_network.js             ║
 // ║  Network tab render, merged TCP+UDP  ║
 // ║  virtual scroll, row expand, remote  ║
 // ║  IP summary, adapter sub-panel,      ║
@@ -2134,7 +2143,7 @@ function highlightNetworkPid(pid) {
   applyNetFilters();
 }
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 06b_dlls.js               ║
+// ║  QuickAiR — 06b_dlls.js               ║
 // ║  DLLs tab render, virtual scroll,    ║
 // ║  row expand, signature display,      ║
 // ║  SHA256 display, private path        ║
@@ -2370,7 +2379,7 @@ function dllSortBy(col) {
 
 function dllGotoProcess(pid) { navigateToRow('processes', 'ProcessId', pid); }
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 07_dns.js                 ║
+// ║  QuickAiR — 07_dns.js                 ║
 // ║  DNS tab render, virtual scroll,     ║
 // ║  correlation summary, fallback       ║
 // ║  banner, cross-reference clicks      ║
@@ -2532,7 +2541,7 @@ function dnsSortBy(col) {
 }
 
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 08_manifest.js            ║
+// ║  QuickAiR — 08_manifest.js            ║
 // ║  Manifest panel init, placeholder    ║
 // ║  auto-display on load                ║
 // ╠══════════════════════════════════════╣
@@ -2550,7 +2559,7 @@ function dnsSortBy(col) {
 })();
 
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 09_users.js               ║
+// ║  QuickAiR — 09_users.js               ║
 // ║  Users tab render, cross-host user   ║
 // ║  correlation by SID, per-user        ║
 // ║  expandable machine list, DC data    ║
@@ -2939,11 +2948,11 @@ function buildUserExpand(u) {
   return html;
 }
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 09b_execute.js            ║
+// ║  QuickAiR — 09b_execute.js            ║
 // ║  Execute tab, host status panel      ║
 // ║  with memory/disk checkboxes, queue  ║
 // ║  preview dialog, tool dropdown from  ║
-// ║  tools.json, quicker:// URI gen      ║
+// ║  tools.json, quickair:// URI gen      ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : fleetIndex, tools.json    ║
 // ║  Writes   : _bulkSel, _toolsManifest ║
@@ -3106,7 +3115,7 @@ function renderExecute() {
   }
 
   panel.innerHTML =
-    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickerProtocol.ps1</strong> once as Administrator.</div>' +
+    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickAiRProtocol.ps1</strong> once as Administrator.</div>' +
     '<div class="exec-section">' +
       '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\')">' +
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +
@@ -3448,14 +3457,14 @@ function _queueModalLaunch() {
     };
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
-  var uri = 'quicker://batch?jobs=' + encoded;
+  var uri = 'quickair://batch?jobs=' + encoded;
   window.location.href = uri;
   // Show success
   var body = el('qm-body');
   if (body) {
     var ok = document.createElement('div');
     ok.className = 'qm-success';
-    ok.innerHTML = '<strong>quicker:// URI sent to Windows.</strong><br>If QuickerLaunch.ps1 does not open: Run <code>Register-QuickerProtocol.ps1</code> as Administrator first.';
+    ok.innerHTML = '<strong>quickair:// URI sent to Windows.</strong><br>If QuickAiRLaunch.ps1 does not open: Run <code>Register-QuickAiRProtocol.ps1</code> as Administrator first.';
     body.insertBefore(ok, body.firstChild);
   }
   var actions = el('qm-actions');
@@ -3490,7 +3499,7 @@ function renderFleetExecBanners() {
   wrap.innerHTML = banners;
 }
 <!-- ╔══════════════════════════════════════╗ -->
-<!-- ║  Quicker — 10_close.html             ║ -->
+<!-- ║  QuickAiR — 10_close.html             ║ -->
 <!-- ║  Closes script tag, body, html       ║ -->
 <!-- ╠══════════════════════════════════════╣ -->
 <!-- ║  Reads    : nothing                   ║ -->

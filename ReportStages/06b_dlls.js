@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 06b_dlls.js               ║
+// ║  QuickAiR — 06b_dlls.js               ║
 // ║  DLLs tab render, virtual scroll,    ║
 // ║  row expand, signature display,      ║
 // ║  SHA256 display, private path        ║

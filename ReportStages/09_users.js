@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 09_users.js               ║
+// ║  QuickAiR — 09_users.js               ║
 // ║  Users tab render, cross-host user   ║
 // ║  correlation by SID, per-user        ║
 // ║  expandable machine list, DC data    ║

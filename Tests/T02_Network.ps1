@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — T02_Network.ps1          ║
+# ║  QuickAiR — T02_Network.ps1          ║
 # ║  T3 network completeness, T4 proc   ║
 # ║  assign, T5 DNS, T6 correl, T7 rDNS ║
 # ╠══════════════════════════════════════╣

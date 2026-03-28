@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — DLLs.psm1                ║
+# ║  QuickAiR — DLLs.psm1                ║
 # ║  Loaded modules per process.        ║
 # ║  SHA256 for all DLLs.              ║
 # ╠══════════════════════════════════════╣

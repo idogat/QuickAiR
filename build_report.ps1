@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 # ΓòöΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòù
-# Γòæ  Quicker ΓÇö build_report.ps1         Γòæ
+# Γòæ  QuickAiR ΓÇö build_report.ps1         Γòæ
 # Γòæ  Concatenates ReportStages\ into    Γòæ
 # Γòæ  Report.html. Run after any stage   Γòæ
 # Γòæ  file change.                       Γòæ

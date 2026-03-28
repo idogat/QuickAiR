@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════╗
-# ║  Quicker — Users.psm1               ║
+# ║  QuickAiR — Users.psm1               ║
 # ║  User account collection            ║
 # ╠══════════════════════════════════════╣
 # ║  Exports  : Invoke-Collector        ║

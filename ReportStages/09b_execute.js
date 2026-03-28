@@ -1,9 +1,9 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 09b_execute.js            ║
+// ║  QuickAiR — 09b_execute.js            ║
 // ║  Execute tab, host status panel      ║
 // ║  with memory/disk checkboxes, queue  ║
 // ║  preview dialog, tool dropdown from  ║
-// ║  tools.json, quicker:// URI gen      ║
+// ║  tools.json, quickair:// URI gen      ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : fleetIndex, tools.json    ║
 // ║  Writes   : _bulkSel, _toolsManifest ║
@@ -166,7 +166,7 @@ function renderExecute() {
   }
 
   panel.innerHTML =
-    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickerProtocol.ps1</strong> once as Administrator.</div>' +
+    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickAiRProtocol.ps1</strong> once as Administrator.</div>' +
     '<div class="exec-section">' +
       '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\')">' +
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +
@@ -508,14 +508,14 @@ function _queueModalLaunch() {
     };
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
-  var uri = 'quicker://batch?jobs=' + encoded;
+  var uri = 'quickair://batch?jobs=' + encoded;
   window.location.href = uri;
   // Show success
   var body = el('qm-body');
   if (body) {
     var ok = document.createElement('div');
     ok.className = 'qm-success';
-    ok.innerHTML = '<strong>quicker:// URI sent to Windows.</strong><br>If QuickerLaunch.ps1 does not open: Run <code>Register-QuickerProtocol.ps1</code> as Administrator first.';
+    ok.innerHTML = '<strong>quickair:// URI sent to Windows.</strong><br>If QuickAiRLaunch.ps1 does not open: Run <code>Register-QuickAiRProtocol.ps1</code> as Administrator first.';
     body.insertBefore(ok, body.firstChild);
   }
   var actions = el('qm-actions');

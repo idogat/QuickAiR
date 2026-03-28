@@ -1,8 +1,8 @@
-# Quicker DFIR Toolkit — Production Documentation
+# QuickAiR DFIR Toolkit — Production Documentation
 
 ## What This Is
 
-Production documentation suite for the Quicker DFIR toolkit — an operational runbook, artifact coverage matrix, and analyst interpretation guide. Written for a mixed team of junior and senior DFIR analysts who need both onboarding material and quick-reference resources for day-to-day incident response work.
+Production documentation suite for the QuickAiR DFIR toolkit — an operational runbook, artifact coverage matrix, and analyst interpretation guide. Written for a mixed team of junior and senior DFIR analysts who need both onboarding material and quick-reference resources for day-to-day incident response work.
 
 ## Core Value
 
@@ -14,7 +14,7 @@ Analysts can pick up the toolkit and operate it correctly without tribal knowled
 
 - Existing capability: PowerShell-based remote data collection (Collector.ps1)
 - Existing capability: Multi-method tool deployment (Executor.ps1 — WinRM/SMB+WMI/WMI)
-- Existing capability: Persistent job manager with WinForms UI (QuickerLaunch.ps1)
+- Existing capability: Persistent job manager with WinForms UI (QuickAiRLaunch.ps1)
 - Existing capability: Offline browser-based report viewer (Report.html)
 - Existing capability: Plugin architecture for collectors (auto-discovery)
 - Existing capability: Fallback-chain execution with capability probing

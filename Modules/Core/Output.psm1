@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — Output.psm1              ║
+# ║  QuickAiR — Output.psm1              ║
 # ║  Logging, JSON write, SHA256,       ║
 # ║  manifest building                  ║
 # ╠══════════════════════════════════════╣
@@ -123,7 +123,7 @@ function Build-Manifest {
     return $manifest
 }
 
-function Get-QuickerSha256 {
+function Get-QuickAiRSha256 {
     param([string]$Path)
     try {
         $bytes = [System.IO.File]::ReadAllBytes($Path)
@@ -136,7 +136,7 @@ function Get-QuickerSha256 {
     }
 }
 
-function Get-QuickerSignature {
+function Get-QuickAiRSignature {
     param([string]$Path)
     try {
         if ($PSVersionTable.PSVersion.Major -ge 3) {
@@ -374,4 +374,4 @@ function Get-BinaryType {
     }
 }
 
-Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickerSha256, Get-QuickerSignature, Get-SidMetadata, Get-BinaryType
+Export-ModuleMember -Function Write-Log, Get-FileSha256, Initialize-Log, Write-JsonOutput, Build-Manifest, Get-QuickAiRSha256, Get-QuickAiRSignature, Get-SidMetadata, Get-BinaryType

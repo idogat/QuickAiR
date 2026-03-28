@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 03_core.js                ║
+// ║  QuickAiR — 03_core.js                ║
 // ║  Global state, file loader, chunked  ║
 // ║  FileReader, tab router, virtual     ║
 // ║  scroll engine, sort engine, resize  ║

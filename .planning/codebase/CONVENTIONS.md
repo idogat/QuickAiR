@@ -5,7 +5,7 @@
 ## Naming Patterns
 
 **Files:**
-- PowerShell scripts: PascalCase with `.ps1` extension (e.g., `Collector.ps1`, `QuickerLaunch.ps1`)
+- PowerShell scripts: PascalCase with `.ps1` extension (e.g., `Collector.ps1`, `QuickAiRLaunch.ps1`)
 - PowerShell modules: PascalCase with `.psm1` extension (e.g., `Connection.psm1`, `Output.psm1`)
 - Test files: `T##_<Description>.ps1` format with zero-padded number (e.g., `T01_Processes.ps1`, `T02_Network.ps1`)
 - JavaScript files: number-prefixed with descriptive names (e.g., `03_core.js`, `05_processes.js`)
@@ -59,7 +59,7 @@
 - Block headers in ASCII box format for major script sections:
   ```
   # ╔══════════════════════════════════════╗
-  # ║  Quicker — Collector.ps1            ║
+  # ║  QuickAiR — Collector.ps1            ║
   # ║  Thin orchestrator...               ║
   # ╚══════════════════════════════════════╝
   ```

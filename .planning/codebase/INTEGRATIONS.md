@@ -56,7 +56,7 @@
 **Credential Handling:**
 - No credential storage or caching to disk
 - In-memory only via PSCredential objects
-- Credential cache in `$script:CredCache` in QuickerLaunch.ps1 (in-memory per session)
+- Credential cache in `$script:CredCache` in QuickAiRLaunch.ps1 (in-memory per session)
 
 ## Monitoring & Observability
 
@@ -101,14 +101,14 @@
 ## Webhooks & Callbacks
 
 **Incoming:**
-- Quicker URI handler (`quicker://` protocol):
-  - Registered via `Register-QuickerProtocol.ps1`
-  - Listened by `QuickerLaunch.ps1` via named pipe in `C:\DFIRLab\QuickerBridge\`
+- QuickAiR URI handler (`quickair://` protocol):
+  - Registered via `Register-QuickAiRProtocol.ps1`
+  - Listened by `QuickAiRLaunch.ps1` via named pipe in `C:\DFIRLab\QuickAiRBridge\`
   - JSON job batch in base64-encoded URI parameter
-  - Example: `quicker://launch?jobs=<base64-json>`
+  - Example: `quickair://launch?jobs=<base64-json>`
 
 **Outgoing:**
-- None - Quicker never makes outbound connections
+- None - QuickAiR never makes outbound connections
 - No webhooks to external systems
 - No callback URLs to collection servers or SIEMs
 

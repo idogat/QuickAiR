@@ -14,8 +14,8 @@ Features analysts assume exist. Missing these = docs feel incomplete, analysts r
 
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| Complete parameter reference for all entry points | Analysts can't safely run Collector.ps1, Executor.ps1, or QuickerLaunch.ps1 without knowing required vs optional params, types, and defaults | LOW | Must cover: `-Targets`, `-Credential`, `-OutputPath`, `-AliveCheck`, `-Method`, `-Binary`, `-RemoteDest`. Defaults must match codebase (not aspirational). |
-| Prerequisites and setup steps (WinRM, admin rights, URI scheme registration) | Junior analysts will try to run the tool on an unconfigured machine and fail silently — or with inscrutable errors | LOW | Must cover: `winrm quickconfig`, `Register-QuickerProtocol.ps1`, admin rights requirement, `TrustedHosts` setup. Common error: "Access denied" when not admin. |
+| Complete parameter reference for all entry points | Analysts can't safely run Collector.ps1, Executor.ps1, or QuickAiRLaunch.ps1 without knowing required vs optional params, types, and defaults | LOW | Must cover: `-Targets`, `-Credential`, `-OutputPath`, `-AliveCheck`, `-Method`, `-Binary`, `-RemoteDest`. Defaults must match codebase (not aspirational). |
+| Prerequisites and setup steps (WinRM, admin rights, URI scheme registration) | Junior analysts will try to run the tool on an unconfigured machine and fail silently — or with inscrutable errors | LOW | Must cover: `winrm quickconfig`, `Register-QuickAiRProtocol.ps1`, admin rights requirement, `TrustedHosts` setup. Common error: "Access denied" when not admin. |
 | Troubleshooting section per entry point | First question from any analyst after a failure is "why did this not work?" — without this, they page senior staff | MEDIUM | Must map symptoms to causes: CONNECTION_FAILED, TRANSFER_FAILED, WinRM disabled, credential errors, SHA256 mismatch. Should use actual state names from the codebase. |
 | Artifact inventory — what data is collected | Before an analyst collects, they need to know what they're getting — especially for scope-of-collection conversations with legal/management | LOW | Processes, TCP connections, DNS cache, DLL inventory, user sessions — plus which fallback path affects fidelity (CIM vs netstat vs cmd). |
 | Report.html navigation overview | Analysts interact with all data through this one file — without a tab map, the report feels opaque | LOW | Must cover: Fleet tab, Processes, Network, DNS, DLLs, Users, Manifest, Execute. Tab function, not just tab name. |
@@ -101,7 +101,7 @@ This is a documentation milestone for a mature tool, not a product MVP. Reframed
 ### Launch With (v1 — minimum usable docs)
 
 - [ ] Runbook: prerequisites + setup (WinRM, admin rights, URI scheme registration) — blocks all other doc use
-- [ ] Runbook: full parameter reference for Collector.ps1, Executor.ps1, QuickerLaunch.ps1 — analysts can't run the tool without this
+- [ ] Runbook: full parameter reference for Collector.ps1, Executor.ps1, QuickAiRLaunch.ps1 — analysts can't run the tool without this
 - [ ] Runbook: troubleshooting table keyed to actual terminal state names (CONNECTION_FAILED, TRANSFER_FAILED, etc.) — covers the most common failure modes
 - [ ] Artifact Coverage Matrix: what's collected, at what fidelity, via which fallback path — required to interpret results meaningfully
 - [ ] Interpretation Guide: Report.html tab navigation overview — blocks any meaningful report use
@@ -177,5 +177,5 @@ Rather than competitor products, this reflects patterns observed in high-quality
 
 ---
 
-*Feature research for: Quicker DFIR Toolkit — Production Documentation*
+*Feature research for: QuickAiR DFIR Toolkit — Production Documentation*
 *Researched: 2026-03-24*

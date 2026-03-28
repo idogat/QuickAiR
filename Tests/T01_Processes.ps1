@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# Quicker -- T01_Processes.ps1 (v2.7 coverage)
+# QuickAiR -- T01_Processes.ps1 (v2.7 coverage)
 #
 # T1  - Process completeness (ground-truth vs .NET)
 # T2  - Schema: all required fields present on every process

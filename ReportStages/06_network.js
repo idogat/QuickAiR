@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 06_network.js             ║
+// ║  QuickAiR — 06_network.js             ║
 // ║  Network tab render, merged TCP+UDP  ║
 // ║  virtual scroll, row expand, remote  ║
 // ║  IP summary, adapter sub-panel,      ║

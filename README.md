@@ -1,8 +1,8 @@
-# Quicker
+# QuickAiR
 
 > DFIR volatile artifact collector for Windows environments
 
-Quicker collects process list, active network connections, and DNS cache from local or remote Windows machines via WinRM. Output is a single JSON file per host, visualized in an offline single-file HTML investigation GUI.
+QuickAiR collects process list, active network connections, and DNS cache from local or remote Windows machines via WinRM. Output is a single JSON file per host, visualized in an offline single-file HTML investigation GUI.
 
 ---
 
@@ -152,14 +152,14 @@ Run the included test suite against any collected JSON:
 
 ---
 
-## Remote Execution (Quicker Launcher)
+## Remote Execution (QuickAiR Launcher)
 
 ### One-Time Setup
 
 Run as Administrator:
 
 ```powershell
-.\Register-QuickerProtocol.ps1
+.\Register-QuickAiRProtocol.ps1
 ```
 
 ### Usage
@@ -171,7 +171,7 @@ Run as Administrator:
 5. Click [Add to Queue →]
 6. Review queue preview
 7. Click [Launch All →]
-8. QuickerLaunch.ps1 opens automatically
+8. QuickAiRLaunch.ps1 opens automatically
 9. Monitor job progress in launcher window
 
 ### Bulk Collection Example
@@ -186,7 +186,7 @@ All 15 jobs run with max 5 concurrent
 ### Unregister
 
 ```powershell
-.\Register-QuickerProtocol.ps1 -Unregister
+.\Register-QuickAiRProtocol.ps1 -Unregister
 ```
 
 ---
@@ -195,4 +195,4 @@ All 15 jobs run with max 5 concurrent
 
 DFIR analyst tool — built for incident response workflows.
 
-https://github.com/idogat/quicker
+https://github.com/idogat/quickair

@@ -95,18 +95,18 @@ Structure the interpretation guide around investigation scenarios, not UI elemen
 ### Pitfall 5: Executor and Launcher Documented in Isolation From Each Other
 
 **What goes wrong:**
-The runbook documents Executor.ps1 as a standalone tool and QuickerLaunch.ps1 as a separate tool, without explaining the integrated workflow: Report.html triggers quicker:// URI → QuickerLaunch receives the job batch → QuickerLaunch invokes Executor.ps1 for each job. An analyst who reads the runbook and tries to use QuickerLaunch standalone (not triggered from Report.html) will be confused by the URI parameter format. An analyst who tries to invoke Executor.ps1 manually in a loop to simulate QuickerLaunch will miss the job queue concurrency control and overload targets.
+The runbook documents Executor.ps1 as a standalone tool and QuickAiRLaunch.ps1 as a separate tool, without explaining the integrated workflow: Report.html triggers quickair:// URI → QuickAiRLaunch receives the job batch → QuickAiRLaunch invokes Executor.ps1 for each job. An analyst who reads the runbook and tries to use QuickAiRLaunch standalone (not triggered from Report.html) will be confused by the URI parameter format. An analyst who tries to invoke Executor.ps1 manually in a loop to simulate QuickAiRLaunch will miss the job queue concurrency control and overload targets.
 
 **Why it happens:**
 Three distinct entry points (Collector, Executor, Launcher) invite documenting each as its own section. The integration path through the URI scheme is architecturally unusual and not obvious from the tool names alone.
 
 **How to avoid:**
-Open the runbook with a system architecture overview that shows the full workflow: collection → report viewing → job launch → execution → result refresh. Make the quicker:// URI scheme explicit — document that Register-QuickerProtocol.ps1 must be run first, and that QuickerLaunch is normally triggered by Report.html rather than directly. Document the direct invocation of Executor.ps1 as an advanced/standalone case, not the primary workflow.
+Open the runbook with a system architecture overview that shows the full workflow: collection → report viewing → job launch → execution → result refresh. Make the quickair:// URI scheme explicit — document that Register-QuickAiRProtocol.ps1 must be run first, and that QuickAiRLaunch is normally triggered by Report.html rather than directly. Document the direct invocation of Executor.ps1 as an advanced/standalone case, not the primary workflow.
 
 **Warning signs:**
 - Runbook sections for Collector, Executor, and Launcher are entirely independent with no cross-references
-- Register-QuickerProtocol.ps1 is not mentioned
-- quicker:// URI scheme is not explained
+- Register-QuickAiRProtocol.ps1 is not mentioned
+- quickair:// URI scheme is not explained
 - "Prerequisites" section exists only at the global level, not per-workflow
 
 **Phase to address:** Runbook phase, specifically the getting-started / architecture overview section written first before command reference sections.
@@ -175,8 +175,8 @@ Common mistakes when documenting the integrations between toolkit components.
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| quicker:// URI scheme | Not mentioned or buried in appendix | Lead section of Launcher documentation; requires Register-QuickerProtocol.ps1 pre-step — if analyst skips this, nothing works |
-| Report.html → QuickerLaunch job batch | Documenting as "click Launch All" with no explanation of what happens next | Explain the full state machine: base64 encode → URI trigger → bridge file → PipeListener → JobQueue → Executor.ps1 invocation per job |
+| quickair:// URI scheme | Not mentioned or buried in appendix | Lead section of Launcher documentation; requires Register-QuickAiRProtocol.ps1 pre-step — if analyst skips this, nothing works |
+| Report.html → QuickAiRLaunch job batch | Documenting as "click Launch All" with no explanation of what happens next | Explain the full state machine: base64 encode → URI trigger → bridge file → PipeListener → JobQueue → Executor.ps1 invocation per job |
 | Executor.ps1 → ExecutionResults JSON → Report.html refresh | Omitting the "refresh JSON in Report.html" step after execution | Document the complete loop: execute → wait → drag new ExecutionResults JSON into Report.html to see results |
 | Collector.ps1 → DFIROutput → Report.html | Omitting SHA256 integrity check explanation | Document that Report.html validates sha256 on load; if hash fails (corrupted file), tab content will not render |
 | WinRM TrustedHosts modification | Not warning analysts this requires local admin on the analyst machine, not just the target | This is a common first-run failure; must be in Prerequisites with explicit "run as Administrator" requirement |
@@ -192,7 +192,7 @@ Patterns that work at small scale but fail as usage grows — documentation shou
 | Loading 20+ JSON files into Report.html | Browser tab hangs or crashes | Document recommended batch size (<15 hosts per Report.html session); note 1-5MB per JSON file | Browser heap ~500MB-2GB; ~100-200 host practical limit |
 | Running Collector.ps1 against 50+ targets sequentially | Collection takes hours; analyst cannot interrupt without losing progress | Document sequential execution limitation; recommend batching targets; note absence of cancel capability | 10 targets ≈ 5 min; 50 targets ≈ 25 min minimum |
 | DNS PTR reverse lookups on public IPs | Collection hangs on targets with many external connections | Warn analysts that collections against hosts with many public outbound connections may be slow | ~50+ unique public IPs triggers multi-minute delay |
-| QuickerLaunch with 500+ jobs | WinForms grid stalls; job status updates lag | Document recommended max concurrent job batch size (50-100 jobs per launch batch); note max concurrent workers = 5 | ~500+ jobs in queue |
+| QuickAiRLaunch with 500+ jobs | WinForms grid stalls; job status updates lag | Document recommended max concurrent job batch size (50-100 jobs per launch batch); note max concurrent workers = 5 | ~500+ jobs in queue |
 
 ---
 
@@ -203,8 +203,8 @@ Documentation-specific security mistakes for this DFIR toolkit.
 | Mistake | Risk | Prevention |
 |---------|------|------------|
 | Documenting `-SkipCACheck -SkipCNCheck -SkipRevocationCheck` as standard practice without warning | Analysts normalize MITM-susceptible WinRM for production use | Document this as lab/trusted-network only; note from CONCERNS.md that this is a known risk; include disclaimer in Prerequisites |
-| Documenting credential cache in QuickerLaunch without noting the in-memory retention risk | Analysts leave Launcher open indefinitely; credentials retained in memory | Note that `$script:CredCache` holds credentials for the session lifetime; recommend closing Launcher after job completion |
-| Documenting hardcoded bridge directory `C:\DFIRLab\QuickerBridge\` without explaining access control assumption | Analysts deploy to shared machines; bridge dir readable by non-admin accounts | Note from CONCERNS.md: bridge dir requires Administrator access; document the risk of shared analyst workstations |
+| Documenting credential cache in QuickAiRLaunch without noting the in-memory retention risk | Analysts leave Launcher open indefinitely; credentials retained in memory | Note that `$script:CredCache` holds credentials for the session lifetime; recommend closing Launcher after job completion |
+| Documenting hardcoded bridge directory `C:\DFIRLab\QuickAiRBridge\` without explaining access control assumption | Analysts deploy to shared machines; bridge dir readable by non-admin accounts | Note from CONCERNS.md: bridge dir requires Administrator access; document the risk of shared analyst workstations |
 | Omitting the SHA256 verification step from the collection workflow | Analysts trust tampered or corrupted collection data | Document that Collector.ps1 computes and embeds SHA256; document that Report.html validates it on load; note what "integrity check failed" looks like |
 
 ---
@@ -235,7 +235,7 @@ Things that appear complete but are missing critical pieces.
 - [ ] **Interpretation guide:** Documents each Report.html tab — verify it also documents cross-tab investigation workflows (Process → Network → DNS pivot), not just per-tab UI descriptions
 - [ ] **Interpretation guide:** Explains what to look at — verify it also explains what "suspicious" vs. "benign" looks like for each data type
 - [ ] **Any document:** Contains examples — verify examples use realistic IR scenario data (suspicious process, unusual network connection) not synthetic "example.com" or "test" placeholders
-- [ ] **Runbook:** Documents Collector.ps1 invocation — verify it also documents Register-QuickerProtocol.ps1 prerequisite and explains when/why to run it
+- [ ] **Runbook:** Documents Collector.ps1 invocation — verify it also documents Register-QuickAiRProtocol.ps1 prerequisite and explains when/why to run it
 - [ ] **All docs:** Accurate to current code — verify all parameter names, output paths, and default values match actual current codebase (not README.md which may lag the code)
 
 ---
@@ -265,7 +265,7 @@ How roadmap phases should address these pitfalls.
 | Coverage matrix hides gaps | Artifact coverage matrix phase — derive gap column from CONCERNS.md Known Bugs and codebase collector list | Review: does every artifact row have a "Data absent when" cell that isn't empty? |
 | No post-collection verification step | Runbook phase — add "verify output" subsection immediately after each collection workflow | Review: is there a manifest.collection_errors explanation in the runbook? |
 | UI tour instead of analyst workflow | Interpretation guide phase — write investigation scenarios first, then build UI descriptions to support them | Review: does the guide include at least 3 cross-tab investigation workflows? |
-| Executor/Launcher documented in isolation | Runbook phase — write architecture overview section before any component-specific section | Review: does the runbook have a section explaining the quicker:// URI trigger and Register-QuickerProtocol.ps1? |
+| Executor/Launcher documented in isolation | Runbook phase — write architecture overview section before any component-specific section | Review: does the runbook have a section explaining the quickair:// URI trigger and Register-QuickAiRProtocol.ps1? |
 | Troubleshooting from guesses | Runbook phase — explicitly derive troubleshooting table from CONCERNS.md before closing the runbook | Review: is each Known Bug and Fragile Area from CONCERNS.md represented in troubleshooting? |
 | Mixed-audience voice | All documentation phases — add Quick Reference table to each section during initial draft | Review: can a senior analyst find any command syntax within 10 seconds of opening the doc? |
 | Security risks undisclosed | Runbook phase (Prerequisites section) and interpretation guide (Collection tab notes) | Review: are all three CONCERNS.md Security Considerations items acknowledged in the docs? |
@@ -283,5 +283,5 @@ How roadmap phases should address these pitfalls.
 
 ---
 
-*Pitfalls research for: DFIR toolkit production documentation (Quicker)*
+*Pitfalls research for: DFIR toolkit production documentation (QuickAiR)*
 *Researched: 2026-03-24*

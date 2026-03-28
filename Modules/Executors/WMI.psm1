@@ -1,6 +1,6 @@
 #Requires -Version 2.0
 # ╔══════════════════════════════════════╗
-# ║  Quicker — WMI.psm1                 ║
+# ║  QuickAiR — WMI.psm1                 ║
 # ║  Remote executor via WMI only.      ║
 # ║  No file transfer — binary must     ║
 # ║  already exist on target.           ║

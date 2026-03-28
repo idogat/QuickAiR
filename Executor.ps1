@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — Executor.ps1             ║
+# ║  QuickAiR — Executor.ps1             ║
 # ║  Thin orchestrator. Transfers and   ║
 # ║  launches a tool on a remote target ║
 # ║  via WinRM or WMI.                  ║
@@ -47,7 +47,7 @@ $EXECUTOR_VERSION = "1.8"
 if ($Help) {
     Write-Host ""
     Write-Host "========================================================" -ForegroundColor Cyan
-    Write-Host "  Quicker - Executor.ps1 v$EXECUTOR_VERSION" -ForegroundColor Cyan
+    Write-Host "  QuickAiR - Executor.ps1 v$EXECUTOR_VERSION" -ForegroundColor Cyan
     Write-Host "  Remote Tool Launcher" -ForegroundColor Cyan
     Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host ""
@@ -121,7 +121,7 @@ if (-not $isAdmin) {
 }
 #endregion
 
-Write-Ts "Quicker Executor v$EXECUTOR_VERSION starting" "Cyan"
+Write-Ts "QuickAiR Executor v$EXECUTOR_VERSION starting" "Cyan"
 
 #region --- Interactive prompts for required params ---
 if (-not $Target) {

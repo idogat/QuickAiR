@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # =============================================
-#   Quicker -- T08_Users.ps1
+#   QuickAiR -- T08_Users.ps1
 #   T19 Users data structure
 #   T20 FirstLogon cross-check
 #   T21 DC domain accounts

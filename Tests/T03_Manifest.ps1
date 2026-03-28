@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — T03_Manifest.ps1         ║
+# ║  QuickAiR — T03_Manifest.ps1         ║
 # ║  T8 manifest integrity + SHA256,    ║
 # ║  T9 collection error log audit      ║
 # ╠══════════════════════════════════════╣

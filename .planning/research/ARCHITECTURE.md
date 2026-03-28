@@ -158,10 +158,10 @@ INTERPRET.md
 
 Owns all operational content:
 
-- **Prerequisites** — admin rights requirement, WinRM setup, TrustedHosts, quicker:// URI registration
+- **Prerequisites** — admin rights requirement, WinRM setup, TrustedHosts, quickair:// URI registration
 - **Collector.ps1** — all parameters with types, defaults, and examples; output path and file naming; what happens on each target type (local vs remote)
 - **Executor.ps1** — all parameters; execution method selection; result JSON location and fields
-- **QuickerLaunch.ps1** — how it launches (URI scheme, not CLI); job batch format; bridge file mechanism; single-instance behavior
+- **QuickAiRLaunch.ps1** — how it launches (URI scheme, not CLI); job batch format; bridge file mechanism; single-instance behavior
 - **Troubleshooting** — organized by symptom ("Collection returns zero processes", "WinRM connection refused", "Launcher does not open"); maps to executor fallback chain
 - **TestSuite.ps1** — how to run, what passes/fails mean
 
@@ -195,7 +195,7 @@ Owns all Report.html analysis content:
 - **DLLs tab** — per-process DLL list; what to look for (unsigned DLLs, unusual paths)
 - **Users tab** — session types; what logon type codes mean
 - **Manifest tab** — reading collection metadata; interpreting collection_errors; checking source field to understand which fallback ran
-- **Execute tab** — building a job batch; launching QuickerLaunch; refreshing execution results
+- **Execute tab** — building a job batch; launching QuickAiRLaunch; refreshing execution results
 - **Cross-tab investigation patterns** — 3-4 worked examples (suspicious outbound connection → pivot to process → check DLLs; unusual user session → pivot to process tree)
 
 Does NOT own:
@@ -284,7 +284,7 @@ The documentation set does not modify code. It reads from these sources during a
 |--------|---------|
 | `Collector.ps1` parameter block | RUNBOOK.md parameter table |
 | `Executor.ps1` parameter block | RUNBOOK.md parameter table |
-| `QuickerLaunch.ps1` launch mechanism | RUNBOOK.md launch section |
+| `QuickAiRLaunch.ps1` launch mechanism | RUNBOOK.md launch section |
 | `Modules/Collectors/*.psm1` source functions | COVERAGE-MATRIX.md artifact rows |
 | `Modules/Executors/*.psm1` method logic | RUNBOOK.md troubleshooting + COVERAGE-MATRIX.md executor column |
 | `ReportStages/*.js` tab names and behavior | INTERPRET.md section structure |

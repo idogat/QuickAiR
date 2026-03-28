@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  Quicker — T06_DLLs.ps1                                     ║
+# ║  QuickAiR — T06_DLLs.ps1                                     ║
 # ║  T13 DLL collection completeness                            ║
 # ║  T14 DLL field validation                                   ║
 # ║  T15 Private path detection (positive cases)                ║

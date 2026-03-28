@@ -1,4 +1,4 @@
-# Requirements: Quicker DFIR Toolkit — Production Documentation
+# Requirements: QuickAiR DFIR Toolkit — Production Documentation
 
 **Defined:** 2026-03-24
 **Core Value:** Analysts can pick up the toolkit and operate it correctly without tribal knowledge
@@ -15,8 +15,8 @@
 ### Operational Runbook
 
 - [ ] **RUN-01**: Architecture overview showing how Collector, Executor, Launcher, and Report connect end-to-end
-- [ ] **RUN-02**: Command reference with all parameters derived from actual param() blocks in Collector.ps1, Executor.ps1, QuickerLaunch.ps1
-- [ ] **RUN-03**: Prerequisites and setup documentation (WinRM configuration, credential handling, quicker:// protocol registration)
+- [ ] **RUN-02**: Command reference with all parameters derived from actual param() blocks in Collector.ps1, Executor.ps1, QuickAiRLaunch.ps1
+- [ ] **RUN-03**: Prerequisites and setup documentation (WinRM configuration, credential handling, quickair:// protocol registration)
 - [ ] **RUN-04**: Troubleshooting section with verbatim error messages from codebase and resolution steps
 
 ### Interpretation Guide

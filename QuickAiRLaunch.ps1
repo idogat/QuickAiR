@@ -1,15 +1,15 @@
 ﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  Quicker — QuickerLaunch.ps1                               ║
+# ║  QuickAiR — QuickAiRLaunch.ps1                               ║
 # ║  Persistent WinForms job manager.                          ║
-# ║  Receives job batches via quicker:// URI.                  ║
+# ║  Receives job batches via quickair:// URI.                  ║
 # ║  Single-instance via named mutex; second instance writes   ║
 # ║  a bridge file and exits immediately.                      ║
 # ╠══════════════════════════════════════════════════════════════╣
 # ║  Parameters : -URI string (required)                       ║
 # ║               -MaxConcurrent int (default 5)               ║
 # ║                                                            ║
-# ║  URI format : quicker://launch?jobs=<base64-json>          ║
+# ║  URI format : quickair://launch?jobs=<base64-json>          ║
 # ║  where base64-json decodes to a JSON array of job objects: ║
 # ║    [{ "type":"Memory", "target":"hostname",                ║
 # ║       "binary":"C:\\path\\tool.exe",                       ║
@@ -34,7 +34,7 @@ $ErrorActionPreference = 'Continue'
 $_isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $_isAdmin) {
     # Write URI to temp file to avoid command-line length/encoding issues
-    $tmpUri = Join-Path $env:TEMP "quicker_uri_$([guid]::NewGuid().ToString('N')).txt"
+    $tmpUri = Join-Path $env:TEMP "quickair_uri_$([guid]::NewGuid().ToString('N')).txt"
     [System.IO.File]::WriteAllText($tmpUri, $URI, [System.Text.Encoding]::UTF8)
     $fileUri = "file:$tmpUri"
     Start-Process powershell.exe -Verb RunAs -ArgumentList @(
@@ -59,8 +59,8 @@ Import-Module (Join-Path $_launcherDir 'PipeListener.psm1') -Force
 #endregion
 
 #region ── Constants ────────────────────────────────────────────
-$BRIDGE_DIR    = 'C:\DFIRLab\QuickerBridge'
-$MUTEX_NAME    = 'QuickerLauncherMutex'
+$BRIDGE_DIR    = 'C:\DFIRLab\QuickAiRBridge'
+$MUTEX_NAME    = 'QuickAiRLauncherMutex'
 $REFRESH_MS    = 500
 $BRIDGE_MS     = 1000
 $EXECUTOR_PS1  = Join-Path $PSScriptRoot 'Executor.ps1'
@@ -99,7 +99,7 @@ $script:ScheduleRunning = $false   # re-entry guard for Invoke-Schedule
 #endregion
 
 #region ── URI parsing ──────────────────────────────────────────
-function Parse-QuickerURI {
+function Parse-QuickAiRURI {
     param([string]$URI)
 
     # If URI was passed via temp file (from self-elevation), read the real URI
@@ -139,7 +139,7 @@ function Parse-QuickerURI {
         Write-Warning $errMsg
         [System.Windows.Forms.MessageBox]::Show(
             $errMsg,
-            'Quicker — URI Parse Error',
+            'QuickAiR — URI Parse Error',
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
         exit 1
@@ -527,7 +527,7 @@ function Invoke-Schedule {
 function Build-UI {
     # ── Form ──────────────────────────────────────────────────
     $form = [System.Windows.Forms.Form]::new()
-    $form.Text          = 'Quicker Launcher'
+    $form.Text          = 'QuickAiR Launcher'
     $form.Size          = [System.Drawing.Size]::new(900, 500)
     $form.MinimumSize   = [System.Drawing.Size]::new(700, 350)
     $form.BackColor     = $COL_BG
@@ -816,7 +816,7 @@ function Build-UI {
 #region ── Entry point ──────────────────────────────────────────
 
 # Parse URI
-$rawJobs = @(Parse-QuickerURI $URI)
+$rawJobs = @(Parse-QuickAiRURI $URI)
 
 # Single-instance check via named mutex
 $mutex    = [System.Threading.Mutex]::new($false, $MUTEX_NAME)

@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — Connection.psm1          ║
+# ║  QuickAiR — Connection.psm1          ║
 # ║  WinRM sessions, capability probe,  ║
 # ║  hostname resolution, auth utils    ║
 # ╠══════════════════════════════════════╣

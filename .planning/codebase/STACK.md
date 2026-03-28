@@ -16,7 +16,7 @@
 ## Runtime
 
 **Environment:**
-- PowerShell 5.1 (analyst machine minimum, for Collector.ps1, Executor.ps1, QuickerLaunch.ps1)
+- PowerShell 5.1 (analyst machine minimum, for Collector.ps1, Executor.ps1, QuickAiRLaunch.ps1)
 - PowerShell 2.0-5.1 (target machines, auto-detected and adapted)
 - Windows 10/11 and Windows Server 2008 R2+
 - WinRM 1.0+ for remote collection
@@ -32,7 +32,7 @@
 - Windows Management Instrumentation (WMI) - Process, network, user enumeration
 - Common Information Model (CIM) - Modern WMI replacement for PS 3.0+
 - WinRM (Windows Remote Management) - Remote PowerShell session management via PSSession
-- Windows Forms (System.Windows.Forms) - GUI for QuickerLaunch.ps1 job manager
+- Windows Forms (System.Windows.Forms) - GUI for QuickAiRLaunch.ps1 job manager
 - System.Drawing - Color and graphics for WinForms UI
 
 **Testing:**

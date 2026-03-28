@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ===========================================
-# Quicker - Get-ToolsManifest.ps1
+# QuickAiR - Get-ToolsManifest.ps1
 # Scans C:\DFIRLab\tools\ for executables,
 # categorizes each, writes tools.json
 # manifest for the HTML UI.

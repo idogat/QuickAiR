@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════╗
-# ║  Quicker — Network.psm1                ║
+# ║  QuickAiR — Network.psm1                ║
 # ║  TCP+UDP connections (3 tiers), DNS    ║
 # ║  cache (3 tiers), multi-NIC mapping    ║
 # ╠══════════════════════════════════════════╣

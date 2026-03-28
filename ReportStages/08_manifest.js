@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 08_manifest.js            ║
+// ║  QuickAiR — 08_manifest.js            ║
 // ║  Manifest panel init, placeholder    ║
 // ║  auto-display on load                ║
 // ╠══════════════════════════════════════╣

@@ -1,6 +1,6 @@
-# Quicker — Test Report
+# QuickAiR — Test Report
 
-Test results for Quicker Collector v1.5 and Test Suite v1.0.
+Test results for QuickAiR Collector v1.5 and Test Suite v1.0.
 
 ---
 

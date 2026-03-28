@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — T05_MultiNIC.ps1         ║
+# ║  QuickAiR — T05_MultiNIC.ps1         ║
 # ║  T12 multi-NIC interface assignment ║
 # ║  verification                       ║
 # ╠══════════════════════════════════════╣

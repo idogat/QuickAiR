@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 05_processes.js           ║
+// ║  QuickAiR — 05_processes.js           ║
 // ║  Processes tab render, virtual       ║
 // ║  scroll, row expand, inline network  ║
 // ║  detail, DLL count, Owner,           ║

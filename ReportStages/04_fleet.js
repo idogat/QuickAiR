@@ -1,5 +1,5 @@
 // ╔══════════════════════════════════════╗
-// ║  Quicker — 04_fleet.js               ║
+// ║  QuickAiR — 04_fleet.js               ║
 // ║  Fleet tab render, host status       ║
 // ║  table, manifest panel, selection    ║
 // ║  badges                              ║

@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  Quicker — T07_Signatures.ps1        ║
+# ║  QuickAiR — T07_Signatures.ps1        ║
 # ║  T16 SHA256 consistency,            ║
 # ║  T17 Signature fields,              ║
 # ║  T18 Process completeness 2008R2    ║

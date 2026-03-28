@@ -1,13 +1,13 @@
 # Project Research Summary
 
-**Project:** Quicker DFIR Toolkit — Production Documentation
+**Project:** QuickAiR DFIR Toolkit — Production Documentation
 **Domain:** Operational documentation for a PowerShell-based incident response collection and execution toolkit
 **Researched:** 2026-03-24
 **Confidence:** MEDIUM-HIGH (stack and architecture HIGH; DFIR community patterns MEDIUM due to unavailable external search)
 
 ## Executive Summary
 
-This is a documentation-writing project, not a software project. The Quicker toolkit already exists as a mature codebase — the work is producing three operational reference documents that allow IR analysts to use the tool effectively without tribal knowledge. Research across all four areas converges on the same recommendation: write three focused, cross-linked documents (RUNBOOK.md, COVERAGE-MATRIX.md, INTERPRET.md) that divide content by analyst question, not by component. The format is constrained: GitHub-renderable CommonMark Markdown in a `docs/` folder, air-gap compatible, no external tooling required. These constraints are project-specified and eliminate all documentation site options.
+This is a documentation-writing project, not a software project. The QuickAiR toolkit already exists as a mature codebase — the work is producing three operational reference documents that allow IR analysts to use the tool effectively without tribal knowledge. Research across all four areas converges on the same recommendation: write three focused, cross-linked documents (RUNBOOK.md, COVERAGE-MATRIX.md, INTERPRET.md) that divide content by analyst question, not by component. The format is constrained: GitHub-renderable CommonMark Markdown in a `docs/` folder, air-gap compatible, no external tooling required. These constraints are project-specified and eliminate all documentation site options.
 
 The recommended approach has a firm build order driven by data dependencies: COVERAGE-MATRIX.md first (ground-truth for what is actually collected and at what fidelity), RUNBOOK.md second (operational commands and troubleshooting), INTERPRET.md third (Report.html analysis workflows). This order exists because the runbook's troubleshooting sections reference collection fallbacks that the coverage matrix documents, and the interpretation guide's "missing data" explanations reference specific gaps that the coverage matrix establishes. The end-to-end scenario workflow is a capstone that references all three and should be written last.
 
@@ -41,8 +41,8 @@ All P1 features are table stakes — an analyst cannot operate the tool cold wit
 See full details: `.planning/research/FEATURES.md`
 
 **Must have (P1 — table stakes):**
-- Prerequisites and setup steps (WinRM, TrustedHosts, admin rights, Register-QuickerProtocol.ps1) — first-run failure without this
-- Full parameter reference for Collector.ps1, Executor.ps1, QuickerLaunch.ps1 — analysts cannot run tools without this
+- Prerequisites and setup steps (WinRM, TrustedHosts, admin rights, Register-QuickAiRProtocol.ps1) — first-run failure without this
+- Full parameter reference for Collector.ps1, Executor.ps1, QuickAiRLaunch.ps1 — analysts cannot run tools without this
 - Output file locations and naming conventions — analysts need to find results to load into Report.html
 - Artifact inventory: what is collected, at what fidelity, via which fallback path — required to interpret results meaningfully
 - Executor method chain explanation (WinRM → SMB+WMI → WMI) — analysts need to understand why their deployment fell back
@@ -94,7 +94,7 @@ See full details: `.planning/research/PITFALLS.md`
 
 3. **Interpretation guide as UI tour** — Write investigation scenarios first, then build tab descriptions to support them. The guide must include at least 3 cross-tab workflows (Process → Network → DNS pivot; unusual user session → process tree; DLL inspection path). Section headers that match tab names exactly (Processes, Network, DNS) with no workflow sections is a warning sign.
 
-4. **Executor and Launcher documented in isolation** — Open the runbook with a system architecture overview showing the full integrated workflow: collection → report viewing → job launch (quicker:// URI) → execution → result refresh. Register-QuickerProtocol.ps1 is a required prerequisite; if not documented prominently, analysts will see a silent failure when nothing launches from Report.html.
+4. **Executor and Launcher documented in isolation** — Open the runbook with a system architecture overview showing the full integrated workflow: collection → report viewing → job launch (quickair:// URI) → execution → result refresh. Register-QuickAiRProtocol.ps1 is a required prerequisite; if not documented prominently, analysts will see a silent failure when nothing launches from Report.html.
 
 5. **Troubleshooting derived from guesses, not code** — Build the troubleshooting table directly from CONCERNS.md Known Bugs and Fragile Areas + ARCHITECTURE.md Error Handling terminal states. Fewer than 8-10 distinct failure scenarios for a toolkit this complex is a warning sign. Generic "check your credentials" entries must not appear.
 
@@ -113,7 +113,7 @@ Based on the combined research, a 4-phase structure is recommended. The build or
 
 ### Phase 2: Operational Runbook
 
-**Rationale:** The runbook is the entry point for analysts new to the tool. It must exist before the interpretation guide because analysts cannot meaningfully analyze results until they can successfully collect data. This phase is the most complex — it covers three entry points (Collector, Executor, Launcher) and their integration via the quicker:// URI scheme, and must derive troubleshooting from CONCERNS.md rather than inference.
+**Rationale:** The runbook is the entry point for analysts new to the tool. It must exist before the interpretation guide because analysts cannot meaningfully analyze results until they can successfully collect data. This phase is the most complex — it covers three entry points (Collector, Executor, Launcher) and their integration via the quickair:// URI scheme, and must derive troubleshooting from CONCERNS.md rather than inference.
 **Delivers:** `docs/RUNBOOK.md` — prerequisites and setup, full parameter references for all three scripts, executor method chain, integrated workflow overview, troubleshooting tables keyed to actual terminal state names
 **Addresses (P1):** Prerequisites; parameter references; output file locations; executor method chain; troubleshooting; SHA256 integrity explanation
 **Addresses (P2):** Context-sensitive error table; decision callouts (Quick Reference boxes)
@@ -180,7 +180,7 @@ No phases require external research. All source material exists in the codebase 
 - `.planning/codebase/STRUCTURE.md` — collector plugin list, executor modules, ReportStages structure
 - `.planning/codebase/STACK.md` — PowerShell version requirements, WinForms usage, JSON output schema
 - `.planning/PROJECT.md` — scope constraints, audience requirements, format requirements (authoritative)
-- Codebase param blocks (Collector.ps1, Executor.ps1, QuickerLaunch.ps1) — parameter source of truth
+- Codebase param blocks (Collector.ps1, Executor.ps1, QuickAiRLaunch.ps1) — parameter source of truth
 
 ### Secondary (MEDIUM confidence)
 - DFIR tool documentation patterns (Velociraptor, KAPE, Eric Zimmerman's tools, IRIS-H) — training data knowledge, not verified against current publications; used to inform structural recommendations

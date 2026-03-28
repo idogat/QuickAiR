@@ -1,8 +1,8 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  Quicker — PipeListener.psm1                               ║
+# ║  QuickAiR — PipeListener.psm1                               ║
 # ║  Bridge folder file watcher for inter-process job handoff. ║
-# ║  Second QuickerLaunch.ps1 instance writes <guid>.json;     ║
+# ║  Second QuickAiRLaunch.ps1 instance writes <guid>.json;     ║
 # ║  background runspace reads and deletes them.               ║
 # ╠══════════════════════════════════════════════════════════════╣
 # ║  Exports   : Start-BridgeListener, Stop-BridgeListener,   ║
@@ -108,7 +108,7 @@ function Send-JobBatch {
     <#
     .SYNOPSIS
         Writes a job array as JSON to the bridge folder.
-        Used by a second QuickerLaunch.ps1 instance to hand off jobs
+        Used by a second QuickAiRLaunch.ps1 instance to hand off jobs
         to the already-running primary instance.
     .PARAMETER BridgeDir
         Path to the bridge folder. Created if missing.

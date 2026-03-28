@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 # =============================================
-#   Quicker -- T10_Launcher.ps1
+#   QuickAiR -- T10_Launcher.ps1
 #   T34 JobQueue.psm1 imports cleanly
 #   T35 PipeListener.psm1 imports cleanly
 #   T36 JobQueue concurrency control
@@ -43,8 +43,8 @@ $repoDir       = Split-Path -Parent $scriptDir
 $launcherDir   = Join-Path $repoDir 'Modules\Launcher'
 $jobQueueMod   = Join-Path $launcherDir 'JobQueue.psm1'
 $pipeListMod   = Join-Path $launcherDir 'PipeListener.psm1'
-$quickerLaunch = Join-Path $repoDir 'QuickerLaunch.ps1'
-$regScript     = Join-Path $repoDir 'Register-QuickerProtocol.ps1'
+$quickairLaunch = Join-Path $repoDir 'QuickAiRLaunch.ps1'
+$regScript     = Join-Path $repoDir 'Register-QuickAiRProtocol.ps1'
 
 # Helper: build a minimal valid raw job object
 function New-RawJob {
@@ -220,7 +220,7 @@ try {
 # ---------------------------------------------------------------
 try {
     Import-Module $pipeListMod -Force -ErrorAction Stop
-    $bridgeTemp = Join-Path $env:TEMP "QuickerBridgeTest_$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    $bridgeTemp = Join-Path $env:TEMP "QuickAiRBridgeTest_$([guid]::NewGuid().ToString('N').Substring(0,8))"
     New-Item -ItemType Directory -Path $bridgeTemp -Force | Out-Null
 
     $listener = Start-BridgeListener -BridgeDir $bridgeTemp -IntervalMs 300
@@ -269,7 +269,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T39/T40/T41 — Load Parse-QuickerURI from QuickerLaunch.ps1
+# T39/T40/T41 — Load Parse-QuickAiRURI from QuickAiRLaunch.ps1
 # Strategy: read bytes as UTF-8, extract lines for the function,
 # create a ScriptBlock, and dot-source it into current scope.
 # This avoids AST parse-error issues with the full file while
@@ -278,24 +278,24 @@ try {
 $parseUriLoaded = $false
 $script:funcSrc39 = ''
 try {
-    if (-not (Test-Path $quickerLaunch)) { throw "QuickerLaunch.ps1 not found: $quickerLaunch" }
+    if (-not (Test-Path $quickairLaunch)) { throw "QuickAiRLaunch.ps1 not found: $quickairLaunch" }
 
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
 
     # Read with explicit UTF-8 to preserve Unicode characters
-    $rawBytes    = [System.IO.File]::ReadAllBytes($quickerLaunch)
+    $rawBytes    = [System.IO.File]::ReadAllBytes($quickairLaunch)
     $rawContent  = [System.Text.Encoding]::UTF8.GetString($rawBytes)
     $allLines    = $rawContent -split '\r?\n'
 
-    # Locate the function: find 'function Parse-QuickerURI {' and
+    # Locate the function: find 'function Parse-QuickAiRURI {' and
     # scan forward counting braces until the function closes.
     $startIdx = -1
     for ($i = 0; $i -lt $allLines.Count; $i++) {
-        if ($allLines[$i] -match '^\s*function\s+Parse-QuickerURI\s*\{') {
+        if ($allLines[$i] -match '^\s*function\s+Parse-QuickAiRURI\s*\{') {
             $startIdx = $i; break
         }
     }
-    if ($startIdx -lt 0) { throw "function Parse-QuickerURI not found in $quickerLaunch" }
+    if ($startIdx -lt 0) { throw "function Parse-QuickAiRURI not found in $quickairLaunch" }
 
     # Walk forward counting { and } (ignoring those inside strings/comments
     # is complex; use a simple heuristic — stop when brace depth returns to 0).
@@ -315,14 +315,14 @@ try {
     $funcText  = $funcLines -join "`n"
     $script:funcSrc39 = $funcText
 
-    # Dot-source via ScriptBlock to bring Parse-QuickerURI into current scope
+    # Dot-source via ScriptBlock to bring Parse-QuickAiRURI into current scope
     $sb = [scriptblock]::Create($funcText)
     . $sb
     $parseUriLoaded = $true
 } catch {
-    Add-R "T39" $false "Could not load Parse-QuickerURI for testing" @($_.Exception.Message)
-    Add-R "T40" $false "Could not load Parse-QuickerURI for testing" @($_.Exception.Message)
-    Add-R "T41" $false "Could not load Parse-QuickerURI for testing" @($_.Exception.Message)
+    Add-R "T39" $false "Could not load Parse-QuickAiRURI for testing" @($_.Exception.Message)
+    Add-R "T40" $false "Could not load Parse-QuickAiRURI for testing" @($_.Exception.Message)
+    Add-R "T41" $false "Could not load Parse-QuickAiRURI for testing" @($_.Exception.Message)
 }
 
 if ($parseUriLoaded) {
@@ -337,9 +337,9 @@ if ($parseUriLoaded) {
         )
         $jsonBytes = [System.Text.Encoding]::UTF8.GetBytes(($jobs39 | ConvertTo-Json -Compress))
         $b64       = [System.Convert]::ToBase64String($jsonBytes)
-        $uri39     = "quicker://launch?jobs=$b64"
+        $uri39     = "quickair://launch?jobs=$b64"
 
-        $result39 = @(Parse-QuickerURI -URI $uri39)
+        $result39 = @(Parse-QuickAiRURI -URI $uri39)
         $t39d = @()
 
         if ($result39.Count -ne 2) {
@@ -364,7 +364,7 @@ if ($parseUriLoaded) {
 
     # ---------------------------------------------------------------
     # T40 — URI parsing invalid base64: catch path verified
-    # NOTE: Parse-QuickerURI calls MessageBox + exit 1 on bad base64.
+    # NOTE: Parse-QuickAiRURI calls MessageBox + exit 1 on bad base64.
     #       Running the real function in-process would kill the test runner.
     #       This test verifies the catch block exists and handles the error
     #       without propagating an unhandled exception, by inspecting the
@@ -376,10 +376,10 @@ if ($parseUriLoaded) {
 
         # Verify try/catch structure exists
         if ($funcSrc -notmatch '(?s)try\s*\{') {
-            $t40d += "Parse-QuickerURI does not contain a try block"
+            $t40d += "Parse-QuickAiRURI does not contain a try block"
         }
         if ($funcSrc -notmatch '(?s)catch\s*\{') {
-            $t40d += "Parse-QuickerURI does not contain a catch block"
+            $t40d += "Parse-QuickAiRURI does not contain a catch block"
         }
         if ($funcSrc -notmatch 'Write-Warning') {
             $t40d += "Catch block does not call Write-Warning"
@@ -416,9 +416,9 @@ if ($parseUriLoaded) {
         )
         $jsonBytes41 = [System.Text.Encoding]::UTF8.GetBytes(($jobs41 | ConvertTo-Json -Compress))
         $b64_41      = [System.Convert]::ToBase64String($jsonBytes41)
-        $uri41       = "quicker://launch?jobs=$b64_41"
+        $uri41       = "quickair://launch?jobs=$b64_41"
 
-        $result41 = @(Parse-QuickerURI -URI $uri41)
+        $result41 = @(Parse-QuickAiRURI -URI $uri41)
         $t41d = @()
 
         if ($result41.Count -ne 1) {
@@ -441,7 +441,7 @@ if ($parseUriLoaded) {
 # T42 — Protocol registration
 # ---------------------------------------------------------------
 try {
-    if (-not (Test-Path $regScript)) { throw "Register-QuickerProtocol.ps1 not found: $regScript" }
+    if (-not (Test-Path $regScript)) { throw "Register-QuickAiRProtocol.ps1 not found: $regScript" }
 
     # Check if running as admin
     $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -449,7 +449,7 @@ try {
     if (-not $isAdmin) {
         Add-R "T42" $false "T42 skipped: must run as Administrator for registry test"
     } else {
-        $ROOT    = 'HKCU:\SOFTWARE\Classes\quicker'
+        $ROOT    = 'HKCU:\SOFTWARE\Classes\quickair'
         $CMD_KEY = "$ROOT\shell\open\command"
 
         # Clean up any prior registration
@@ -459,23 +459,23 @@ try {
         & $regScript -ErrorAction Stop | Out-Null
 
         $t42d = @()
-        if (-not (Test-Path $ROOT))    { $t42d += "HKCU:\SOFTWARE\Classes\quicker not found after registration" }
+        if (-not (Test-Path $ROOT))    { $t42d += "HKCU:\SOFTWARE\Classes\quickair not found after registration" }
         if (-not (Test-Path $CMD_KEY)) { $t42d += "Shell\Open\Command key not found after registration" }
 
         if (Test-Path $CMD_KEY) {
             $storedCmd = (Get-ItemProperty -Path $CMD_KEY -Name '(Default)' -ErrorAction SilentlyContinue).'(Default)'
-            if ($storedCmd -notlike '*QuickerLaunch.ps1*') {
-                $t42d += "Handler command does not reference QuickerLaunch.ps1: $storedCmd"
+            if ($storedCmd -notlike '*QuickAiRLaunch.ps1*') {
+                $t42d += "Handler command does not reference QuickAiRLaunch.ps1: $storedCmd"
             }
         }
 
         # Unregister
         & $regScript -Unregister -ErrorAction Stop | Out-Null
 
-        if (Test-Path $ROOT) { $t42d += "HKCU:\SOFTWARE\Classes\quicker still exists after unregistration" }
+        if (Test-Path $ROOT) { $t42d += "HKCU:\SOFTWARE\Classes\quickair still exists after unregistration" }
 
         if ($t42d.Count -eq 0) {
-            Add-R "T42" $true "Protocol registration: quicker:// registered with correct handler, unregistered cleanly"
+            Add-R "T42" $true "Protocol registration: quickair:// registered with correct handler, unregistered cleanly"
         } else {
             Add-R "T42" $false "Protocol registration failures" $t42d
         }
