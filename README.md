@@ -1,6 +1,12 @@
-# QuickAiR
+<p align="center">
+  <img src="docs/quickAiR-logo.svg" alt="QuickAiR Logo" width="400">
+</p>
 
-> DFIR volatile artifact collector for Windows environments
+<h1 align="center">QuickAiR</h1>
+
+<p align="center">
+  <em>DFIR volatile artifact collector for Windows environments</em>
+</p>
 
 QuickAiR collects process list, active network connections, and DNS cache from local or remote Windows machines via WinRM. Output is a single JSON file per host, visualized in an offline single-file HTML investigation GUI.
 
