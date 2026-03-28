@@ -57,6 +57,64 @@ QuickAiR collects process list, active network connections, and DNS cache from l
 
 ---
 
+## User Guide
+
+### Step 1 — Collect artifacts
+
+Run the collector from an elevated PowerShell prompt:
+
+```powershell
+# Single host
+.\Collector.ps1 -Targets 192.168.1.10 -Credential (Get-Credential)
+
+# Multiple hosts
+.\Collector.ps1 -Targets 192.168.1.10,192.168.1.11 -Credential (Get-Credential)
+```
+
+One JSON file per host is saved to `.\DFIROutput\`.
+
+### Step 2 — Open the report
+
+Open `Report.html` in any browser. No server needed — it works completely offline.
+
+![Landing page](docs/screenshots/01-landing.png)
+
+Click **Load JSON** (or drag-and-drop files) to load your collected JSON files.
+
+### Step 3 — Fleet overview
+
+The **Fleet** tab shows all loaded hosts at a glance: OS, PowerShell version, process count, active connections, and collection errors.
+
+![Fleet tab](docs/screenshots/02-fleet.png)
+
+Click any host row to switch to that host's data. Warning banners highlight hosts with collection errors.
+
+### Step 4 — Investigate processes
+
+The **Processes** tab lists every running process with PID, parent, path, command line, DLL count, signature status, SHA256, owner, and integrity level.
+
+![Processes tab](docs/screenshots/03-processes.png)
+
+Use the search bar to filter by name, PID, path, or command line. Click a process row to see its network connections.
+
+### Step 5 — Investigate network connections
+
+The **Network** tab shows all TCP/UDP connections with process correlation, DNS matches, timestamps, and interface assignment.
+
+![Network tab](docs/screenshots/04-network.png)
+
+Filter by protocol, state, or interface. The **Remote IP Summary** at the bottom groups connections by destination.
+
+### Step 6 — Launch remote tools
+
+The **Execute** tab lets you dispatch memory and disk collection tools to hosts directly from the report.
+
+![Execute tab](docs/screenshots/05-execute.png)
+
+Select hosts, check Memory/Disk, click **Add to Queue**, then **Launch All**. Requires one-time setup with `Register-QuickAiRProtocol.ps1`.
+
+---
+
 ## Usage
 
 **Parameters:**
