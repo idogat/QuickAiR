@@ -134,7 +134,6 @@ function renderExecute() {
     var rows = hosts.map(function(h) {
       var d  = state.hosts[h];
       var m  = (d && d.manifest) || {};
-      var cs = _getCollectionStatus(h);
       var ws = _getWinRMStatus(h);
       var bs = _bulkSel[h];
       var winrmNotice = (ws.status === 'unreachable')
@@ -142,17 +141,9 @@ function renderExecute() {
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
       var execData = (state.executions || {})[h];
       var shareInfo = (execData && execData.SmbShare) ? execData.SmbShare : '';
-      // Build tooltip from errors + warnings
-      var allIssues = (cs.errors || []).concat(cs.warnings || []);
-      var tooltip = allIssues.map(function(e) {
-        var prefix = (e && e.severity === 'warning') ? '[warn] ' : '[error] ';
-        return prefix + (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : String(e));
-      }).join('\n');
-      var titleAttr = tooltip ? ' title="' + esc(tooltip) + '" style="cursor:help"' : '';
       return '<tr id="exec-row-' + esc(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
-        '<td class="' + cs.cls + '"' + titleAttr + '>' + esc(cs.label) + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td class="mono dim">' + esc(shareInfo) + '</td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
@@ -161,7 +152,7 @@ function renderExecute() {
     }).join('');
     sec1HTML = '<table class="exec-host-tbl">' +
       '<thead><tr>' +
-        '<th>Hostname</th><th>OS</th><th>Collection Status</th><th>WinRM</th><th>SMB Share</th>' +
+        '<th>Hostname</th><th>OS</th><th>WinRM</th><th>SMB Share</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
       '</tr></thead>' +
