@@ -275,7 +275,11 @@ function colCollect() {
   var uri = 'quickair-collect://collect?targets=' + encoded;
 
   console.log('[COLLECT] URI generated:', uri);
-  window.location.href = uri;
+  var ifr = document.createElement('iframe');
+  ifr.style.display = 'none';
+  ifr.src = uri;
+  document.body.appendChild(ifr);
+  setTimeout(function(){ document.body.removeChild(ifr); }, 2000);
 
   var msgEl = el('col-collect-msg');
   if (msgEl) {

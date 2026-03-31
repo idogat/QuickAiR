@@ -532,7 +532,11 @@ function _queueModalLaunch() {
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
   var uri = 'quickair://batch?jobs=' + encoded;
-  window.location.href = uri;
+  var ifr = document.createElement('iframe');
+  ifr.style.display = 'none';
+  ifr.src = uri;
+  document.body.appendChild(ifr);
+  setTimeout(function(){ document.body.removeChild(ifr); }, 2000);
   // Show success
   var body = el('qm-body');
   if (body) {
