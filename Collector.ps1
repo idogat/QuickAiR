@@ -241,7 +241,7 @@ foreach ($target in $Targets) {
         Import-Module $c.FullName -Force
         Write-Log 'INFO' "Running collector: $($c.BaseName)"
         if ($ProgressFile) {
-            try { [System.IO.File]::WriteAllText($ProgressFile, "COLLECTING:$($c.BaseName)") } catch {}
+            try { [System.IO.File]::AppendAllText($ProgressFile, "COLLECTING:$($c.BaseName)`n") } catch {}
         }
         try {
             $result = Invoke-Collector -Session $session -TargetPSVersion $caps.PSVersion -TargetCapabilities $caps
@@ -255,13 +255,13 @@ foreach ($target in $Targets) {
             }
             Write-Log 'INFO' "Collector $($c.BaseName) complete"
             if ($ProgressFile) {
-                try { [System.IO.File]::WriteAllText($ProgressFile, "DONE:$($c.BaseName)") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "DONE:$($c.BaseName)`n") } catch {}
             }
         } catch {
             $collErr += @{ artifact = $c.BaseName; message = $_.Exception.Message }
             Write-Log 'WARN' "Collector $($c.BaseName) failed: $($_.Exception.Message)"
             if ($ProgressFile) {
-                try { [System.IO.File]::WriteAllText($ProgressFile, "FAILED:$($c.BaseName):$($_.Exception.Message)") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "FAILED:$($c.BaseName):$($_.Exception.Message)`n") } catch {}
             }
         }
     }

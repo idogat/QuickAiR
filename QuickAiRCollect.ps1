@@ -419,14 +419,15 @@ function Start-HostRunspace {
                 }
             }
 
-            # Mark any remaining rows as complete
+            # Mark any remaining rows as complete and set output path on all
             foreach ($pr in $pluginRows) {
                 if (-not $pr.IsDone) {
                     $pr.Status  = 'Complete'
-                    $pr.Detail  = if ($resultJson) { $resultJson } else { 'Done - output not located' }
                     $pr.IsDone  = $true
                     $pr.EndTime = [DateTime]::UtcNow
                 }
+                if ($resultJson) { $pr.Detail = $resultJson }
+                elseif (-not $pr.Detail -or $pr.Detail -eq 'Done') { $pr.Detail = 'Done - output not located' }
             }
         }
         catch {
@@ -566,52 +567,48 @@ function Invoke-Schedule {
         $activeHosts++
     }
 
-    # Read progress files and update plugin rows from Collector.ps1 status
-    $progressCache = @{}
+    # Read progress files (append-based, multi-line) and build per-plugin state
+    $progressData = @{}  # key=hostname, value=hashtable of plugin->state
     foreach ($pr in $prSnap) {
         if ($null -ne $pr.PS_ -and $pr.PSObject.Properties['ProgressFile'] -and $pr.ProgressFile) {
             $pf = $pr.ProgressFile
-            if (-not $progressCache.ContainsKey($pf) -and (Test-Path $pf)) {
-                try { $progressCache[$pf] = [System.IO.File]::ReadAllText($pf).Trim() } catch {}
+            if (-not $progressData.ContainsKey($pr.Hostname) -and (Test-Path $pf)) {
+                $pluginState = @{}
+                try {
+                    $lines = [System.IO.File]::ReadAllLines($pf)
+                    foreach ($line in $lines) {
+                        $line = $line.Trim()
+                        if ($line -match '^COLLECTING:(.+)$')       { $pluginState[$Matches[1]] = 'Collecting' }
+                        elseif ($line -match '^DONE:(.+)$')         { $pluginState[$Matches[1]] = 'Complete' }
+                        elseif ($line -match '^FAILED:([^:]+):(.*)$') { $pluginState[$Matches[1]] = "Failed:$($Matches[2])" }
+                    }
+                } catch {}
+                $progressData[$pr.Hostname] = $pluginState
             }
         }
     }
 
     # Apply progress to plugin rows
     foreach ($pr in $prSnap) {
-        # Find progress file for this host group (stored on first row)
-        $pf = $null
-        foreach ($other in $prSnap) {
-            if ($other.Hostname -eq $pr.Hostname -and $other.PSObject.Properties['ProgressFile'] -and $other.ProgressFile) {
-                $pf = $other.ProgressFile; break
+        if ($pr.IsDone) { <# already resolved #> }
+        elseif ($progressData.ContainsKey($pr.Hostname) -and $progressData[$pr.Hostname].ContainsKey($pr.Plugin)) {
+            $st = $progressData[$pr.Hostname][$pr.Plugin]
+            if ($st -eq 'Collecting' -and $pr.Status -ne 'Collecting') {
+                $pr.Status    = 'Collecting'
+                $pr.Detail    = 'Collecting...'
+                $pr.StartTime = [DateTime]::UtcNow
             }
-        }
-        if ($pf -and $progressCache.ContainsKey($pf) -and -not $pr.IsDone) {
-            $line = $progressCache[$pf]
-            if ($line -match '^COLLECTING:(.+)$') {
-                $active = $Matches[1]
-                if ($pr.Plugin -eq $active -and $pr.Status -ne 'Collecting') {
-                    $pr.Status = 'Collecting'
-                    $pr.Detail = 'Collecting...'
-                    $pr.StartTime = [DateTime]::UtcNow
-                }
+            elseif ($st -eq 'Complete' -and -not $pr.IsDone) {
+                $pr.Status  = 'Complete'
+                $pr.Detail  = 'Done'
+                $pr.IsDone  = $true
+                $pr.EndTime = [DateTime]::UtcNow
             }
-            elseif ($line -match '^DONE:(.+)$') {
-                $donePlugin = $Matches[1]
-                if ($pr.Plugin -eq $donePlugin -and -not $pr.IsDone) {
-                    $pr.Status  = 'Complete'
-                    $pr.IsDone  = $true
-                    $pr.EndTime = [DateTime]::UtcNow
-                }
-            }
-            elseif ($line -match '^FAILED:([^:]+):(.*)$') {
-                $failPlugin = $Matches[1]
-                if ($pr.Plugin -eq $failPlugin -and -not $pr.IsDone) {
-                    $pr.Status  = 'Failed'
-                    $pr.Detail  = $Matches[2]
-                    $pr.IsDone  = $true
-                    $pr.EndTime = [DateTime]::UtcNow
-                }
+            elseif ($st -match '^Failed:(.*)$' -and -not $pr.IsDone) {
+                $pr.Status  = 'Failed'
+                $pr.Detail  = $Matches[1]
+                $pr.IsDone  = $true
+                $pr.EndTime = [DateTime]::UtcNow
             }
         }
 
