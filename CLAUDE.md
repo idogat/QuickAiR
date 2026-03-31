@@ -7,6 +7,7 @@ Entry points:
   Executor.ps1           — remote tool execution orchestrator
   QuickAiRLaunch.ps1      — WinForms job manager (single-instance)
   QuickAiRCollect.ps1     — WinForms collection trigger (quickair-collect://)
+  QuickAiRSetup.ps1      — one-time protocol registration, ships with tool
   Register-QuickAiRProtocol.ps1 — registers quickair:// and quickair-collect:// handlers
 Protocol handlers:
   quickair://            → QuickAiRLaunch.ps1  (tool execution)

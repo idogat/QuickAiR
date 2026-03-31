@@ -865,74 +865,8 @@ function isProtocolSetupDone() {
   return localStorage.getItem('quickair_setup_done') === 'true';
 }
 
-function markProtocolSetupDone() {
-  localStorage.setItem('quickair_setup_done', 'true');
-}
-
-function downloadSetupScript() {
-  var ps1 = [
-    '# QuickAiR — One-Time Setup',
-    '# Right-click this file → Run with PowerShell',
-    '# Must be in the same folder as QuickAiRLaunch.ps1 and QuickAiRCollect.ps1',
-    '',
-    'Set-StrictMode -Off',
-    '$ErrorActionPreference = "Stop"',
-    '',
-    'Add-Type -AssemblyName System.Windows.Forms',
-    '',
-    '# Verify files exist',
-    '$launch  = Join-Path $PSScriptRoot "QuickAiRLaunch.ps1"',
-    '$collect = Join-Path $PSScriptRoot "QuickAiRCollect.ps1"',
-    'if (-not (Test-Path $launch) -or -not (Test-Path $collect)) {',
-    '    [System.Windows.Forms.MessageBox]::Show(',
-    '        "QuickAiRSetup.ps1 must be in the same folder as QuickAiRLaunch.ps1 and QuickAiRCollect.ps1.`n`nPlease move it there and run again.",',
-    '        "QuickAiR Setup", "OK", "Error") | Out-Null',
-    '    exit 1',
-    '}',
-    '',
-    '# Register protocols',
-    '$entries = @(',
-    '    @{ Root = "HKCU:\\SOFTWARE\\Classes\\quickair";         Label = "URL:QuickAiR DFIR Launcher";  Script = $launch  },',
-    '    @{ Root = "HKCU:\\SOFTWARE\\Classes\\quickair-collect";  Label = "URL:QuickAiR DFIR Collector"; Script = $collect }',
-    ')',
-    'foreach ($e in $entries) {',
-    '    $cmdKey = "$($e.Root)\\shell\\open\\command"',
-    '    if (-not (Test-Path $e.Root))  { New-Item -Path $e.Root  -Force | Out-Null }',
-    '    if (-not (Test-Path $cmdKey))  { New-Item -Path $cmdKey  -Force | Out-Null }',
-    '    Set-ItemProperty  -Path $e.Root -Name "(Default)"    -Value $e.Label',
-    '    New-ItemProperty  -Path $e.Root -Name "URL Protocol" -Value "" -PropertyType String -Force | Out-Null',
-    '    $cmd = \'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "\' + $e.Script + \'" -URI "%1"\'',
-    '    Set-ItemProperty  -Path $cmdKey -Name "(Default)" -Value $cmd',
-    '}',
-    '',
-    '# Verify',
-    '$ok = (Test-Path "HKCU:\\SOFTWARE\\Classes\\quickair\\shell\\open\\command") -and',
-    '      (Test-Path "HKCU:\\SOFTWARE\\Classes\\quickair-collect\\shell\\open\\command")',
-    'if ($ok) {',
-    '    [System.Windows.Forms.MessageBox]::Show(',
-    '        "QuickAiR setup complete.`n`nYou can now collect and execute from Report.html.",',
-    '        "QuickAiR Setup", "OK", "Information") | Out-Null',
-    '    # Self-delete',
-    '    Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue',
-    '} else {',
-    '    [System.Windows.Forms.MessageBox]::Show(',
-    '        "Setup failed — registry keys not created.`nTry right-clicking and selecting Run as Administrator.",',
-    '        "QuickAiR Setup", "OK", "Error") | Out-Null',
-    '}'
-  ].join('\r\n');
-
-  var blob = new Blob([ps1], { type: 'application/octet-stream' });
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'QuickAiRSetup.ps1';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
-}
-
 function dismissSetupBanner() {
-  markProtocolSetupDone();
+  localStorage.setItem('quickair_setup_done', 'true');
   var banners = document.querySelectorAll('.setup-banner');
   banners.forEach(function(b) { b.remove(); });
 }
@@ -941,16 +875,9 @@ function renderSetupBanner(panelId) {
   if (isProtocolSetupDone()) return '';
   return '<div class="setup-banner" id="setup-banner-' + panelId + '">' +
     '<h3>One-time setup required</h3>' +
-    '<p>Download and run the setup script once to enable collection and execution from this interface.</p>' +
-    '<ol>' +
-      '<li>Click <strong>Download Setup Script</strong> below</li>' +
-      '<li>Move <code>QuickAiRSetup.ps1</code> to your QuickAiR folder (where QuickAiRLaunch.ps1 lives)</li>' +
-      '<li>Right-click <code>QuickAiRSetup.ps1</code> &rarr; <strong>Run with PowerShell</strong></li>' +
-      '<li>Click <strong>Done — try again</strong> below</li>' +
-    '</ol>' +
-    '<div style="display:flex;gap:8px;margin-top:10px">' +
-      '<button class="setup-btn-primary" onclick="downloadSetupScript()">Download Setup Script</button>' +
-      '<button class="setup-btn-secondary" onclick="dismissSetupBanner()">Done &mdash; try again</button>' +
+    '<p>Double-click <code>QuickAiRSetup.ps1</code> in the QuickAiR folder to complete setup. Run it once &mdash; works forever.</p>' +
+    '<div style="margin-top:10px">' +
+      '<button class="setup-btn-primary" onclick="dismissSetupBanner()">Done &mdash; check again</button>' +
     '</div>' +
   '</div>';
 }
