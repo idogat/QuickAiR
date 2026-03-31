@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.1                                           ║
+# ║  Version    : 1.2                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -217,13 +217,20 @@ function Add-Targets {
         foreach ($p in $plugins) {
             $script:RowCounter++
             $row = [PSCustomObject]@{
-                RowNumber = $script:RowCounter
-                TargetId  = $tid
-                Hostname  = $host_
-                Plugin    = $p
-                Status    = 'Queued'
-                Detail    = ''
-                IsFirst   = $first
+                RowNumber   = $script:RowCounter
+                TargetId    = $tid
+                Hostname    = $host_
+                Plugin      = $p
+                OutputPath  = $outPath
+                Status      = 'Queued'
+                Detail      = ''
+                StartTime   = [DateTime]::MinValue
+                EndTime     = [DateTime]::MinValue
+                IsDone      = $false
+                IsCancelled = $false
+                Credential  = $null
+                PS_         = $null
+                RunHandle_  = $null
             }
             [System.Threading.Monitor]::Enter($script:Lock)
             $script:PluginRows.Add($row)
@@ -357,77 +364,72 @@ function Resolve-Credential {
 #endregion
 
 #region ── Job execution ────────────────────────────────────────
-function Start-CollectionRunspace {
-    param([object]$target)
+function Start-PluginRunspace {
+    param([object]$pRow)
 
-    $target.Status    = 'Connecting'
-    $target.StartTime = [DateTime]::UtcNow
+    $pRow.Status    = 'Collecting'
+    $pRow.Detail    = 'Collecting...'
+    $pRow.StartTime = [DateTime]::UtcNow
 
     $collectorPath = $COLLECTOR_PS1
-    $plugins       = $target.Plugins
 
     $ps = [System.Management.Automation.PowerShell]::Create()
     $ps.AddScript({
-        param($collectorPath, $target, $plugins)
+        param($collectorPath, $pRow)
         Set-StrictMode -Off
         $ErrorActionPreference = 'Continue'
         try {
-            if ($target.IsCancelled) {
-                $target.Status = 'Cancelled'
-                $target.Detail = 'Cancelled before start'
-                $target.IsDone = $true
+            if ($pRow.IsCancelled) {
+                $pRow.Status = 'Cancelled'
+                $pRow.Detail = 'Cancelled before start'
+                $pRow.IsDone = $true
                 return
             }
 
-            $target.Status = 'Collecting'
-
             $splat = @{
-                Targets    = @($target.Hostname)
-                OutputPath = $target.OutputPath
+                Targets    = @($pRow.Hostname)
+                OutputPath = $pRow.OutputPath
+                Plugins    = @($pRow.Plugin)
                 Quiet      = $true
             }
-            if ($plugins -and $plugins.Count -gt 0) {
-                $splat['Plugins'] = $plugins
-            }
-            if ($null -ne $target.Credential -and $target.Credential -ne 'CANCELLED') {
-                $splat['Credential'] = $target.Credential
+            if ($null -ne $pRow.Credential -and $pRow.Credential -ne 'CANCELLED') {
+                $splat['Credential'] = $pRow.Credential
             }
 
             $collectStart = [DateTime]::UtcNow
             & $collectorPath @splat | Out-Null
 
-            # Find output JSON — Collector resolves hostname, so dir name may differ.
-            # Strategy: find the newest JSON written after $collectStart across all subdirs.
+            # Find output JSON
             $found = $false
-            $hostDirs = @(Get-ChildItem $target.OutputPath -Directory -ErrorAction SilentlyContinue)
+            $hostDirs = @(Get-ChildItem $pRow.OutputPath -Directory -ErrorAction SilentlyContinue)
             foreach ($d in $hostDirs) {
                 $jsonFiles = @(Get-ChildItem $d.FullName -Filter '*.json' -ErrorAction SilentlyContinue |
                                    Where-Object { $_.LastWriteTimeUtc -ge $collectStart } |
                                    Sort-Object LastWriteTimeUtc -Descending)
                 if ($jsonFiles.Count -gt 0) {
-                    $target.ResultJson = $jsonFiles[0].FullName
-                    $target.Status     = 'Complete'
+                    $pRow.Status = 'Complete'
+                    $pRow.Detail = $jsonFiles[0].FullName
                     $found = $true
                     break
                 }
             }
             if (-not $found) {
-                $target.Status = 'Complete'
-                $target.Detail = 'Collection done - output JSON not located'
+                $pRow.Status = 'Complete'
+                $pRow.Detail = 'Done - output not located'
             }
         }
         catch {
-            $target.Status = 'Failed'
-            $target.Detail = $_.Exception.Message
+            $pRow.Status = 'Failed'
+            $pRow.Detail = $_.Exception.Message
         }
         finally {
-            $target.IsDone  = $true
-            $target.EndTime = [DateTime]::UtcNow
+            $pRow.IsDone  = $true
+            $pRow.EndTime = [DateTime]::UtcNow
         }
-    }).AddArgument($collectorPath).AddArgument($target).AddArgument($plugins) | Out-Null
+    }).AddArgument($collectorPath).AddArgument($pRow) | Out-Null
 
-    $target.PS_        = $ps
-    $target.RunHandle_ = $ps.BeginInvoke()
+    $pRow.PS_        = $ps
+    $pRow.RunHandle_ = $ps.BeginInvoke()
 }
 #endregion
 
@@ -472,77 +474,6 @@ function Update-GridRow {
     }
 }
 
-function Resolve-PluginResults {
-    param([object]$target)
-    if ($target.Resolved) { return }
-    $target.Resolved = $true
-
-    $pluginStatuses = @{}
-    $pluginDetails  = @{}
-
-    if ($target.ResultJson -and (Test-Path $target.ResultJson)) {
-        try {
-            $data = Get-Content $target.ResultJson -Raw | ConvertFrom-Json
-
-            # Determine which plugins produced data
-            foreach ($p in $target.Plugins) {
-                if ($p -eq 'Network') {
-                    # Network stores under Network.tcp/dns
-                    if ($data.PSObject.Properties['Network']) {
-                        $pluginStatuses[$p] = 'Complete'
-                    }
-                } else {
-                    if ($data.PSObject.Properties[$p]) {
-                        $pluginStatuses[$p] = 'Complete'
-                    }
-                }
-            }
-
-            # Check collection errors
-            if ($data.manifest -and $data.manifest.CollectionErrors) {
-                foreach ($err in @($data.manifest.CollectionErrors)) {
-                    $art = if ($err.artifact) { [string]$err.artifact } else { '' }
-                    if ($art -and $target.Plugins -contains $art) {
-                        $pluginStatuses[$art] = 'Failed'
-                        $pluginDetails[$art]  = if ($err.message) { [string]$err.message } else { 'Collection error' }
-                    }
-                }
-            }
-        } catch { }
-    }
-
-    # Update plugin rows
-    [System.Threading.Monitor]::Enter($script:Lock)
-    $rows = @($script:PluginRows | Where-Object { $_.TargetId -eq $target.TargetId })
-    [System.Threading.Monitor]::Exit($script:Lock)
-
-    foreach ($pRow in $rows) {
-        if ($target.Status -eq 'Cancelled') {
-            $pRow.Status = 'Cancelled'
-            $pRow.Detail = 'Cancelled'
-        }
-        elseif ($target.Status -eq 'Failed' -and -not $target.ResultJson) {
-            $pRow.Status = 'Failed'
-            $pRow.Detail = $target.Detail
-        }
-        elseif ($pluginStatuses.ContainsKey($pRow.Plugin)) {
-            $pRow.Status = $pluginStatuses[$pRow.Plugin]
-            if ($pluginDetails.ContainsKey($pRow.Plugin)) {
-                $pRow.Detail = $pluginDetails[$pRow.Plugin]
-            }
-        }
-        else {
-            # Plugin not in output and not in errors — mark complete if target completed
-            if ($target.Status -eq 'Complete') { $pRow.Status = 'Complete' }
-            else { $pRow.Status = 'Failed'; $pRow.Detail = 'Not collected' }
-        }
-
-        # Show output path on every completed row
-        if ($target.ResultJson -and $pRow.Status -eq 'Complete' -and -not $pRow.Detail) {
-            $pRow.Detail = $target.ResultJson
-        }
-    }
-}
 #endregion
 
 #region ── Scheduler (UI thread, 500ms) ─────────────────────────
@@ -551,13 +482,13 @@ function Invoke-Schedule {
     $script:ScheduleRunning = $true
     try {
 
-    # Count states from plugin rows (not targets)
-    $running = 0; $queued = 0; $done = 0; $failed = 0
+    # Snapshot plugin rows
     [System.Threading.Monitor]::Enter($script:Lock)
-    $tSnap   = @($script:Targets)
-    $prSnap  = @($script:PluginRows)
+    $prSnap = @($script:PluginRows)
     [System.Threading.Monitor]::Exit($script:Lock)
 
+    # Count states from plugin rows
+    $running = 0; $queued = 0; $done = 0; $failed = 0
     foreach ($pr in $prSnap) {
         switch -Regex ($pr.Status) {
             'Complete'          { $done++    }
@@ -568,76 +499,66 @@ function Invoke-Schedule {
     }
     $script:StatusLabel.Text = "Running: $running  |  Queued: $queued  |  Done: $done  |  Failed: $failed  |  Max Concurrent:"
 
-    # Start queued targets up to MaxConcurrent
-    while ($true) {
-        # Check concurrency
-        $curRunning = 0
-        foreach ($t in $tSnap) {
-            if (-not $t.IsDone -and $t.Status -ne 'Queued') { $curRunning++ }
-        }
-        if ($curRunning -ge $script:MaxConcurrent) { break }
-
-        # Find next queued
+    # Start queued plugin rows up to MaxConcurrent
+    while ($running -lt $script:MaxConcurrent) {
+        # Find next queued plugin row
         $next = $null
-        foreach ($t in $tSnap) {
-            if (-not $t.IsDone -and $t.Status -eq 'Queued') { $next = $t; break }
+        foreach ($pr in $prSnap) {
+            if (-not $pr.IsDone -and $pr.Status -eq 'Queued') { $next = $pr; break }
         }
         if ($null -eq $next) { break }
 
-        $cred = Resolve-Credential $next
-        if ($cred -eq 'CANCELLED') {
-            $next.Status = 'Failed'
-            $next.Detail = 'Credential cancelled'
-            $next.IsDone = $true
-            $next.EndTime = [DateTime]::UtcNow
-            # Mark all plugin rows as failed
-            [System.Threading.Monitor]::Enter($script:Lock)
-            $pRows = @($script:PluginRows | Where-Object { $_.TargetId -eq $next.TargetId })
-            [System.Threading.Monitor]::Exit($script:Lock)
-            foreach ($pr in $pRows) { $pr.Status = 'Failed'; $pr.Detail = 'Credential cancelled' }
-            continue
+        # Resolve credential for this hostname (cached per host)
+        $isLocal = ($next.Hostname -eq 'localhost' -or
+                    $next.Hostname -eq '127.0.0.1' -or
+                    $next.Hostname -ieq $env:COMPUTERNAME)
+        if ($isLocal) {
+            $next.Credential = $null
+        } else {
+            $key = $next.Hostname.ToLower()
+            if ($script:CredCache.ContainsKey($key)) {
+                $next.Credential = $script:CredCache[$key]
+            } else {
+                $cred = Show-CredentialDialog $next.Hostname
+                if ($null -eq $cred) {
+                    # Cancel all plugin rows for this hostname
+                    foreach ($pr in $prSnap) {
+                        if ($pr.Hostname -eq $next.Hostname -and $pr.Status -eq 'Queued') {
+                            $pr.Status = 'Failed'; $pr.Detail = 'Credential cancelled'
+                            $pr.IsDone = $true; $pr.EndTime = [DateTime]::UtcNow
+                        }
+                    }
+                    continue
+                }
+                $script:CredCache[$key] = $cred
+                $domKey = if ($cred.UserName -match '^([^\\]+)\\') { $Matches[1].ToLower() } else { $key }
+                $script:CredCache[$domKey] = $cred
+                $next.Credential = $cred
+            }
         }
-        $next.Credential = $cred
-        Start-CollectionRunspace $next
+
+        Start-PluginRunspace $next
+        $running++
     }
 
-    # Update all plugin rows; resolve completed targets; dispose finished runspaces
-    foreach ($t in $tSnap) {
+    # Update all plugin rows in the grid
+    foreach ($pr in $prSnap) {
         # Dispose completed runspaces
-        if ($t.IsDone -and $null -ne $t.PS_) {
-            try { $t.PS_.Dispose() } catch { }
-            $t.PS_        = $null
-            $t.RunHandle_ = $null
+        if ($pr.IsDone -and $null -ne $pr.PS_) {
+            try { $pr.PS_.Dispose() } catch { }
+            $pr.PS_        = $null
+            $pr.RunHandle_ = $null
         }
 
-        # Resolve per-plugin results when target completes
-        if ($t.IsDone -and -not $t.Resolved) {
-            Resolve-PluginResults $t
-        }
-
-        # Compute elapsed time for this target
-        $elapsed = if ($t.IsDone -and $t.EndTime -ne [DateTime]::MinValue -and $t.StartTime -ne [DateTime]::MinValue) {
-            [int]($t.EndTime - $t.StartTime).TotalSeconds
-        } elseif ($t.StartTime -ne [DateTime]::MinValue) {
-            [int]([DateTime]::UtcNow - $t.StartTime).TotalSeconds
+        # Compute per-plugin elapsed time
+        $elapsed = if ($pr.IsDone -and $pr.EndTime -ne [DateTime]::MinValue -and $pr.StartTime -ne [DateTime]::MinValue) {
+            [int]($pr.EndTime - $pr.StartTime).TotalSeconds
+        } elseif ($pr.StartTime -ne [DateTime]::MinValue) {
+            [int]([DateTime]::UtcNow - $pr.StartTime).TotalSeconds
         } else { 0 }
-        $timeStr = if ($t.StartTime -ne [DateTime]::MinValue) { "${elapsed}s" } else { '' }
+        $timeStr = if ($pr.StartTime -ne [DateTime]::MinValue) { "${elapsed}s" } else { '' }
 
-        # Update plugin rows for this target
-        [System.Threading.Monitor]::Enter($script:Lock)
-        $pRows = @($script:PluginRows | Where-Object { $_.TargetId -eq $t.TargetId })
-        [System.Threading.Monitor]::Exit($script:Lock)
-
-        foreach ($pr in $pRows) {
-            # If target is running but plugins haven't been individually resolved, sync status
-            if (-not $t.IsDone -and $t.Status -ne 'Queued') {
-                if ($pr.Status -eq 'Queued') {
-                    $pr.Status = $t.Status
-                    $pr.Detail = 'Collecting...'
-                }
-            }
-            Update-GridRow $pr $timeStr $t.IsDone
-        }
+        Update-GridRow $pr $timeStr $pr.IsDone
     }
 
     } finally { $script:ScheduleRunning = $false }
@@ -781,33 +702,31 @@ function Build-UI {
     $script:BtnClose = $btnClose
 
     $btnCancelSel.Add_Click({
-        # Get unique target IDs from selected rows
-        $targetIds = @{}
-        foreach ($row in @($script:Grid.SelectedRows)) {
-            $tag = [string]$row.Tag
-            if ($tag -match '^([^|]+)\|') { $targetIds[$Matches[1]] = $true }
-        }
-        foreach ($tid in $targetIds.Keys) {
-            [System.Threading.Monitor]::Enter($script:Lock)
-            $t = @($script:Targets | Where-Object { $_.TargetId -eq $tid }) | Select-Object -First 1
-            [System.Threading.Monitor]::Exit($script:Lock)
-            if ($null -ne $t -and -not $t.IsDone) {
-                $t.IsCancelled = $true
-                if ($null -ne $t.PS_) { try { $t.PS_.Stop() } catch { } }
-                $t.Status = 'Cancelled'; $t.Detail = 'Cancelled by user'; $t.IsDone = $true; $t.EndTime = [DateTime]::UtcNow
+        # Get plugin rows from selected grid rows
+        $tags = @{}
+        foreach ($row in @($script:Grid.SelectedRows)) { $tags[[string]$row.Tag] = $true }
+        [System.Threading.Monitor]::Enter($script:Lock)
+        $snap = @($script:PluginRows)
+        [System.Threading.Monitor]::Exit($script:Lock)
+        foreach ($pr in $snap) {
+            $tag = "$($pr.TargetId)|$($pr.Plugin)"
+            if ($tags.ContainsKey($tag) -and -not $pr.IsDone) {
+                $pr.IsCancelled = $true
+                if ($null -ne $pr.PS_) { try { $pr.PS_.Stop() } catch { } }
+                $pr.Status = 'Cancelled'; $pr.Detail = 'Cancelled by user'; $pr.IsDone = $true; $pr.EndTime = [DateTime]::UtcNow
             }
         }
     })
 
     $btnCancelAll.Add_Click({
         [System.Threading.Monitor]::Enter($script:Lock)
-        $snap = @($script:Targets)
+        $snap = @($script:PluginRows)
         [System.Threading.Monitor]::Exit($script:Lock)
-        foreach ($t in $snap) {
-            if (-not $t.IsDone) {
-                $t.IsCancelled = $true
-                if ($null -ne $t.PS_) { try { $t.PS_.Stop() } catch { } }
-                $t.Status = 'Cancelled'; $t.Detail = 'Cancelled by user'; $t.IsDone = $true; $t.EndTime = [DateTime]::UtcNow
+        foreach ($pr in $snap) {
+            if (-not $pr.IsDone) {
+                $pr.IsCancelled = $true
+                if ($null -ne $pr.PS_) { try { $pr.PS_.Stop() } catch { } }
+                $pr.Status = 'Cancelled'; $pr.Detail = 'Cancelled by user'; $pr.IsDone = $true; $pr.EndTime = [DateTime]::UtcNow
             }
         }
     })
@@ -826,10 +745,10 @@ function Build-UI {
 
     $btnClose.Add_Click({
         [System.Threading.Monitor]::Enter($script:Lock)
-        $anyRunning = @($script:Targets | Where-Object { -not $_.IsDone })
+        $anyRunning = @($script:PluginRows | Where-Object { -not $_.IsDone })
         [System.Threading.Monitor]::Exit($script:Lock)
         if ($anyRunning.Count -gt 0) {
-            $script:StatusLabel.Text = "$($anyRunning.Count) target(s) still running. Cancel them first."
+            $script:StatusLabel.Text = "$($anyRunning.Count) job(s) still running. Cancel them first."
         } else {
             $form.Close()
         }
@@ -872,11 +791,11 @@ function Build-UI {
         param($frmSender, $fce)
 
         [System.Threading.Monitor]::Enter($script:Lock)
-        $anyRunning = @($script:Targets | Where-Object { -not $_.IsDone })
+        $anyRunning = @($script:PluginRows | Where-Object { -not $_.IsDone })
         [System.Threading.Monitor]::Exit($script:Lock)
         if ($anyRunning.Count -gt 0) {
             $fce.Cancel = $true
-            $script:StatusLabel.Text = "$($anyRunning.Count) target(s) still running. Cancel them first."
+            $script:StatusLabel.Text = "$($anyRunning.Count) job(s) still running. Cancel them first."
             return
         }
 
@@ -885,11 +804,11 @@ function Build-UI {
         try { if ($null -ne $script:Listener) { $script:Listener.StopFlag.Value = $true } } catch { }
 
         [System.Threading.Monitor]::Enter($script:Lock)
-        $snap = @($script:Targets)
+        $snap = @($script:PluginRows)
         [System.Threading.Monitor]::Exit($script:Lock)
-        foreach ($t in $snap) {
-            if ($null -ne $t.PS_) {
-                try { $t.PS_.Stop() } catch { }
+        foreach ($pr in $snap) {
+            if ($null -ne $pr.PS_) {
+                try { $pr.PS_.Stop() } catch { }
             }
         }
     })
@@ -944,12 +863,12 @@ try {
 finally {
     try { Stop-BridgeListener $script:Listener } catch { }
     [System.Threading.Monitor]::Enter($script:Lock)
-    $finalSnap = @($script:Targets)
+    $finalSnap = @($script:PluginRows)
     [System.Threading.Monitor]::Exit($script:Lock)
-    foreach ($t in $finalSnap) {
-        if ($null -ne $t.PS_) {
-            try { $t.PS_.Dispose() } catch { }
-            $t.PS_ = $null
+    foreach ($pr in $finalSnap) {
+        if ($null -ne $pr.PS_) {
+            try { $pr.PS_.Dispose() } catch { }
+            $pr.PS_ = $null
         }
     }
     try { $mutex.ReleaseMutex() } catch { }
