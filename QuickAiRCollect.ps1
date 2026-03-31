@@ -501,10 +501,16 @@ function Invoke-Schedule {
 
     # Start queued plugin rows up to MaxConcurrent
     while ($running -lt $script:MaxConcurrent) {
-        # Find next queued plugin row
+        # Find next queued plugin row (only one running per host at a time)
+        $busyHosts = @{}
+        foreach ($pr in $prSnap) {
+            if (-not $pr.IsDone -and $pr.Status -ne 'Queued') { $busyHosts[$pr.Hostname] = $true }
+        }
         $next = $null
         foreach ($pr in $prSnap) {
-            if (-not $pr.IsDone -and $pr.Status -eq 'Queued') { $next = $pr; break }
+            if (-not $pr.IsDone -and $pr.Status -eq 'Queued' -and -not $busyHosts.ContainsKey($pr.Hostname)) {
+                $next = $pr; break
+            }
         }
         if ($null -eq $next) { break }
 
