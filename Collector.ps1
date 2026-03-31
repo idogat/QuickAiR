@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -53,6 +53,33 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
 if (-not $isAdmin) {
     Write-Host "QuickAiR requires Administrator. Please restart as Administrator (right-click -> Run as administrator) and re-run." -ForegroundColor Red
     exit 1
+}
+#endregion
+
+#region --- Auto-register quickair:// protocols (idempotent) ---
+$_regRoot     = 'HKCU:\SOFTWARE\Classes\quickair'
+$_regRootCol  = 'HKCU:\SOFTWARE\Classes\quickair-collect'
+if (-not (Test-Path "$_regRoot\shell\open\command") -or
+    -not (Test-Path "$_regRootCol\shell\open\command")) {
+    try {
+        $launchScript  = Join-Path $PSScriptRoot 'QuickAiRLaunch.ps1'
+        $collectScript = Join-Path $PSScriptRoot 'QuickAiRCollect.ps1'
+
+        foreach ($entry in @(
+            @{ Root = $_regRoot;    Label = 'URL:QuickAiR DFIR Launcher';   Script = $launchScript  },
+            @{ Root = $_regRootCol; Label = 'URL:QuickAiR DFIR Collector';  Script = $collectScript }
+        )) {
+            $cmdKey = "$($entry.Root)\shell\open\command"
+            if (-not (Test-Path $entry.Root))  { New-Item -Path $entry.Root  -Force | Out-Null }
+            if (-not (Test-Path $cmdKey))       { New-Item -Path $cmdKey      -Force | Out-Null }
+            Set-ItemProperty  -Path $entry.Root -Name '(Default)'    -Value $entry.Label
+            New-ItemProperty  -Path $entry.Root -Name 'URL Protocol' -Value '' -PropertyType String -Force | Out-Null
+            $cmd = 'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $entry.Script + '" -URI "%1"'
+            Set-ItemProperty  -Path $cmdKey     -Name '(Default)'    -Value $cmd
+        }
+    } catch {
+        # Non-fatal — protocols may already work or analyst can register manually
+    }
 }
 #endregion
 

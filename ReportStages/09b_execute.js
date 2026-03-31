@@ -538,7 +538,7 @@ function _queueModalLaunch() {
   if (body) {
     var ok = document.createElement('div');
     ok.className = 'qm-success';
-    ok.innerHTML = '<strong>quickair:// URI sent to Windows.</strong><br>If QuickAiRLaunch.ps1 does not open: Run <code>Register-QuickAiRProtocol.ps1</code> as Administrator first.';
+    ok.innerHTML = '<strong>quickair:// URI sent to Windows.</strong><br>QuickAiRLaunch.ps1 should open shortly.';
     body.insertBefore(ok, body.firstChild);
   }
   var actions = el('qm-actions');
