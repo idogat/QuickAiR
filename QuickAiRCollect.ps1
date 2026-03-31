@@ -250,6 +250,7 @@ function Get-StatusDisplay {
     param([string]$s)
     switch ($s) {
         'Queued'     { return [char]0x231B + ' Queued'     }
+        'Waiting'    { return [char]0x231B + ' Waiting'    }
         'Connecting' { return [char]0x27F3 + ' Connecting' }
         'Collecting' { return [char]0x27F3 + ' Collecting' }
         'Complete'   { return [char]0x2713 + ' Complete'   }
@@ -263,7 +264,7 @@ function Get-StatusColor {
     param([string]$s)
     if ($s -eq 'Complete')                       { return $COL_GREEN }
     if ($s -match 'Failed|Cancelled')            { return $COL_RED   }
-    if ($s -eq 'Queued')                         { return $COL_GREY  }
+    if ($s -match 'Queued|Waiting')              { return $COL_GREY  }
     return $COL_BLUE
 }
 
@@ -367,7 +368,9 @@ function Resolve-Credential {
 function Start-HostRunspace {
     param([array]$pluginRows)
 
-    # Mark first row as Collecting; the runspace will advance the rest
+    # Mark all rows as Waiting so the scheduler never re-schedules them;
+    # the runspace will advance each to Collecting when it gets there.
+    foreach ($pr in $pluginRows) { $pr.Status = 'Waiting' }
     $pluginRows[0].Status    = 'Collecting'
     $pluginRows[0].Detail    = 'Collecting...'
     $pluginRows[0].StartTime = [DateTime]::UtcNow
@@ -505,7 +508,7 @@ function Invoke-Schedule {
         switch -Regex ($pr.Status) {
             'Complete'          { $done++    }
             'Failed|Cancelled'  { $failed++  }
-            'Queued'            { $queued++   }
+            'Queued|Waiting'    { $queued++   }
             default             { $running++  }
         }
     }
