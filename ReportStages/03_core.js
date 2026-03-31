@@ -550,6 +550,8 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   el('tab-' + tab).classList.add('active');
   el('panel-' + tab).classList.add('active');
+  var ph = el('placeholder');
+  if (ph) ph.classList.remove('show');
   renderActiveTab();
 }
 

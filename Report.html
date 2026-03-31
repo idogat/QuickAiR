@@ -55,7 +55,7 @@ input::placeholder{color:var(--muted)}
 #collectionMeta{color:var(--muted);font-size:11px;white-space:nowrap}
 
 /* TABS */
-#tabbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;gap:0}
+#tabbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;gap:0;flex-wrap:wrap}
 .tab-btn{background:var(--surface)!important;border:none!important;border-bottom:2px solid transparent!important;padding:8px 20px;color:var(--muted)!important;font-size:13px;border-radius:0;font-family:inherit}
 .tab-btn:hover{color:#e6edf3!important;background:var(--surface)!important}
 .tab-btn.active{background:var(--accent)!important;color:#fff!important;border-bottom-color:var(--accent)!important}
@@ -161,7 +161,7 @@ input::placeholder{color:var(--muted)}
 /* SINGLE-HOST NOTICE */
 .solo-notice{padding:16px;color:var(--muted);font-size:12px;text-align:center}
 /* PLACEHOLDER */
-#placeholder{display:none;position:fixed;inset:0;background:var(--bg);z-index:50;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+#placeholder{display:none;background:var(--bg);align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:120px 0}
 #placeholder.show{display:flex}
 #placeholder h2{color:var(--muted);font-size:16px}
 #placeholder p{color:var(--muted);font-size:13px}
@@ -321,7 +321,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-03-31T13:19:47.5177376Z",
+    "generated":  "2026-03-31T16:17:19.9131567Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -937,6 +937,8 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   el('tab-' + tab).classList.add('active');
   el('panel-' + tab).classList.add('active');
+  var ph = el('placeholder');
+  if (ph) ph.classList.remove('show');
   renderActiveTab();
 }
 
