@@ -72,6 +72,8 @@ function renderCollect() {
   var panel = el('panel-collect');
   if (!panel) return;
 
+  var bannerHtml = renderSetupBanner('collect');
+
   var targetRows = '';
   if (_colTargets.length === 0) {
     targetRows = '<tr><td colspan="3" class="col-empty">No targets added yet.</td></tr>';
@@ -92,7 +94,7 @@ function renderCollect() {
 
   var collectDisabled = _colTargets.length === 0 ? ' disabled' : '';
 
-  panel.innerHTML =
+  panel.innerHTML = bannerHtml +
     // ── Section 1: Add Targets ──
     '<div class="col-section">' +
       '<div class="col-section-hdr" onclick="colToggleSection(\'col-sec1-body\',\'col-sec1-arrow\')">' +

@@ -188,8 +188,9 @@ function renderExecute() {
       '</div>';
   }
 
-  panel.innerHTML =
-    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickAiRProtocol.ps1</strong> once as Administrator.</div>' +
+  var bannerHtml = renderSetupBanner('execute');
+
+  panel.innerHTML = bannerHtml +
     '<div class="exec-section">' +
       '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\')">' +
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +

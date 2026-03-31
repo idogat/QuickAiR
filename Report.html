@@ -166,6 +166,16 @@ input::placeholder{color:var(--muted)}
 #placeholder h2{color:var(--muted);font-size:16px}
 #placeholder p{color:var(--muted);font-size:13px}
 
+/* SETUP BANNER */
+.setup-banner{background:#1c1e2a;border:1px solid #f0883e;border-radius:6px;padding:16px 20px;margin-bottom:16px;color:#e6edf3}
+.setup-banner h3{margin:0 0 8px;color:#f0883e;font-size:14px}
+.setup-banner p{margin:4px 0;font-size:13px;color:var(--muted)}
+.setup-banner ol{margin:8px 0;padding-left:20px;font-size:12px;color:var(--muted)}
+.setup-banner ol li{margin:4px 0}
+.setup-banner button{padding:6px 14px;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit}
+.setup-btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)!important}
+.setup-btn-secondary{background:var(--surface);color:var(--muted)}
+
 /* SCROLLBAR */
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-track{background:var(--bg)}
@@ -1247,6 +1257,101 @@ function navigateToRow(tab, matchField, matchValue) {
 }
 
 // Execution dialog removed — functionality moved to EXECUTE tab (09b_execute.js)
+
+// ── PROTOCOL SETUP BANNER ─────────────────────────────────────────────────────
+function isProtocolSetupDone() {
+  return localStorage.getItem('quickair_setup_done') === 'true';
+}
+
+function markProtocolSetupDone() {
+  localStorage.setItem('quickair_setup_done', 'true');
+}
+
+function downloadSetupScript() {
+  var ps1 = [
+    '# QuickAiR — One-Time Setup',
+    '# Right-click this file → Run with PowerShell',
+    '# Must be in the same folder as QuickAiRLaunch.ps1 and QuickAiRCollect.ps1',
+    '',
+    'Set-StrictMode -Off',
+    '$ErrorActionPreference = "Stop"',
+    '',
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '',
+    '# Verify files exist',
+    '$launch  = Join-Path $PSScriptRoot "QuickAiRLaunch.ps1"',
+    '$collect = Join-Path $PSScriptRoot "QuickAiRCollect.ps1"',
+    'if (-not (Test-Path $launch) -or -not (Test-Path $collect)) {',
+    '    [System.Windows.Forms.MessageBox]::Show(',
+    '        "QuickAiRSetup.ps1 must be in the same folder as QuickAiRLaunch.ps1 and QuickAiRCollect.ps1.`n`nPlease move it there and run again.",',
+    '        "QuickAiR Setup", "OK", "Error") | Out-Null',
+    '    exit 1',
+    '}',
+    '',
+    '# Register protocols',
+    '$entries = @(',
+    '    @{ Root = "HKCU:\\SOFTWARE\\Classes\\quickair";         Label = "URL:QuickAiR DFIR Launcher";  Script = $launch  },',
+    '    @{ Root = "HKCU:\\SOFTWARE\\Classes\\quickair-collect";  Label = "URL:QuickAiR DFIR Collector"; Script = $collect }',
+    ')',
+    'foreach ($e in $entries) {',
+    '    $cmdKey = "$($e.Root)\\shell\\open\\command"',
+    '    if (-not (Test-Path $e.Root))  { New-Item -Path $e.Root  -Force | Out-Null }',
+    '    if (-not (Test-Path $cmdKey))  { New-Item -Path $cmdKey  -Force | Out-Null }',
+    '    Set-ItemProperty  -Path $e.Root -Name "(Default)"    -Value $e.Label',
+    '    New-ItemProperty  -Path $e.Root -Name "URL Protocol" -Value "" -PropertyType String -Force | Out-Null',
+    '    $cmd = \'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "\' + $e.Script + \'" -URI "%1"\'',
+    '    Set-ItemProperty  -Path $cmdKey -Name "(Default)" -Value $cmd',
+    '}',
+    '',
+    '# Verify',
+    '$ok = (Test-Path "HKCU:\\SOFTWARE\\Classes\\quickair\\shell\\open\\command") -and',
+    '      (Test-Path "HKCU:\\SOFTWARE\\Classes\\quickair-collect\\shell\\open\\command")',
+    'if ($ok) {',
+    '    [System.Windows.Forms.MessageBox]::Show(',
+    '        "QuickAiR setup complete.`n`nYou can now collect and execute from Report.html.",',
+    '        "QuickAiR Setup", "OK", "Information") | Out-Null',
+    '    # Self-delete',
+    '    Remove-Item -Path $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue',
+    '} else {',
+    '    [System.Windows.Forms.MessageBox]::Show(',
+    '        "Setup failed — registry keys not created.`nTry right-clicking and selecting Run as Administrator.",',
+    '        "QuickAiR Setup", "OK", "Error") | Out-Null',
+    '}'
+  ].join('\r\n');
+
+  var blob = new Blob([ps1], { type: 'application/octet-stream' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'QuickAiRSetup.ps1';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+function dismissSetupBanner() {
+  markProtocolSetupDone();
+  var banners = document.querySelectorAll('.setup-banner');
+  banners.forEach(function(b) { b.remove(); });
+}
+
+function renderSetupBanner(panelId) {
+  if (isProtocolSetupDone()) return '';
+  return '<div class="setup-banner" id="setup-banner-' + panelId + '">' +
+    '<h3>One-time setup required</h3>' +
+    '<p>Download and run the setup script once to enable collection and execution from this interface.</p>' +
+    '<ol>' +
+      '<li>Click <strong>Download Setup Script</strong> below</li>' +
+      '<li>Move <code>QuickAiRSetup.ps1</code> to your QuickAiR folder (where QuickAiRLaunch.ps1 lives)</li>' +
+      '<li>Right-click <code>QuickAiRSetup.ps1</code> &rarr; <strong>Run with PowerShell</strong></li>' +
+      '<li>Click <strong>Done — try again</strong> below</li>' +
+    '</ol>' +
+    '<div style="display:flex;gap:8px;margin-top:10px">' +
+      '<button class="setup-btn-primary" onclick="downloadSetupScript()">Download Setup Script</button>' +
+      '<button class="setup-btn-secondary" onclick="dismissSetupBanner()">Done &mdash; try again</button>' +
+    '</div>' +
+  '</div>';
+}
 
 // Placeholder will be hidden once files load; auto-trigger picker on init
 window.addEventListener('load', () => {
@@ -3178,8 +3283,9 @@ function renderExecute() {
       '</div>';
   }
 
-  panel.innerHTML =
-    '<div id="exec-setup-banner" style="display:none" class="exec-setup-banner">&#8505; To use launcher: run <strong>Register-QuickAiRProtocol.ps1</strong> once as Administrator.</div>' +
+  var bannerHtml = renderSetupBanner('execute');
+
+  panel.innerHTML = bannerHtml +
     '<div class="exec-section">' +
       '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\')">' +
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +
@@ -3644,6 +3750,8 @@ function renderCollect() {
   var panel = el('panel-collect');
   if (!panel) return;
 
+  var bannerHtml = renderSetupBanner('collect');
+
   var targetRows = '';
   if (_colTargets.length === 0) {
     targetRows = '<tr><td colspan="3" class="col-empty">No targets added yet.</td></tr>';
@@ -3664,7 +3772,7 @@ function renderCollect() {
 
   var collectDisabled = _colTargets.length === 0 ? ' disabled' : '';
 
-  panel.innerHTML =
+  panel.innerHTML = bannerHtml +
     // ── Section 1: Add Targets ──
     '<div class="col-section">' +
       '<div class="col-section-hdr" onclick="colToggleSection(\'col-sec1-body\',\'col-sec1-arrow\')">' +
