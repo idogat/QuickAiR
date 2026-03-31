@@ -1,8 +1,8 @@
 #
-# QuickAiR — QuickAiRSetup.ps1
+# QuickAiR - QuickAiRSetup.ps1
 # One-time protocol registration. Double-click to run.
 # Registers quickair:// and quickair-collect:// URI handlers.
-# Ships with the tool — no download needed. Re-runnable.
+# Ships with the tool - no download needed. Re-runnable.
 # Version : 1.0
 #
 
@@ -46,6 +46,6 @@ if ($ok) {
         'QuickAiR Setup', 'OK', 'Information') | Out-Null
 } else {
     [System.Windows.Forms.MessageBox]::Show(
-        "Setup failed — registry keys not created.`nTry right-clicking and selecting Run as Administrator.",
+        "Setup failed - registry keys not created.`nTry right-clicking and selecting Run as Administrator.",
         'QuickAiR Setup', 'OK', 'Error') | Out-Null
 }
