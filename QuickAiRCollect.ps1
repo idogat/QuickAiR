@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.4                                           ║
+# ║  Version    : 1.5                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -371,13 +371,15 @@ function Start-HostRunspace {
     # Mark all rows as Waiting; the scheduler reads the progress file to update them.
     foreach ($pr in $pluginRows) {
         $pr.Status    = 'Waiting'
+        $pr.Detail    = 'Waiting'
         $pr.StartTime = [DateTime]::UtcNow
     }
-    $pluginRows[0].Status = 'Connecting'
-    $pluginRows[0].Detail = 'Connecting...'
 
-    # Create a progress file for Collector.ps1 to write per-plugin status
+    # Create a progress file for Collector.ps1 to write per-plugin status.
+    # The scheduler reads this file — the runspace must NOT delete it.
     $progressFile = Join-Path $env:TEMP "quickair_progress_$([guid]::NewGuid().ToString('N')).txt"
+    # Write CONNECTING so the scheduler can show the state immediately
+    try { [System.IO.File]::WriteAllText($progressFile, "CONNECTING`n") } catch {}
     $pluginRows[0] | Add-Member -NotePropertyName 'ProgressFile' -NotePropertyValue $progressFile -Force
 
     $collectorPath = $COLLECTOR_PS1
@@ -388,7 +390,7 @@ function Start-HostRunspace {
 
     $ps = [System.Management.Automation.PowerShell]::Create()
     $ps.AddScript({
-        param($collectorPath, $hostname, $outputPath, $allPlugins, $credential, $progressFile, $pluginRows)
+        param($collectorPath, $hostname, $outputPath, $allPlugins, $credential, $progressFile)
         Set-StrictMode -Off
         $ErrorActionPreference = 'Continue'
         try {
@@ -406,7 +408,7 @@ function Start-HostRunspace {
             $collectStart = [DateTime]::UtcNow
             & $collectorPath @splat | Out-Null
 
-            # Find output JSON
+            # Find output JSON and write result to progress file
             $resultJson = ''
             $hostDirs = @(Get-ChildItem $outputPath -Directory -ErrorAction SilentlyContinue)
             foreach ($d in $hostDirs) {
@@ -419,31 +421,17 @@ function Start-HostRunspace {
                 }
             }
 
-            # Mark any remaining rows as complete and set output path on all
-            foreach ($pr in $pluginRows) {
-                if (-not $pr.IsDone) {
-                    $pr.Status  = 'Complete'
-                    $pr.IsDone  = $true
-                    $pr.EndTime = [DateTime]::UtcNow
-                }
-                if ($resultJson) { $pr.Detail = $resultJson }
-                elseif (-not $pr.Detail -or $pr.Detail -eq 'Done') { $pr.Detail = 'Done - output not located' }
+            # Signal completion via progress file (scheduler reads this)
+            if ($resultJson) {
+                [System.IO.File]::AppendAllText($progressFile, "RESULT:$resultJson`n")
             }
+            [System.IO.File]::AppendAllText($progressFile, "HOSTDONE`n")
         }
         catch {
-            foreach ($pr in $pluginRows) {
-                if (-not $pr.IsDone) {
-                    $pr.Status  = 'Failed'
-                    $pr.Detail  = $_.Exception.Message
-                    $pr.IsDone  = $true
-                    $pr.EndTime = [DateTime]::UtcNow
-                }
-            }
+            # Signal failure via progress file
+            try { [System.IO.File]::AppendAllText($progressFile, "HOSTFAILED:$($_.Exception.Message)`n") } catch {}
         }
-        finally {
-            Remove-Item $progressFile -Force -ErrorAction SilentlyContinue
-        }
-    }).AddArgument($collectorPath).AddArgument($hostname).AddArgument($outputPath).AddArgument($allPlugins).AddArgument($credential).AddArgument($progressFile).AddArgument($pluginRows) | Out-Null
+    }).AddArgument($collectorPath).AddArgument($hostname).AddArgument($outputPath).AddArgument($allPlugins).AddArgument($credential).AddArgument($progressFile) | Out-Null
 
     $pluginRows[0].PS_        = $ps
     $pluginRows[0].RunHandle_ = $ps.BeginInvoke()
@@ -567,23 +555,29 @@ function Invoke-Schedule {
         $activeHosts++
     }
 
-    # Read progress files (append-based, multi-line) and build per-plugin state
-    $progressData = @{}  # key=hostname, value=hashtable of plugin->state
+    # Read progress files (append-based, multi-line) and build per-host state
+    # Format: CONNECTING, COLLECTING:<plugin>, DONE:<plugin>, FAILED:<plugin>:<msg>,
+    #         RESULT:<json_path>, HOSTDONE, HOSTFAILED:<msg>
+    $progressData = @{}   # key=hostname, value=@{ Plugins=@{}; Connecting=$bool; HostDone=$bool; HostFailed=''; Result='' }
     foreach ($pr in $prSnap) {
         if ($null -ne $pr.PS_ -and $pr.PSObject.Properties['ProgressFile'] -and $pr.ProgressFile) {
             $pf = $pr.ProgressFile
             if (-not $progressData.ContainsKey($pr.Hostname) -and (Test-Path $pf)) {
-                $pluginState = @{}
+                $hostState = @{ Plugins = @{}; Connecting = $false; HostDone = $false; HostFailed = ''; Result = '' }
                 try {
                     $lines = [System.IO.File]::ReadAllLines($pf)
                     foreach ($line in $lines) {
                         $line = $line.Trim()
-                        if ($line -match '^COLLECTING:(.+)$')       { $pluginState[$Matches[1]] = 'Collecting' }
-                        elseif ($line -match '^DONE:(.+)$')         { $pluginState[$Matches[1]] = 'Complete' }
-                        elseif ($line -match '^FAILED:([^:]+):(.*)$') { $pluginState[$Matches[1]] = "Failed:$($Matches[2])" }
+                        if     ($line -eq 'CONNECTING')                  { $hostState.Connecting = $true }
+                        elseif ($line -match '^COLLECTING:(.+)$')        { $hostState.Plugins[$Matches[1]] = 'Collecting' }
+                        elseif ($line -match '^DONE:(.+)$')              { $hostState.Plugins[$Matches[1]] = 'Complete' }
+                        elseif ($line -match '^FAILED:([^:]+):(.*)$')    { $hostState.Plugins[$Matches[1]] = "Failed:$($Matches[2])" }
+                        elseif ($line -match '^RESULT:(.+)$')            { $hostState.Result     = $Matches[1] }
+                        elseif ($line -eq 'HOSTDONE')                    { $hostState.HostDone   = $true }
+                        elseif ($line -match '^HOSTFAILED:(.+)$')        { $hostState.HostFailed = $Matches[1] }
                     }
                 } catch {}
-                $progressData[$pr.Hostname] = $pluginState
+                $progressData[$pr.Hostname] = $hostState
             }
         }
     }
@@ -591,35 +585,83 @@ function Invoke-Schedule {
     # Apply progress to plugin rows
     foreach ($pr in $prSnap) {
         if ($pr.IsDone) { <# already resolved #> }
-        elseif ($progressData.ContainsKey($pr.Hostname) -and $progressData[$pr.Hostname].ContainsKey($pr.Plugin)) {
-            $st = $progressData[$pr.Hostname][$pr.Plugin]
-            if ($st -eq 'Collecting' -and $pr.Status -ne 'Collecting') {
-                $pr.Status    = 'Collecting'
-                $pr.Detail    = 'Collecting...'
-                $pr.StartTime = [DateTime]::UtcNow
+        elseif ($progressData.ContainsKey($pr.Hostname)) {
+            $hs = $progressData[$pr.Hostname]
+
+            # Per-plugin status from Collector.ps1
+            if ($hs.Plugins.ContainsKey($pr.Plugin)) {
+                $st = $hs.Plugins[$pr.Plugin]
+                if ($st -eq 'Collecting' -and $pr.Status -ne 'Collecting') {
+                    $pr.Status    = 'Collecting'
+                    $pr.Detail    = 'Collecting...'
+                    $pr.StartTime = [DateTime]::UtcNow
+                }
+                elseif ($st -eq 'Complete' -and -not $pr.IsDone) {
+                    $pr.Status  = 'Complete'
+                    $pr.Detail  = if ($hs.Result) { $hs.Result } else { 'Done' }
+                    $pr.IsDone  = $true
+                    $pr.EndTime = [DateTime]::UtcNow
+                }
+                elseif ($st -match '^Failed:(.*)$' -and -not $pr.IsDone) {
+                    $pr.Status  = 'Failed'
+                    $pr.Detail  = $Matches[1]
+                    $pr.IsDone  = $true
+                    $pr.EndTime = [DateTime]::UtcNow
+                }
             }
-            elseif ($st -eq 'Complete' -and -not $pr.IsDone) {
+            # Connecting state — show on first non-done row if no plugin has started yet
+            elseif ($hs.Connecting -and $hs.Plugins.Count -eq 0 -and $pr.Status -eq 'Waiting') {
+                $pr.Status = 'Connecting'
+                $pr.Detail = 'Connecting...'
+            }
+
+            # HOSTDONE — mark any remaining undone rows as Complete
+            if ($hs.HostDone -and -not $pr.IsDone) {
                 $pr.Status  = 'Complete'
-                $pr.Detail  = 'Done'
+                $pr.Detail  = if ($hs.Result) { $hs.Result } else { 'Done' }
                 $pr.IsDone  = $true
                 $pr.EndTime = [DateTime]::UtcNow
             }
-            elseif ($st -match '^Failed:(.*)$' -and -not $pr.IsDone) {
+            # HOSTFAILED — mark any remaining undone rows as Failed
+            elseif ($hs.HostFailed -and -not $pr.IsDone) {
                 $pr.Status  = 'Failed'
-                $pr.Detail  = $Matches[1]
+                $pr.Detail  = $hs.HostFailed
                 $pr.IsDone  = $true
                 $pr.EndTime = [DateTime]::UtcNow
             }
         }
 
-        # Dispose completed runspaces
+        # Fallback: detect runspace completion when no progress file data
+        if (-not $pr.IsDone -and $null -ne $pr.RunHandle_ -and $pr.RunHandle_.IsCompleted) {
+            # Runspace finished but status not resolved by progress file
+            $hasErrors = $false
+            $errMsg    = ''
+            try {
+                if ($pr.PS_.Streams.Error.Count -gt 0) {
+                    $hasErrors = $true
+                    $errMsg    = [string]$pr.PS_.Streams.Error[0]
+                }
+            } catch {}
+            if ($hasErrors) {
+                $pr.Status = 'Failed'; $pr.Detail = $errMsg
+            } else {
+                $pr.Status = 'Complete'; $pr.Detail = 'Done'
+            }
+            $pr.IsDone  = $true
+            $pr.EndTime = [DateTime]::UtcNow
+        }
+
+        # Dispose completed runspaces and clean up progress file
         if ($pr.IsDone -and $null -ne $pr.PS_) {
-            # Only dispose if ALL rows for this host are done
             $allDone = $true
             foreach ($other in $prSnap) {
                 if ($other.Hostname -eq $pr.Hostname -and -not $other.IsDone) { $allDone = $false; break }
             }
             if ($allDone) {
+                # Clean up progress file (scheduler owns cleanup, not the runspace)
+                if ($pr.PSObject.Properties['ProgressFile'] -and $pr.ProgressFile) {
+                    Remove-Item $pr.ProgressFile -Force -ErrorAction SilentlyContinue
+                }
                 try { $pr.PS_.Dispose() } catch { }
                 $pr.PS_        = $null
                 $pr.RunHandle_ = $null
@@ -629,10 +671,10 @@ function Invoke-Schedule {
         # Compute per-plugin elapsed time
         $elapsed = if ($pr.IsDone -and $pr.EndTime -ne [DateTime]::MinValue -and $pr.StartTime -ne [DateTime]::MinValue) {
             [int]($pr.EndTime - $pr.StartTime).TotalSeconds
-        } elseif ($pr.StartTime -ne [DateTime]::MinValue -and $pr.Status -eq 'Collecting') {
+        } elseif ($pr.StartTime -ne [DateTime]::MinValue -and $pr.Status -match 'Collecting|Connecting') {
             [int]([DateTime]::UtcNow - $pr.StartTime).TotalSeconds
         } else { 0 }
-        $timeStr = if ($pr.Status -eq 'Collecting' -or $pr.IsDone) { "${elapsed}s" } else { '' }
+        $timeStr = if ($pr.Status -match 'Collecting|Connecting' -or $pr.IsDone) { "${elapsed}s" } else { '' }
 
         Update-GridRow $pr $timeStr $pr.IsDone
     }
