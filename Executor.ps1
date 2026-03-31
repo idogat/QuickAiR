@@ -14,6 +14,7 @@
 # ║              -Method                ║
 # ║              -AliveCheck            ║
 # ║              -OutputPath            ║
+# ║              -SfxTimeoutSeconds    ║
 # ║              -Help                  ║
 # ║  Output    : <hostname>_execution_  ║
 # ║              <ts>.json              ║
@@ -21,7 +22,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.8                    ║
+# ║  Version   : 1.9                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -35,13 +36,18 @@ param(
     [Parameter(Mandatory=$false)] [int]$AliveCheck         = 10,
     [Parameter(Mandatory=$false)] [string]$RemoteShare      = "",
     [Parameter(Mandatory=$false)] [string]$OutputPath      = "",
+    [Parameter(Mandatory=$false)] [int]$SfxTimeoutSeconds  = 300,
     [Parameter(Mandatory=$false)] [switch]$Help
 )
 
-Set-StrictMode -Off
+Set-StrictMode -Version 2
+# ErrorActionPreference=Continue at module scope: prevents one failing cmdlet
+# from aborting the entire script. Individual cmdlets that MUST NOT silently
+# fail use -ErrorAction Stop explicitly. Any NEW cmdlet added MUST use
+# -ErrorAction Stop where failure matters.
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.8"
+$EXECUTOR_VERSION = "1.9"
 
 #region --- Help ---
 if ($Help) {
@@ -65,8 +71,11 @@ if ($Help) {
     Write-Host "  -Credential       PSCredential for remote auth"
     Write-Host "                    Prompted if not supplied and target is not localhost"
     Write-Host "  -Method           Auto | WinRM | SMB+WMI | WMI  (default: Auto)"
-    Write-Host "                    Auto tries WinRM first, then SMB+WMI, then FAILED"
+    Write-Host "                    Auto tries WinRM first, then SMB+WMI, then FAILED."
+    Write-Host "                    WMI is manual-select only (-Method WMI) because it"
+    Write-Host "                    has no file transfer -- binary must already exist on target."
     Write-Host "  -AliveCheck       Seconds to wait before alive check (default: 10)"
+    Write-Host "  -SfxTimeoutSeconds  Max seconds to wait for SFX extraction (default: 300)"
     Write-Host "  -RemoteShare      Known share path on target. Skips enumeration. (optional)"
     Write-Host "                    Default: auto-detect via Win32_Share enumeration"
     Write-Host "                    Example: \\192.168.1.10\DataShare"
@@ -92,7 +101,13 @@ if ($Help) {
     Write-Host "  LAUNCHED            Process started; PID captured"
     Write-Host "  LAUNCH_FAILED       Process did not start or exited before alive check"
     Write-Host "  ALIVE               Process still running after AliveCheck seconds"
+    Write-Host "  ALIVE_ASSUMED       WMI alive-check query failed; process assumed alive (inconclusive)"
     Write-Host "  SFX_LAUNCHED        SFX exited cleanly. Extraction and execution initiated on target."
+    Write-Host ""
+    Write-Host "CLEANUP NOTE" -ForegroundColor Yellow
+    Write-Host "  The transferred binary is NOT automatically deleted from the target"
+    Write-Host "  on failure. The remote path is recorded in the JSON output under"
+    Write-Host "  the 'RemoteDest' field. Cleanup is the analyst's responsibility."
     Write-Host ""
     exit 0
 }
@@ -143,7 +158,15 @@ $LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
 $LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
 
 $isLocal = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or
+            $Target -eq '::1' -or $Target -eq '[::1]' -or
             $Target -ieq $env:COMPUTERNAME)
+if (-not $isLocal) {
+    try {
+        $resolvedHost = [System.Net.Dns]::GetHostEntry($Target).HostName
+        $localFqdn    = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName
+        if ($resolvedHost -ieq $localFqdn) { $isLocal = $true }
+    } catch { }
+}
 
 if (-not $isLocal -and -not $Credential) {
     Write-Host "Enter credentials for $Target" -ForegroundColor Cyan
@@ -160,6 +183,9 @@ if (-not $RemoteDestPath) {
 #endregion
 
 #region --- Resolve hostname for output filename ---
+# NOTE: DNS-based hostname resolution. The resolved name may be stale if
+# DNS records are outdated or poisoned. Used only for the output filename,
+# not for authentication or routing decisions.
 $outHost = $Target
 try {
     if ($Target -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
@@ -192,6 +218,7 @@ $execParams = @{
     RemoteDestPath     = $RemoteDestPath
     Arguments          = $Arguments
     AliveCheckSeconds  = $AliveCheck
+    SfxTimeoutSeconds  = $SfxTimeoutSeconds
 }
 
 # RemoteShare only applies to SMBWMI module
@@ -278,6 +305,11 @@ if ($result.FinalState -eq 'ALIVE') {
     Write-Host "  [v] ALIVE -- tool running as PID $($result.PID)" -ForegroundColor Green
     Write-Host "  Executor.ps1 complete." -ForegroundColor Green
     Write-Host "  Tool continues running independently." -ForegroundColor Green
+} elseif ($result.FinalState -eq 'ALIVE_ASSUMED') {
+    Write-Host ""
+    Write-Host "  [~] ALIVE_ASSUMED -- tool likely running as PID $($result.PID)" -ForegroundColor Yellow
+    Write-Host "  WMI alive-check failed; process was launched but could not be verified." -ForegroundColor Yellow
+    Write-Host "  Check target manually." -ForegroundColor Yellow
 } elseif ($result.FinalState -eq 'LAUNCH_FAILED') {
     $lastDetail = if ($result.States -and $result.States.Count -gt 0) {
         $result.States[-1].Detail

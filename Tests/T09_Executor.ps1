@@ -15,6 +15,7 @@
 #   T35 SMB unreachable returns CONNECTION_FAILED
 #   T36 SMBWMI localhost notepad.exe smoke test
 #   T37 Auto both methods fail: combined error detail
+#   T38 WMI-only localhost smoke test
 # =============================================
 #   Inputs    : -JsonPath -HtmlPath (unused, for suite compat)
 #   Output    : @{ Passed=@();
@@ -163,9 +164,9 @@ try {
         if ($null -eq $val) { $t28Details += "Missing field: $f" }
     }
 
-    # StartTimeUTC ends in Z
-    if ($r28.StartTimeUTC -and $r28.StartTimeUTC -notmatch 'Z$') {
-        $t28Details += "StartTimeUTC does not end in Z: $($r28.StartTimeUTC)"
+    # StartTimeUTC ends in Z or +00:00 (both valid ISO 8601 UTC)
+    if ($r28.StartTimeUTC -and $r28.StartTimeUTC -notmatch '(Z|\+00:00)$') {
+        $t28Details += "StartTimeUTC not UTC (expected Z or +00:00 suffix): $($r28.StartTimeUTC)"
     }
 
     # States non-empty
@@ -320,7 +321,10 @@ try {
         Add-R "T32" $false "SFX exit code 0 flow failed" $t32Details
     }
 
-    # Cleanup temp file if it exists
+    # Cleanup: kill any launched process AND remove temp file
+    if ($r32.PID) {
+        try { Stop-Process -Id $r32.PID -Force -ErrorAction SilentlyContinue } catch { }
+    }
     if ($r32.RemoteDest -and (Test-Path -LiteralPath $r32.RemoteDest)) {
         Remove-Item -LiteralPath $r32.RemoteDest -Force -ErrorAction SilentlyContinue
     }
@@ -359,7 +363,10 @@ try {
         Add-R "T33" $false "SFX exit code non-zero flow failed" $t33Details
     }
 
-    # Cleanup temp file if it exists
+    # Cleanup: kill any launched process AND remove temp file
+    if ($r33.PID) {
+        try { Stop-Process -Id $r33.PID -Force -ErrorAction SilentlyContinue } catch { }
+    }
     if ($r33.RemoteDest -and (Test-Path -LiteralPath $r33.RemoteDest)) {
         Remove-Item -LiteralPath $r33.RemoteDest -Force -ErrorAction SilentlyContinue
     }
@@ -485,50 +492,105 @@ try {
 #        Verify FinalState=CONNECTION_FAILED and Error contains
 #        both "WinRM" and "SMB+WMI" error messages.
 # ---------------------------------------------------------------
+$t37OutDir = $null
 try {
-    # Simulate the Auto aggregation logic from Executor.ps1
-    Import-Module $winrmMod -Force -ErrorAction Stop
-    $r37w = Invoke-Executor `
-        -ComputerName "192.0.2.1" `
-        -LocalBinaryPath "C:\Windows\System32\notepad.exe" `
-        -RemoteDestPath "C:\Windows\Temp\notepad.exe" `
-        -AliveCheckSeconds 1
+    # Invoke the actual Executor.ps1 with -Method Auto against unreachable IP.
+    # Pass dummy credential to avoid interactive prompt.
+    $executorPs1 = Join-Path $repoDir "Executor.ps1"
+    $t37OutDir   = Join-Path $env:TEMP "quickair_t37_$(Get-Random)"
+    $t37Cred     = New-Object System.Management.Automation.PSCredential(
+        "test", (ConvertTo-SecureString "test" -AsPlainText -Force))
 
-    Import-Module $smbwmiMod -Force -ErrorAction Stop
-    $r37s = Invoke-Executor `
-        -ComputerName "192.0.2.1" `
+    $t37Start = Get-Date
+    & $executorPs1 -Target "192.0.2.1" `
         -LocalBinaryPath "C:\Windows\System32\notepad.exe" `
         -RemoteDestPath "C:\Windows\Temp\notepad.exe" `
-        -AliveCheckSeconds 1
+        -Method "Auto" `
+        -AliveCheck 1 `
+        -Credential $t37Cred `
+        -OutputPath $t37OutDir 2>&1 | Out-Null
+    $t37Elapsed = [int]((Get-Date) - $t37Start).TotalSeconds
 
     $t37Details = @()
 
-    if ($r37w.FinalState -ne "CONNECTION_FAILED") {
-        $t37Details += "WinRM expected CONNECTION_FAILED, got $($r37w.FinalState)"
-    }
-    if ($r37s.FinalState -ne "CONNECTION_FAILED") {
-        $t37Details += "SMBWMI expected CONNECTION_FAILED, got $($r37s.FinalState)"
-    }
-
-    # Build combined error like Executor.ps1 Auto mode does
-    $combined = "All methods failed -- WinRM: $($r37w.Error) | SMB+WMI: $($r37s.Error)"
-    if ($combined -notmatch 'WinRM:') {
-        $t37Details += "Combined error missing WinRM detail"
-    }
-    if ($combined -notmatch 'SMB\+WMI:') {
-        $t37Details += "Combined error missing SMB+WMI detail"
-    }
-    if (-not $r37w.Error -or -not $r37s.Error) {
-        $t37Details += "One or both Error fields are empty (WinRM=$($r37w.Error) SMBWMI=$($r37s.Error))"
+    $t37Json = Get-ChildItem $t37OutDir -Filter "*.json" -ErrorAction SilentlyContinue |
+               Select-Object -First 1
+    if (-not $t37Json) {
+        $t37Details += "No JSON output file found in $t37OutDir"
+    } else {
+        $t37Data = Get-Content $t37Json.FullName -Raw | ConvertFrom-Json
+        if ($t37Data.FinalState -ne "CONNECTION_FAILED") {
+            $t37Details += "Expected FinalState=CONNECTION_FAILED, got $($t37Data.FinalState)"
+        }
+        if ($t37Data.Error -notmatch 'WinRM') {
+            $t37Details += "Error should mention WinRM: $($t37Data.Error)"
+        }
+        if ($t37Data.Error -notmatch 'SMB\+WMI') {
+            $t37Details += "Error should mention SMB+WMI: $($t37Data.Error)"
+        }
     }
 
     if ($t37Details.Count -eq 0) {
-        Add-R "T37" $true "Auto both-fail: combined error contains both method details"
+        Add-R "T37" $true "Auto both-fail via Executor.ps1: combined error in JSON (${t37Elapsed}s)"
     } else {
         Add-R "T37" $false "Auto both-fail test failed" $t37Details
     }
 } catch {
     Add-R "T37" $false "T37 threw exception" @($_.Exception.Message)
+} finally {
+    if ($t37OutDir -and (Test-Path $t37OutDir)) {
+        Remove-Item $t37OutDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------------
+# T38 — WMI-only localhost smoke test
+#        Launch cmd.exe /c ping via WMI on localhost.
+#        Binary already exists (WMI skips transfer).
+#        Verify: Method=WMI, TRANSFERRED state says "Skipped",
+#        reaches ALIVE or ALIVE_ASSUMED state.
+# ---------------------------------------------------------------
+$t38PID = $null
+try {
+    Import-Module $wmiMod -Force -ErrorAction Stop
+
+    $r38 = Invoke-Executor `
+        -ComputerName "localhost" `
+        -LocalBinaryPath "C:\Windows\System32\cmd.exe" `
+        -RemoteDestPath "C:\Windows\System32\cmd.exe" `
+        -Arguments "/c ping 127.0.0.1 -n 60" `
+        -AliveCheckSeconds 3
+
+    $t38Details = @()
+
+    if ($r38.Method -ne "WMI") {
+        $t38Details += "Expected Method=WMI, got $($r38.Method)"
+    }
+
+    $hasSkipped = @($r38.States | Where-Object {
+        $_.State -eq "TRANSFERRED" -and $_.Detail -match 'Skipped'
+    })
+    if ($hasSkipped.Count -eq 0) {
+        $t38Details += "Missing TRANSFERRED/Skipped state"
+    }
+
+    if ($r38.FinalState -ne "ALIVE" -and $r38.FinalState -ne "ALIVE_ASSUMED") {
+        $t38Details += "Expected FinalState ALIVE or ALIVE_ASSUMED, got $($r38.FinalState). Error=$($r38.Error)"
+    }
+
+    $t38PID = $r38.PID
+
+    if ($t38Details.Count -eq 0) {
+        Add-R "T38" $true "WMI localhost smoke test passed (FinalState=$($r38.FinalState) PID=$t38PID)"
+    } else {
+        Add-R "T38" $false "WMI localhost smoke test failed ($($t38Details.Count) issues)" $t38Details
+    }
+} catch {
+    Add-R "T38" $false "T38 threw exception" @($_.Exception.Message)
+} finally {
+    if ($t38PID) {
+        try { Stop-Process -Id $t38PID -Force -ErrorAction SilentlyContinue } catch { }
+    }
 }
 
 return @{

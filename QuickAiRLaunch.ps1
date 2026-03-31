@@ -227,6 +227,7 @@ function Get-StatusDisplay {
         'TRANSFERRED'       { '⟳ Transferring'  }
         'LAUNCHED'          { '⟳ Launching'     }
         'ALIVE'             { '✓ ALIVE'          }
+        'ALIVE_ASSUMED'     { '~ ASSUMED'        }
         'SFX_LAUNCHED'      { '✓ SFX_LAUNCHED'   }
         'CONNECTION_FAILED' { '✗ FAILED'         }
         'TRANSFER_FAILED'   { '✗ FAILED'         }
@@ -241,7 +242,7 @@ function Get-StatusDisplay {
 
 function Get-StatusColor {
     param([string]$s)
-    if ($s -in 'ALIVE','SFX_LAUNCHED')                                     { return $COL_GREEN }
+    if ($s -in 'ALIVE','ALIVE_ASSUMED','SFX_LAUNCHED')                      { return $COL_GREEN }
     if ($s -match 'FAILED|CANCELLED|TIMEOUT|VALIDATION_FAILED')            { return $COL_RED   }
     if ($s -eq 'Queued')                                                   { return $COL_GREY  }
     return $COL_BLUE
@@ -709,7 +710,7 @@ function Build-UI {
             $j   = @($script:Queue.Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
             if ($null -eq $j -or -not $j.IsDone) { continue }
             # Skip successful jobs — only retry failures
-            if ($j.Status -eq 'ALIVE' -or $j.Status -eq 'SFX_LAUNCHED') { continue }
+            if ($j.Status -in 'ALIVE','ALIVE_ASSUMED','SFX_LAUNCHED') { continue }
 
             # Clear cached credential so user gets a fresh prompt
             $targetKey = $j.Target.ToLower()

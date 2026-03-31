@@ -12,13 +12,18 @@
 # ║              RemoteDestPath         ║
 # ║              Arguments              ║
 # ║              AliveCheckSeconds      ║
+# ║              SfxTimeoutSeconds      ║
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.3                    ║
+# ║  Version   : 1.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
+# ErrorActionPreference=Continue at module scope: prevents one failing cmdlet
+# from aborting the entire module load or function. Individual cmdlets that
+# MUST NOT silently fail use -ErrorAction Stop explicitly. Any NEW cmdlet
+# added to this module MUST use -ErrorAction Stop where failure matters.
 $ErrorActionPreference = 'Continue'
 
 # Load Output.psm1 for Get-BinaryType / Write-Log
@@ -50,7 +55,8 @@ function Invoke-Executor {
         [Parameter(Mandatory=$false)] [string]$Arguments = "",
         [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10,
         [Parameter(Mandatory=$false)] [string]$SmbShare = "",
-        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null
+        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null,
+        [Parameter(Mandatory=$false)] [int]$SfxTimeoutSeconds = 300
     )
 
     $startTime = [System.DateTime]::UtcNow
@@ -167,69 +173,22 @@ function Invoke-Executor {
                 $shareRoot = "\\$ComputerName\" + $shareResult.Name
                 $uncPath   = "\\$ComputerName\" + $shareResult.Name + "\" + $pathRemainder
             } else {
-                # No matching share -- prompt analyst for manual share input
-                Write-Host ""
-                Write-Host "[!] No admin share found for drive $($driveLetter): on $ComputerName" -ForegroundColor Yellow
+                # No matching admin share found and -SmbShare not provided.
+                # Per autonomy rule: never prompt the user. Return CONNECTION_FAILED.
+                # Analyst can retry with -SmbShare to specify a share manually.
+                $detail = "No admin share found for drive $($driveLetter): on $ComputerName"
                 if ($shareResult.AllShares -and $shareResult.AllShares.Count -gt 0) {
                     $nameList = $shareResult.AllShares -join ', '
-                    Write-Host "    Available admin shares: $nameList" -ForegroundColor Yellow
+                    $detail += ". Available shares: $nameList"
                 }
                 if ($shareResult.Error) {
-                    Write-Host "    Enumeration error: $($shareResult.Error)" -ForegroundColor Yellow
+                    $detail += ". Enumeration error: $($shareResult.Error)"
                 }
-                Write-Host "    Enter a share path (e.g. \\$ComputerName\ShareName) or press Enter to skip:" -ForegroundColor Yellow
-
-                # 60-second timeout Read-Host via async runspace
-                $analystInput = ''
-                try {
-                    $rs = [PowerShell]::Create().AddScript('Read-Host "Share path"')
-                    $handle = $rs.BeginInvoke()
-                    if ($handle.AsyncWaitHandle.WaitOne(60000)) {
-                        $analystInput = ($rs.EndInvoke($handle) | Select-Object -First 1)
-                    } else {
-                        Write-Host "    Timeout -- no input received after 60s." -ForegroundColor Yellow
-                    }
-                    $rs.Dispose()
-                } catch {
-                    Write-Host "    Input error: $($_.Exception.Message)" -ForegroundColor Yellow
-                }
-
-                if ($analystInput -and $analystInput.Trim()) {
-                    $analystInput = $analystInput.Trim()
-                    # Normalize: if not UNC, prepend \\ComputerName\
-                    if ($analystInput -notmatch '^\\\\') {
-                        $analystInput = "\\$ComputerName\" + $analystInput
-                    }
-                    $shareRoot = $analystInput.TrimEnd('\')
-                    $uncPath   = $shareRoot + "\" + $pathRemainder
-
-                    # Test accessibility
-                    try {
-                        $testDrive = "QuickAiRTest_$(Get-Random)"
-                        $tdParams = @{
-                            Name        = $testDrive
-                            PSProvider  = 'FileSystem'
-                            Root        = $shareRoot
-                            ErrorAction = 'Stop'
-                        }
-                        if ($Credential) { $tdParams['Credential'] = $Credential }
-                        New-PSDrive @tdParams | Out-Null
-                        $accessible = Test-Path "${testDrive}:\"
-                        Remove-PSDrive -Name $testDrive -Force -ErrorAction SilentlyContinue
-                        if (-not $accessible) { throw "Share not accessible" }
-                    } catch {
-                        Add-State "TRANSFER_FAILED" "Provided share not accessible: $shareRoot ($($_.Exception.Message))"
-                        $result.Error = "Provided share not accessible: $shareRoot"
-                        $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
-                        return [PSCustomObject]$result
-                    }
-                } else {
-                    # Analyst skipped or timeout
-                    Add-State "CONNECTION_FAILED" "No accessible share found. Skipping SMB+WMI method."
-                    $result.Error = "No accessible share found. Skipping SMB+WMI method."
-                    $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
-                    return [PSCustomObject]$result
-                }
+                $detail += ". Retry with -SmbShare to specify a share manually."
+                Add-State "CONNECTION_FAILED" $detail
+                $result.Error = $detail
+                $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                return [PSCustomObject]$result
             }
         }
         $result.SmbShare = $shareRoot
@@ -355,8 +314,15 @@ function Invoke-Executor {
 
             $sfxExited   = $false
             $wmiErrors   = 0
+            $sfxTimer    = [System.Diagnostics.Stopwatch]::StartNew()
             while (-not $sfxExited) {
                 Start-Sleep -Seconds 2
+                if ($sfxTimer.Elapsed.TotalSeconds -ge $SfxTimeoutSeconds) {
+                    Add-State "LAUNCH_FAILED" "SFX timed out after ${SfxTimeoutSeconds}s"
+                    $result.Error = "SFX timed out after ${SfxTimeoutSeconds}s"
+                    $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                    return [PSCustomObject]$result
+                }
                 $checkParams = @{
                     Class        = 'Win32_Process'
                     ComputerName = $ComputerName
@@ -399,12 +365,16 @@ function Invoke-Executor {
                 $proc = Get-WmiObject @aliveParams
                 $aliveResult = if ($null -ne $proc) { 'ALIVE' } else { 'EXITED' }
             } catch {
-                $aliveResult = 'ALIVE'
-                Add-State "ALIVE" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"
+                # WMI query failed — cannot confirm process is running.
+                # Report ALIVE_ASSUMED so consumers know the check was inconclusive.
+                $aliveResult = 'ALIVE_ASSUMED'
+                Add-State "ALIVE_ASSUMED" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"
+                $result.Error = "WMI alive-check failed: $($_.Exception.Message)"
             }
 
-            if ($aliveResult -eq 'ALIVE') {
-                if ($result.States[$result.States.Count - 1].State -ne 'ALIVE') {
+            if ($aliveResult -eq 'ALIVE' -or $aliveResult -eq 'ALIVE_ASSUMED') {
+                if ($result.States[$result.States.Count - 1].State -ne 'ALIVE' -and
+                    $result.States[$result.States.Count - 1].State -ne 'ALIVE_ASSUMED') {
                     Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
                 }
             } else {

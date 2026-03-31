@@ -12,13 +12,18 @@
 # ║              RemoteDestPath         ║
 # ║              Arguments              ║
 # ║              AliveCheckSeconds      ║
+# ║              SfxTimeoutSeconds      ║
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.1                    ║
+# ║  Version   : 1.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
+# ErrorActionPreference=Continue at module scope: prevents one failing cmdlet
+# from aborting the entire module load or function. Individual cmdlets that
+# MUST NOT silently fail use -ErrorAction Stop explicitly. Any NEW cmdlet
+# added to this module MUST use -ErrorAction Stop where failure matters.
 $ErrorActionPreference = 'Continue'
 
 # Load Output.psm1 for Get-BinaryType / Write-Log
@@ -49,7 +54,8 @@ function Invoke-Executor {
         [Parameter(Mandatory=$true)]  [string]$RemoteDestPath,
         [Parameter(Mandatory=$false)] [string]$Arguments = "",
         [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10,
-        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null
+        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null,
+        [Parameter(Mandatory=$false)] [int]$SfxTimeoutSeconds = 300
     )
 
     $startTime = [System.DateTime]::UtcNow
@@ -165,8 +171,15 @@ function Invoke-Executor {
 
             $sfxExited   = $false
             $wmiErrors   = 0
+            $sfxTimer    = [System.Diagnostics.Stopwatch]::StartNew()
             while (-not $sfxExited) {
                 Start-Sleep -Seconds 2
+                if ($sfxTimer.Elapsed.TotalSeconds -ge $SfxTimeoutSeconds) {
+                    Add-State "LAUNCH_FAILED" "SFX timed out after ${SfxTimeoutSeconds}s"
+                    $result.Error = "SFX timed out after ${SfxTimeoutSeconds}s"
+                    $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
+                    return [PSCustomObject]$result
+                }
                 $checkParams = @{
                     Class        = 'Win32_Process'
                     ComputerName = $ComputerName
@@ -210,14 +223,16 @@ function Invoke-Executor {
                 $proc = Get-WmiObject @aliveParams
                 $aliveResult = if ($null -ne $proc) { 'ALIVE' } else { 'EXITED' }
             } catch {
-                # WMI query failed (e.g. Access Denied) — process was already
-                # launched successfully, so assume alive rather than marking failed.
-                $aliveResult = 'ALIVE'
-                Add-State "ALIVE" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"
+                # WMI query failed — cannot confirm process is running.
+                # Report ALIVE_ASSUMED so consumers know the check was inconclusive.
+                $aliveResult = 'ALIVE_ASSUMED'
+                Add-State "ALIVE_ASSUMED" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"
+                $result.Error = "WMI alive-check failed: $($_.Exception.Message)"
             }
 
-            if ($aliveResult -eq 'ALIVE') {
-                if ($result.States[$result.States.Count - 1].State -ne 'ALIVE') {
+            if ($aliveResult -eq 'ALIVE' -or $aliveResult -eq 'ALIVE_ASSUMED') {
+                if ($result.States[$result.States.Count - 1].State -ne 'ALIVE' -and
+                    $result.States[$result.States.Count - 1].State -ne 'ALIVE_ASSUMED') {
                     Add-State "ALIVE" "PID=$launchPID still running after ${AliveCheckSeconds}s"
                 }
             } else {

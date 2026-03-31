@@ -11,13 +11,18 @@
 # ║              RemoteDestPath         ║
 # ║              Arguments              ║
 # ║              AliveCheckSeconds      ║
+# ║              SfxTimeoutSeconds      ║
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
-Set-StrictMode -Off
+Set-StrictMode -Version 2
+# ErrorActionPreference=Continue at module scope: prevents one failing cmdlet
+# from aborting the entire module load or function. Individual cmdlets that
+# MUST NOT silently fail use -ErrorAction Stop explicitly. Any NEW cmdlet
+# added to this module MUST use -ErrorAction Stop where failure matters.
 $ErrorActionPreference = 'Continue'
 
 # Load Output.psm1 for Get-BinaryType / Write-Log
@@ -38,7 +43,8 @@ function Invoke-Executor {
         [Parameter(Mandatory=$true)]  [string]$RemoteDestPath,
         [Parameter(Mandatory=$false)] [string]$Arguments = "",
         [Parameter(Mandatory=$false)] [int]$AliveCheckSeconds = 10,
-        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null
+        [Parameter(Mandatory=$false)] $BinaryTypeOverride = $null,
+        [Parameter(Mandatory=$false)] [int]$SfxTimeoutSeconds = 300
     )
 
     $startTime = [System.DateTime]::UtcNow
@@ -69,8 +75,18 @@ function Invoke-Executor {
     }
 
     $session = $null
+    $originalTrustedHosts = $null
+    $trustedHostsModified = $false
     $isLocal = ($ComputerName -eq 'localhost' -or $ComputerName -eq '127.0.0.1' -or
+                $ComputerName -eq '::1' -or $ComputerName -eq '[::1]' -or
                 $ComputerName -ieq $env:COMPUTERNAME)
+    if (-not $isLocal) {
+        try {
+            $resolvedHost = [System.Net.Dns]::GetHostEntry($ComputerName).HostName
+            $localFqdn    = [System.Net.Dns]::GetHostEntry($env:COMPUTERNAME).HostName
+            if ($resolvedHost -ieq $localFqdn) { $isLocal = $true }
+        } catch { }
+    }
 
     # Helper: run a scriptblock either via session (remote) or locally
     function Invoke-OnTarget {
@@ -114,11 +130,14 @@ function Invoke-Executor {
                 if ($Credential) { $sessParams['Credential'] = $Credential }
 
                 # Ensure target is in TrustedHosts for non-domain / HTTP WinRM
+                # Save original so we can restore in finally block (B1 fix)
                 try {
                     $cur = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
                     if ($cur -ne '*' -and $cur -notmatch [regex]::Escape($ComputerName)) {
+                        $originalTrustedHosts = $cur
                         $newList = if ($cur) { "$cur,$ComputerName" } else { $ComputerName }
                         Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
+                        $trustedHostsModified = $true
                     }
                 } catch { }
 
@@ -176,6 +195,9 @@ function Invoke-Executor {
         } else {
             # Remote: chunked base64 transfer (PS 2.0 compat, avoids WinRM envelope size limit)
             try {
+                # NOTE: ReadAllBytes loads the entire binary into analyst-machine memory.
+                # Acceptable for typical DFIR tools (<100 MB). For larger files,
+                # consider streaming with FileStream + fixed-size buffer.
                 $fileBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
                 $dest      = $RemoteDestPath
                 # 96 KB binary chunks → ~128 KB base64, well under WinRM 2.0 500 KB envelope limit
@@ -296,8 +318,9 @@ function Invoke-Executor {
             Add-State "LAUNCHED" "SFX type=$sfxType detected; using exit code check"
 
             try {
+                $sfxTimeoutMs = $SfxTimeoutSeconds * 1000
                 $sfxResult = Invoke-OnTarget -ScriptBlock {
-                    param($exePath, $exeArgs)
+                    param($exePath, $exeArgs, $timeoutMs)
                     $psi = New-Object System.Diagnostics.ProcessStartInfo
                     $psi.FileName               = $exePath
                     $psi.Arguments              = $exeArgs
@@ -307,9 +330,13 @@ function Invoke-Executor {
                     $proc = [System.Diagnostics.Process]::Start($psi)
                     if (-not $proc) { throw "Process.Start returned null" }
                     $pid_ = $proc.Id
-                    $proc.WaitForExit()
-                    return [PSCustomObject]@{ ExitCode=$proc.ExitCode; PID=$pid_ }
-                } -ArgumentList @($RemoteDestPath, $Arguments)
+                    $exited = $proc.WaitForExit($timeoutMs)
+                    if (-not $exited) {
+                        try { $proc.Kill() } catch { }
+                        return [PSCustomObject]@{ ExitCode=-1; PID=$pid_; TimedOut=$true }
+                    }
+                    return [PSCustomObject]@{ ExitCode=$proc.ExitCode; PID=$pid_; TimedOut=$false }
+                } -ArgumentList @($RemoteDestPath, $Arguments, $sfxTimeoutMs)
             } catch {
                 Add-State "LAUNCH_FAILED" $_.Exception.Message
                 $result.Error = $_.Exception.Message
@@ -317,6 +344,12 @@ function Invoke-Executor {
             }
 
             $result.PID = [int]$sfxResult.PID
+
+            if ($sfxResult.TimedOut) {
+                Add-State "LAUNCH_FAILED" "SFX timed out after ${SfxTimeoutSeconds}s"
+                $result.Error = "SFX timed out after ${SfxTimeoutSeconds}s"
+                return [PSCustomObject]$result
+            }
 
             if ([int]$sfxResult.ExitCode -eq 0) {
                 Add-State "SFX_LAUNCHED" "SFX exited with code 0"
@@ -408,6 +441,15 @@ function Invoke-Executor {
         }
 
     } finally {
+        # B1: Restore TrustedHosts to original value if we modified it
+        if ($trustedHostsModified) {
+            try {
+                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
+            } catch {
+                # If restore fails (e.g. process killed), TrustedHosts will retain the target.
+                # Analyst should verify TrustedHosts manually after hard kills.
+            }
+        }
         if ($session) {
             Remove-PSSession $session -ErrorAction SilentlyContinue
         }
