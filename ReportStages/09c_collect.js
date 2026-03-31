@@ -33,7 +33,7 @@
     '.col-btn:hover{border-color:var(--accent);color:var(--accent)}',
     '.col-btn:disabled{opacity:0.4;cursor:not-allowed}',
     '.col-btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:bold;padding:5px 16px;font-size:12px}',
-    '.col-btn-primary:hover{opacity:0.9}',
+    '.col-btn-primary:hover{opacity:0.9;color:#fff!important}',
     '.col-btn-primary:disabled{opacity:0.4;cursor:not-allowed}',
     '.col-btn-danger{color:var(--red);border-color:var(--red)}',
     '.col-btn-danger:hover{background:var(--red);color:#fff}',
