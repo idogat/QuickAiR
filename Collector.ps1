@@ -29,7 +29,10 @@ param(
     [string[]]$Plugins,
 
     [Parameter(Mandatory=$false)]
-    [switch]$Quiet
+    [switch]$Quiet,
+
+    [Parameter(Mandatory=$false)]
+    [string]$ProgressFile = ""
 )
 
 Set-StrictMode -Off
@@ -237,6 +240,9 @@ foreach ($target in $Targets) {
     foreach ($c in $collectorModules) {
         Import-Module $c.FullName -Force
         Write-Log 'INFO' "Running collector: $($c.BaseName)"
+        if ($ProgressFile) {
+            try { [System.IO.File]::WriteAllText($ProgressFile, "COLLECTING:$($c.BaseName)") } catch {}
+        }
         try {
             $result = Invoke-Collector -Session $session -TargetPSVersion $caps.PSVersion -TargetCapabilities $caps
             $collErr += $result.errors
@@ -248,9 +254,15 @@ foreach ($target in $Targets) {
                 $output[$c.BaseName] = $result.data
             }
             Write-Log 'INFO' "Collector $($c.BaseName) complete"
+            if ($ProgressFile) {
+                try { [System.IO.File]::WriteAllText($ProgressFile, "DONE:$($c.BaseName)") } catch {}
+            }
         } catch {
             $collErr += @{ artifact = $c.BaseName; message = $_.Exception.Message }
             Write-Log 'WARN' "Collector $($c.BaseName) failed: $($_.Exception.Message)"
+            if ($ProgressFile) {
+                try { [System.IO.File]::WriteAllText($ProgressFile, "FAILED:$($c.BaseName):$($_.Exception.Message)") } catch {}
+            }
         }
     }
 

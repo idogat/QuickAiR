@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.3                                           ║
+# ║  Version    : 1.4                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -368,81 +368,82 @@ function Resolve-Credential {
 function Start-HostRunspace {
     param([array]$pluginRows)
 
-    # Mark all rows as Waiting so the scheduler never re-schedules them;
-    # the runspace will advance each to Collecting when it gets there.
-    foreach ($pr in $pluginRows) { $pr.Status = 'Waiting' }
-    $pluginRows[0].Status    = 'Collecting'
-    $pluginRows[0].Detail    = 'Collecting...'
-    $pluginRows[0].StartTime = [DateTime]::UtcNow
+    # Mark all rows as Waiting; the scheduler reads the progress file to update them.
+    foreach ($pr in $pluginRows) {
+        $pr.Status    = 'Waiting'
+        $pr.StartTime = [DateTime]::UtcNow
+    }
+    $pluginRows[0].Status = 'Connecting'
+    $pluginRows[0].Detail = 'Connecting...'
+
+    # Create a progress file for Collector.ps1 to write per-plugin status
+    $progressFile = Join-Path $env:TEMP "quickair_progress_$([guid]::NewGuid().ToString('N')).txt"
+    $pluginRows[0] | Add-Member -NotePropertyName 'ProgressFile' -NotePropertyValue $progressFile -Force
 
     $collectorPath = $COLLECTOR_PS1
+    $allPlugins    = @($pluginRows | ForEach-Object { $_.Plugin })
+    $hostname      = $pluginRows[0].Hostname
+    $outputPath    = $pluginRows[0].OutputPath
+    $credential    = $pluginRows[0].Credential
 
     $ps = [System.Management.Automation.PowerShell]::Create()
     $ps.AddScript({
-        param($collectorPath, $pluginRows)
+        param($collectorPath, $hostname, $outputPath, $allPlugins, $credential, $progressFile, $pluginRows)
         Set-StrictMode -Off
         $ErrorActionPreference = 'Continue'
-
-        foreach ($pRow in $pluginRows) {
-            if ($pRow.IsCancelled) {
-                $pRow.Status = 'Cancelled'
-                $pRow.Detail = 'Cancelled'
-                $pRow.IsDone = $true
-                $pRow.EndTime = [DateTime]::UtcNow
-                continue
+        try {
+            $splat = @{
+                Targets      = @($hostname)
+                OutputPath   = $outputPath
+                Plugins      = $allPlugins
+                Quiet        = $true
+                ProgressFile = $progressFile
+            }
+            if ($null -ne $credential -and $credential -ne 'CANCELLED') {
+                $splat['Credential'] = $credential
             }
 
-            $pRow.Status    = 'Collecting'
-            $pRow.Detail    = 'Collecting...'
-            if ($pRow.StartTime -eq [DateTime]::MinValue) {
-                $pRow.StartTime = [DateTime]::UtcNow
+            $collectStart = [DateTime]::UtcNow
+            & $collectorPath @splat | Out-Null
+
+            # Find output JSON
+            $resultJson = ''
+            $hostDirs = @(Get-ChildItem $outputPath -Directory -ErrorAction SilentlyContinue)
+            foreach ($d in $hostDirs) {
+                $jsonFiles = @(Get-ChildItem $d.FullName -Filter '*.json' -ErrorAction SilentlyContinue |
+                                   Where-Object { $_.LastWriteTimeUtc -ge $collectStart } |
+                                   Sort-Object LastWriteTimeUtc -Descending)
+                if ($jsonFiles.Count -gt 0) {
+                    $resultJson = $jsonFiles[0].FullName
+                    break
+                }
             }
 
-            try {
-                $splat = @{
-                    Targets    = @($pRow.Hostname)
-                    OutputPath = $pRow.OutputPath
-                    Plugins    = @($pRow.Plugin)
-                    Quiet      = $true
+            # Mark any remaining rows as complete
+            foreach ($pr in $pluginRows) {
+                if (-not $pr.IsDone) {
+                    $pr.Status  = 'Complete'
+                    $pr.Detail  = if ($resultJson) { $resultJson } else { 'Done - output not located' }
+                    $pr.IsDone  = $true
+                    $pr.EndTime = [DateTime]::UtcNow
                 }
-                if ($null -ne $pRow.Credential -and $pRow.Credential -ne 'CANCELLED') {
-                    $splat['Credential'] = $pRow.Credential
-                }
-
-                $collectStart = [DateTime]::UtcNow
-                & $collectorPath @splat | Out-Null
-
-                # Find output JSON
-                $found = $false
-                $hostDirs = @(Get-ChildItem $pRow.OutputPath -Directory -ErrorAction SilentlyContinue)
-                foreach ($d in $hostDirs) {
-                    $jsonFiles = @(Get-ChildItem $d.FullName -Filter '*.json' -ErrorAction SilentlyContinue |
-                                       Where-Object { $_.LastWriteTimeUtc -ge $collectStart } |
-                                       Sort-Object LastWriteTimeUtc -Descending)
-                    if ($jsonFiles.Count -gt 0) {
-                        $pRow.Status = 'Complete'
-                        $pRow.Detail = $jsonFiles[0].FullName
-                        $found = $true
-                        break
-                    }
-                }
-                if (-not $found) {
-                    $pRow.Status = 'Complete'
-                    $pRow.Detail = 'Done - output not located'
-                }
-            }
-            catch {
-                $pRow.Status = 'Failed'
-                $pRow.Detail = $_.Exception.Message
-            }
-            finally {
-                $pRow.IsDone  = $true
-                $pRow.EndTime = [DateTime]::UtcNow
             }
         }
-    }).AddArgument($collectorPath).AddArgument($pluginRows) | Out-Null
+        catch {
+            foreach ($pr in $pluginRows) {
+                if (-not $pr.IsDone) {
+                    $pr.Status  = 'Failed'
+                    $pr.Detail  = $_.Exception.Message
+                    $pr.IsDone  = $true
+                    $pr.EndTime = [DateTime]::UtcNow
+                }
+            }
+        }
+        finally {
+            Remove-Item $progressFile -Force -ErrorAction SilentlyContinue
+        }
+    }).AddArgument($collectorPath).AddArgument($hostname).AddArgument($outputPath).AddArgument($allPlugins).AddArgument($credential).AddArgument($progressFile).AddArgument($pluginRows) | Out-Null
 
-    # Store PS handle on first row (for disposal/cancellation)
     $pluginRows[0].PS_        = $ps
     $pluginRows[0].RunHandle_ = $ps.BeginInvoke()
 }
@@ -565,22 +566,76 @@ function Invoke-Schedule {
         $activeHosts++
     }
 
-    # Update all plugin rows in the grid
+    # Read progress files and update plugin rows from Collector.ps1 status
+    $progressCache = @{}
     foreach ($pr in $prSnap) {
+        if ($null -ne $pr.PS_ -and $pr.PSObject.Properties['ProgressFile'] -and $pr.ProgressFile) {
+            $pf = $pr.ProgressFile
+            if (-not $progressCache.ContainsKey($pf) -and (Test-Path $pf)) {
+                try { $progressCache[$pf] = [System.IO.File]::ReadAllText($pf).Trim() } catch {}
+            }
+        }
+    }
+
+    # Apply progress to plugin rows
+    foreach ($pr in $prSnap) {
+        # Find progress file for this host group (stored on first row)
+        $pf = $null
+        foreach ($other in $prSnap) {
+            if ($other.Hostname -eq $pr.Hostname -and $other.PSObject.Properties['ProgressFile'] -and $other.ProgressFile) {
+                $pf = $other.ProgressFile; break
+            }
+        }
+        if ($pf -and $progressCache.ContainsKey($pf) -and -not $pr.IsDone) {
+            $line = $progressCache[$pf]
+            if ($line -match '^COLLECTING:(.+)$') {
+                $active = $Matches[1]
+                if ($pr.Plugin -eq $active -and $pr.Status -ne 'Collecting') {
+                    $pr.Status = 'Collecting'
+                    $pr.Detail = 'Collecting...'
+                    $pr.StartTime = [DateTime]::UtcNow
+                }
+            }
+            elseif ($line -match '^DONE:(.+)$') {
+                $donePlugin = $Matches[1]
+                if ($pr.Plugin -eq $donePlugin -and -not $pr.IsDone) {
+                    $pr.Status  = 'Complete'
+                    $pr.IsDone  = $true
+                    $pr.EndTime = [DateTime]::UtcNow
+                }
+            }
+            elseif ($line -match '^FAILED:([^:]+):(.*)$') {
+                $failPlugin = $Matches[1]
+                if ($pr.Plugin -eq $failPlugin -and -not $pr.IsDone) {
+                    $pr.Status  = 'Failed'
+                    $pr.Detail  = $Matches[2]
+                    $pr.IsDone  = $true
+                    $pr.EndTime = [DateTime]::UtcNow
+                }
+            }
+        }
+
         # Dispose completed runspaces
         if ($pr.IsDone -and $null -ne $pr.PS_) {
-            try { $pr.PS_.Dispose() } catch { }
-            $pr.PS_        = $null
-            $pr.RunHandle_ = $null
+            # Only dispose if ALL rows for this host are done
+            $allDone = $true
+            foreach ($other in $prSnap) {
+                if ($other.Hostname -eq $pr.Hostname -and -not $other.IsDone) { $allDone = $false; break }
+            }
+            if ($allDone) {
+                try { $pr.PS_.Dispose() } catch { }
+                $pr.PS_        = $null
+                $pr.RunHandle_ = $null
+            }
         }
 
         # Compute per-plugin elapsed time
         $elapsed = if ($pr.IsDone -and $pr.EndTime -ne [DateTime]::MinValue -and $pr.StartTime -ne [DateTime]::MinValue) {
             [int]($pr.EndTime - $pr.StartTime).TotalSeconds
-        } elseif ($pr.StartTime -ne [DateTime]::MinValue) {
+        } elseif ($pr.StartTime -ne [DateTime]::MinValue -and $pr.Status -eq 'Collecting') {
             [int]([DateTime]::UtcNow - $pr.StartTime).TotalSeconds
         } else { 0 }
-        $timeStr = if ($pr.StartTime -ne [DateTime]::MinValue) { "${elapsed}s" } else { '' }
+        $timeStr = if ($pr.Status -eq 'Collecting' -or $pr.IsDone) { "${elapsed}s" } else { '' }
 
         Update-GridRow $pr $timeStr $pr.IsDone
     }
