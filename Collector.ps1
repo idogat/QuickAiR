@@ -6,11 +6,12 @@
 # ╠══════════════════════════════════════╣
 # ║  Exports   : n/a (entry point)      ║
 # ║  Inputs    : -Targets -Credential   ║
-# ║              -OutputPath -Quiet     ║
+# ║              -OutputPath -Plugins   ║
+# ║              -Quiet                 ║
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -23,6 +24,9 @@ param(
 
     [Parameter(Mandatory=$false)]
     [string]$OutputPath = "",
+
+    [Parameter(Mandatory=$false)]
+    [string[]]$Plugins,
 
     [Parameter(Mandatory=$false)]
     [switch]$Quiet
@@ -191,8 +195,11 @@ foreach ($target in $Targets) {
         }
     }
 
-    # Auto-discover collectors
+    # Auto-discover collectors (filter by -Plugins if specified)
     $collectorModules = Get-ChildItem "$PSScriptRoot\Modules\Collectors\*.psm1" | Sort-Object Name
+    if ($Plugins -and $Plugins.Count -gt 0) {
+        $collectorModules = @($collectorModules | Where-Object { $_.BaseName -in $Plugins })
+    }
 
     $output          = [ordered]@{}
     $sources         = @{}

@@ -6,7 +6,11 @@ Entry points:
   Collector.ps1          — orchestrator, runs all collectors
   Executor.ps1           — remote tool execution orchestrator
   QuickAiRLaunch.ps1      — WinForms job manager (single-instance)
-  Register-QuickAiRProtocol.ps1 — registers quickair:// URI handler
+  QuickAiRCollect.ps1     — WinForms collection trigger (quickair-collect://)
+  Register-QuickAiRProtocol.ps1 — registers quickair:// and quickair-collect:// handlers
+Protocol handlers:
+  quickair://            → QuickAiRLaunch.ps1  (tool execution)
+  quickair-collect://    → QuickAiRCollect.ps1 (artifact collection)
 Core:
   Modules\Core\          — Connection, DateTime, Output
 Collectors:
@@ -23,7 +27,8 @@ Tests:
   TestSuite.ps1          — test runner (auto-discovers Tests\)
   Tests\                 — T01–T09 per-module test files
 Runtime only:
-  C:\DFIRLab\QuickAiRBridge\ — inter-process job handoff (not in repo)
+  C:\DFIRLab\QuickAiRBridge\         — launch job handoff (not in repo)
+  C:\DFIRLab\QuickAiRBridge\collect\ — collect job handoff (not in repo)
 
 ## Plugin Contracts
 - Collector: drop .psm1 in Modules\Collectors\, export Invoke-Collector — see any existing header
