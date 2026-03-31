@@ -411,7 +411,7 @@ function Invoke-Collector {
     if ($skippedProcs.Count -gt 0) {
         $skippedNames = @()
         foreach ($sp in $skippedProcs) { $skippedNames += "$($sp.ProcessName)(PID:$($sp.ProcessId))" }
-        $errors += @{ artifact = 'DLLs'; message = "Protected processes skipped for DLL enumeration: $($skippedNames -join ', ')" }
+        $errors += @{ artifact = 'DLLs'; severity = 'warning'; message = "Protected processes skipped for DLL enumeration: $($skippedNames -join ', ')" }
     }
 
     # Determine source string

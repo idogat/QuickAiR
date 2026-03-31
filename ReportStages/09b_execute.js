@@ -15,7 +15,7 @@
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
@@ -68,12 +68,15 @@ function _loadToolsManifest(callback) {
 
 function _getCollectionStatus(hostname) {
   var d = state.hosts[hostname];
-  if (!d || !d.manifest) return { status: 'nodata', label: 'No data', cls: 'exec-status-nodata' };
+  if (!d || !d.manifest) return { status: 'nodata', label: 'No data', cls: 'exec-status-nodata', errors: [], warnings: [] };
   var m = d.manifest;
-  var errors = m.collection_errors || [];
-  if (m.collection_failed === true) return { status: 'failed', label: 'Failed', cls: 'exec-status-failed' };
-  if (errors.length > 0) return { status: 'partial', label: 'Partial (' + errors.length + ' errors)', cls: 'exec-status-partial' };
-  return { status: 'complete', label: 'Complete', cls: 'exec-status-complete' };
+  var all = m.collection_errors || [];
+  var warnings = all.filter(function(e) { return e && e.severity === 'warning'; });
+  var errors   = all.filter(function(e) { return !e || e.severity !== 'warning'; });
+  if (m.collection_failed === true) return { status: 'failed', label: 'Failed', cls: 'exec-status-failed', errors: errors, warnings: warnings };
+  if (errors.length > 0) return { status: 'partial', label: 'Partial (' + errors.length + ' errors)', cls: 'exec-status-partial', errors: errors, warnings: warnings };
+  if (warnings.length > 0) return { status: 'complete', label: 'Complete (' + warnings.length + ' warnings)', cls: 'exec-status-complete', errors: errors, warnings: warnings };
+  return { status: 'complete', label: 'Complete', cls: 'exec-status-complete', errors: [], warnings: [] };
 }
 
 function _getWinRMStatus(hostname) {
@@ -82,10 +85,10 @@ function _getWinRMStatus(hostname) {
   var m = d.manifest;
   if (m.winrm_reachable === true)  return { status: 'reachable',   label: 'Reachable',   cls: 'exec-winrm-reach'   };
   if (m.winrm_reachable === false) return { status: 'unreachable', label: 'Unreachable', cls: 'exec-winrm-unreach' };
-  // Infer from collection data: null + no errors + processes present → reachable
-  var errors = m.collection_errors || [];
+  // Infer from collection data: null + no real errors + processes present → reachable
+  var realErrors = (m.collection_errors || []).filter(function(e) { return !e || e.severity !== 'warning'; });
   var procCount = (d.Processes && d.Processes.length) ? d.Processes.length : 0;
-  if (errors.length === 0 && procCount > 0) return { status: 'reachable', label: 'Reachable', cls: 'exec-winrm-reach' };
+  if (realErrors.length === 0 && procCount > 0) return { status: 'reachable', label: 'Reachable', cls: 'exec-winrm-reach' };
   return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
 }
 
@@ -139,10 +142,17 @@ function renderExecute() {
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
       var execData = (state.executions || {})[h];
       var shareInfo = (execData && execData.SmbShare) ? execData.SmbShare : '';
+      // Build tooltip from errors + warnings
+      var allIssues = (cs.errors || []).concat(cs.warnings || []);
+      var tooltip = allIssues.map(function(e) {
+        var prefix = (e && e.severity === 'warning') ? '[warn] ' : '[error] ';
+        return prefix + (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : String(e));
+      }).join('\n');
+      var titleAttr = tooltip ? ' title="' + esc(tooltip) + '" style="cursor:help"' : '';
       return '<tr id="exec-row-' + esc(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
-        '<td class="' + cs.cls + '">' + esc(cs.label) + '</td>' +
+        '<td class="' + cs.cls + '"' + titleAttr + '>' + esc(cs.label) + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td class="mono dim">' + esc(shareInfo) + '</td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
@@ -539,10 +549,14 @@ function renderFleetExecBanners() {
     return cs.status === 'partial' || cs.status === 'failed';
   }).map(function(h) {
     var cs  = _getCollectionStatus(h);
-    var cnt = (((state.hosts[h] || {}).manifest || {}).collection_errors || []).length;
+    var errCount = (cs.errors || []).length;
+    var tooltip = (cs.errors || []).map(function(e) {
+      return (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : String(e));
+    }).join('\n');
+    var tipAttr = tooltip ? ' title="' + esc(tooltip) + '" style="cursor:help"' : '';
     return '<div class="fleet-err-banner">' +
       '&#9888; <strong>' + esc(h) + '</strong> &mdash; collection ' + (cs.status === 'failed' ? 'failed' : 'incomplete') + '.' +
-      (cnt > 0 ? ' ' + cnt + ' error' + (cnt === 1 ? '' : 's') + ' recorded.' : '') +
+      (errCount > 0 ? ' <span' + tipAttr + '>' + errCount + ' error' + (errCount === 1 ? '' : 's') + ' recorded.</span>' : '') +
       ' Use the EXECUTE tab to run memory or disk collection directly.' +
       ' &nbsp;<a onclick="switchTab(\'execute\')">Go to Execute tab</a>' +
       '</div>';

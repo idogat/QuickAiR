@@ -54,8 +54,19 @@ function renderFleet() {
   if (hosts.length === 1) {
     const h0 = hosts[0];
     const m  = state.hosts[h0].manifest || {};
-    const errCount = (m.collection_errors||[]).length;
-    const errBadge = errCount > 0 ? ` <span style="color:var(--amber)">${errCount} errors</span>` : ' <span style="color:var(--green)">0 errors</span>';
+    const allErrs = m.collection_errors || [];
+    const realErrors = allErrs.filter(e => !e || e.severity !== 'warning');
+    const warnings   = allErrs.filter(e => e && e.severity === 'warning');
+    const tipLines = allErrs.map(e => {
+      const prefix = (e && e.severity === 'warning') ? '[warn] ' : '[error] ';
+      return prefix + (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : '');
+    }).join('&#10;');
+    const tipAttr = tipLines ? ` title="${esc(tipLines)}" style="cursor:help"` : '';
+    const errBadge = realErrors.length > 0
+      ? ` <span style="color:var(--amber)"${tipAttr}>${realErrors.length} errors</span>`
+      : warnings.length > 0
+        ? ` <span style="color:var(--green)"${tipAttr}>${warnings.length} warnings</span>`
+        : ' <span style="color:var(--green)">0 errors</span>';
     panel.innerHTML = `<div class="solo-notice">
       Single host loaded: <strong>${esc(h0)}</strong> &nbsp;|&nbsp;
       ${esc(m.target_os_caption||'')} &nbsp;|&nbsp; PS ${esc(m.target_ps_version||'?')} &nbsp;|&nbsp;
@@ -103,7 +114,7 @@ function renderFleet() {
         active_count:        ac,
         unique_ips:          ips.size,
         dns_count:           (d.dns_cache||[]).length,
-        errors_count:        collection_errors.length,
+        errors_count:        collection_errors.filter(e => !e || e.severity !== 'warning').length,
         collection_time_utc: m.collection_time_utc || '',
       };
     });
@@ -180,7 +191,10 @@ function renderManifestPanel(hostname) {
   const collection_errors = m.collection_errors || [];
   const errHTML = collection_errors.length === 0
     ? '<span style="color:var(--green)">None</span>'
-    : collection_errors.map(e => `<div class="mp-err-item">[${esc(e.artifact||'?')}] ${esc(e.message||'')}</div>`).join('');
+    : collection_errors.map(e => {
+        const sev = (e.severity === 'warning') ? '<span style="color:var(--amber)">[warn]</span>' : '<span style="color:var(--red)">[error]</span>';
+        return `<div class="mp-err-item">${sev} [${esc(e.artifact||'?')}] ${esc(e.message||'')}</div>`;
+      }).join('');
 
   const adapters = m.network_adapters || [];
   let adapterTableHTML = '';
