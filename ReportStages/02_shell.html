@@ -8,7 +8,7 @@
 <!-- ║  Writes   : DOM structure             ║ -->
 <!-- ║  Functions: none (HTML only)          ║ -->
 <!-- ║  Depends  : 01_head.html              ║ -->
-<!-- ║  Version  : 3.39                      ║ -->
+<!-- ║  Version  : 3.40                      ║ -->
 <!-- ╚══════════════════════════════════════╝ -->
 
 <body>
@@ -52,6 +52,7 @@
   <button class="tab-btn"        onclick="switchTab('dlls')"      id="tab-dlls"  style="display:none">DLLs</button>
   <button class="tab-btn"        onclick="switchTab('users')"     id="tab-users" style="display:none">USERS</button>
   <button class="tab-btn"        onclick="switchTab('execute')"   id="tab-execute">EXECUTE</button>
+  <button class="tab-btn"        onclick="switchTab('collect')"   id="tab-collect">COLLECT</button>
 </div>
 
 <div id="panel-fleet"     class="tab-panel active"></div>
@@ -61,5 +62,6 @@
 <div id="panel-dlls"      class="tab-panel"></div>
 <div id="panel-users"     class="tab-panel"></div>
 <div id="panel-execute"   class="tab-panel"></div>
+<div id="panel-collect"   class="tab-panel"></div>
 
 <script>

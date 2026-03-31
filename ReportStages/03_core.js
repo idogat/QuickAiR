@@ -562,6 +562,7 @@ function renderActiveTab() {
     case 'dlls':      renderDlls();      break;
     case 'users':     renderUsers();     break;
     case 'execute':   renderExecute();   break;
+    case 'collect':   renderCollect();   break;
   }
 }
 
