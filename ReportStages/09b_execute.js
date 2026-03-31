@@ -92,6 +92,27 @@ function _getWinRMStatus(hostname) {
   return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
 }
 
+function _getWmiStatus(hostname) {
+  var d = state.hosts[hostname];
+  if (!d || !d.manifest) return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
+  var m = d.manifest;
+  if (m.wmi_reachable === true)  return { status: 'reachable',   label: 'Reachable',   cls: 'exec-winrm-reach' };
+  if (m.wmi_reachable === false) return { status: 'unreachable', label: 'Unreachable', cls: 'exec-winrm-unreach' };
+  return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
+}
+
+function _getSmbStatus(hostname) {
+  var d = state.hosts[hostname];
+  if (!d || !d.manifest) return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
+  var m = d.manifest;
+  if (m.smb_reachable === true) {
+    var share = m.smb_share_name || 'C$';
+    return { status: 'reachable', label: share, cls: 'exec-winrm-reach' };
+  }
+  if (m.smb_reachable === false) return { status: 'unreachable', label: 'Unreachable', cls: 'exec-winrm-unreach' };
+  return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
+}
+
 function _getExecuteBadgeInfo() {
   var hosts = Object.keys(state.hosts);
   var partial = 0, failed = 0;
@@ -134,25 +155,26 @@ function renderExecute() {
     var rows = hosts.map(function(h) {
       var d  = state.hosts[h];
       var m  = (d && d.manifest) || {};
-      var ws = _getWinRMStatus(h);
-      var bs = _bulkSel[h];
+      var ws   = _getWinRMStatus(h);
+      var wmis = _getWmiStatus(h);
+      var smbs = _getSmbStatus(h);
+      var bs   = _bulkSel[h];
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
-      var execData = (state.executions || {})[h];
-      var shareInfo = (execData && execData.SmbShare) ? execData.SmbShare : '';
       return '<tr id="exec-row-' + esc(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
-        '<td class="mono dim">' + esc(shareInfo) + '</td>' +
+        '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
+        '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + esc(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '</tr>';
     }).join('');
     sec1HTML = '<table class="exec-host-tbl">' +
       '<thead><tr>' +
-        '<th>Hostname</th><th>OS</th><th>WinRM</th><th>SMB Share</th>' +
+        '<th>Hostname</th><th>OS</th><th>WinRM</th><th>WMI</th><th>SMB Share</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
       '</tr></thead>' +

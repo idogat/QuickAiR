@@ -146,6 +146,51 @@ foreach ($target in $Targets) {
         }
     }
 
+    # SMB + WMI reachability probes
+    $smbReachable  = $null
+    $wmiReachable  = $null
+    $smbShareName  = $null
+    if ($isLocalTarget) {
+        $smbReachable = $true
+        $wmiReachable = $true
+        $smbShareName = 'C$'
+    } else {
+        # WMI probe: connect to root\cimv2 (same pattern as WMI.psm1)
+        try {
+            $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
+            if ($effectiveCred) {
+                $wmiScope.Options.Username = $effectiveCred.UserName
+                $wmiScope.Options.Password = $effectiveCred.GetNetworkCredential().Password
+            }
+            $wmiScope.Connect()
+            $wmiReachable = $true
+            Write-Log 'INFO' "WMI reachable on $target"
+
+            # SMB probe: enumerate admin shares via WMI (same pattern as SMBWMI.psm1 Find-AdminShare)
+            try {
+                $q = New-Object System.Management.ObjectQuery("SELECT Name, Path FROM Win32_Share WHERE Type = 2147483648")
+                $searcher = New-Object System.Management.ManagementObjectSearcher($wmiScope, $q)
+                $shares = @($searcher.Get())
+                $shareNames = @()
+                foreach ($s in $shares) { $shareNames += [string]$s['Name'] }
+                if ($shareNames.Count -gt 0) {
+                    $smbReachable = $true
+                    $smbShareName = if ($shareNames -contains 'C$') { 'C$' } else { $shareNames[0] }
+                } else {
+                    $smbReachable = $false
+                }
+                Write-Log 'INFO' "SMB admin shares on ${target}: $($shareNames -join ', ')"
+            } catch {
+                $smbReachable = $false
+                Write-Log 'WARN' "SMB share enumeration failed on ${target}: $($_.Exception.Message)"
+            }
+        } catch {
+            $wmiReachable = $false
+            $smbReachable = $false
+            Write-Log 'WARN' "WMI unreachable on ${target}: $($_.Exception.Message)"
+        }
+    }
+
     # Auto-discover collectors
     $collectorModules = Get-ChildItem "$PSScriptRoot\Modules\Collectors\*.psm1" | Sort-Object Name
 
@@ -201,7 +246,10 @@ foreach ($target in $Targets) {
         -Sources          $sources `
         -NetworkAdapters  $networkAdapters `
         -CollectionErrors $collErr `
-        -WinRMReachable   $winrmReachable
+        -WinRMReachable   $winrmReachable `
+        -WmiReachable     $wmiReachable `
+        -SmbReachable     $smbReachable `
+        -SmbShareName     $smbShareName
 
     # Build full output: manifest first, then each collector's data
     $jsonOutput = [ordered]@{}

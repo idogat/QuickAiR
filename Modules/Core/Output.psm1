@@ -92,7 +92,10 @@ function Build-Manifest {
         [hashtable]$Sources,
         $NetworkAdapters,
         $CollectionErrors,
-        $WinRMReachable = $null
+        $WinRMReachable = $null,
+        $WmiReachable = $null,
+        $SmbReachable = $null,
+        $SmbShareName = $null
     )
 
     $manifest = [ordered]@{
@@ -117,6 +120,9 @@ function Build-Manifest {
     }
 
     $manifest['winrm_reachable']   = $WinRMReachable
+    $manifest['wmi_reachable']     = $WmiReachable
+    $manifest['smb_reachable']     = $SmbReachable
+    $manifest['smb_share_name']    = $SmbShareName
     $manifest['sha256']            = $null
     $manifest['collection_errors'] = $CollectionErrors
 
