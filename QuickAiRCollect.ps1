@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.0                                           ║
+# ║  Version    : 1.1                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -179,7 +179,9 @@ function Add-Targets {
     foreach ($raw in $rawTargets) {
         $host_   = ([string]$raw.hostname).Trim()
         $outPath = if ($raw.PSObject.Properties['outputPath'] -and -not [string]::IsNullOrWhiteSpace($raw.outputPath)) {
-                       [System.IO.Path]::GetFullPath([string]$raw.outputPath)
+                       $rawOut = [string]$raw.outputPath
+                       if ([System.IO.Path]::IsPathRooted($rawOut)) { $rawOut }
+                       else { Join-Path $PSScriptRoot $rawOut }
                    } else { $DEFAULT_OUTPUT }
         $plugins = if ($raw.PSObject.Properties['plugins'] -and $raw.plugins -and @($raw.plugins).Count -gt 0) {
                        @($raw.plugins | ForEach-Object { [string]$_ }) | Where-Object { $_ -in $ALL_PLUGINS }
@@ -442,8 +444,8 @@ function Set-RowStyle {
 
 function Add-GridRow {
     param([object]$pRow)
-    $hostDisplay = if ($pRow.IsFirst) { $pRow.Hostname } else { '' }
-    $plugDisplay = if ($pRow.IsFirst) { $pRow.Plugin } else { "  $($pRow.Plugin)" }
+    $hostDisplay = $pRow.Hostname
+    $plugDisplay = $pRow.Plugin
     $rowIdx = $script:Grid.Rows.Add(
         [object]$pRow.RowNumber,
         [object]$hostDisplay,
@@ -514,7 +516,6 @@ function Resolve-PluginResults {
     $rows = @($script:PluginRows | Where-Object { $_.TargetId -eq $target.TargetId })
     [System.Threading.Monitor]::Exit($script:Lock)
 
-    $firstRow = $true
     foreach ($pRow in $rows) {
         if ($target.Status -eq 'Cancelled') {
             $pRow.Status = 'Cancelled'
@@ -536,11 +537,10 @@ function Resolve-PluginResults {
             else { $pRow.Status = 'Failed'; $pRow.Detail = 'Not collected' }
         }
 
-        # Show output path on first row
-        if ($firstRow -and $target.ResultJson) {
-            if (-not $pRow.Detail) { $pRow.Detail = $target.ResultJson }
+        # Show output path on every completed row
+        if ($target.ResultJson -and $pRow.Status -eq 'Complete' -and -not $pRow.Detail) {
+            $pRow.Detail = $target.ResultJson
         }
-        $firstRow = $false
     }
 }
 #endregion
@@ -551,18 +551,20 @@ function Invoke-Schedule {
     $script:ScheduleRunning = $true
     try {
 
-    # Count states
+    # Count states from plugin rows (not targets)
     $running = 0; $queued = 0; $done = 0; $failed = 0
     [System.Threading.Monitor]::Enter($script:Lock)
-    $tSnap = @($script:Targets)
+    $tSnap   = @($script:Targets)
+    $prSnap  = @($script:PluginRows)
     [System.Threading.Monitor]::Exit($script:Lock)
 
-    foreach ($t in $tSnap) {
-        if ($t.IsDone) {
-            if ($t.Status -match 'Failed|Cancelled') { $failed++ } else { $done++ }
+    foreach ($pr in $prSnap) {
+        switch -Regex ($pr.Status) {
+            'Complete'          { $done++    }
+            'Failed|Cancelled'  { $failed++  }
+            'Queued'            { $queued++   }
+            default             { $running++  }
         }
-        elseif ($t.Status -ne 'Queued') { $running++ }
-        else { $queued++ }
     }
     $script:StatusLabel.Text = "Running: $running  |  Queued: $queued  |  Done: $done  |  Failed: $failed  |  Max Concurrent:"
 
@@ -629,7 +631,10 @@ function Invoke-Schedule {
         foreach ($pr in $pRows) {
             # If target is running but plugins haven't been individually resolved, sync status
             if (-not $t.IsDone -and $t.Status -ne 'Queued') {
-                if ($pr.Status -eq 'Queued') { $pr.Status = $t.Status }
+                if ($pr.Status -eq 'Queued') {
+                    $pr.Status = $t.Status
+                    $pr.Detail = 'Collecting...'
+                }
             }
             Update-GridRow $pr $timeStr $t.IsDone
         }

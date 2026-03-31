@@ -39,7 +39,9 @@ $ErrorActionPreference = 'Continue'
 if (-not $OutputPath) {
     $OutputPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "DFIROutput"
 }
-$OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
+    $OutputPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) $OutputPath
+}
 #endregion
 
 #region --- Constants ---
