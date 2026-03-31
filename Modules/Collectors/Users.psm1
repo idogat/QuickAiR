@@ -16,17 +16,19 @@
 # ║    Confidence}, LastLogonUTC,       ║
 # ║    LastLogonSource, ProfilePath,    ║
 # ║    IsLoaded, HasLocalAccount,       ║
-# ║    LocalDisabled, SIDMetadata       ║
+# ║    LocalDisabled, SIDMetadata,      ║
+# ║    GroupMemberships                 ║
 # ║  DC fields: SamAccountName,        ║
 # ║    DisplayName, SID, Enabled,      ║
 # ║    WhenCreatedUTC, LastLogonUTC,    ║
+# ║    LastLogonTimestampUTC,           ║
 # ║    PasswordLastSetUTC, LockedOut,   ║
-# ║    BadLogonCount, Source            ║
+# ║    BadLogonCount, MemberOf, Source  ║
 # ║  Helpers  : ComputeFirstLogonConf, ║
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.2                    ║
+# ║  Version  : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -43,6 +45,7 @@ $script:USERS_SB = {
         local_accounts_raw = @()
         dc_domain_raw      = @()
         dc_source          = $null
+        group_memberships  = @()
         errors             = @()
     }
 
@@ -190,14 +193,45 @@ public class RegLwt {
         }
     } catch { $r.errors += "LocalAccounts: $($_.Exception.Message)" }
 
+    # ── COLLECT 2b: Local group memberships ──────────────────────────────────
+    try {
+        $groupUsers = Get-WmiObject Win32_GroupUser -ErrorAction Stop
+        foreach ($gu in $groupUsers) {
+            $gName = $null; $mName = $null
+            try {
+                if ($gu.GroupComponent -match 'Name="([^"]+)"') { $gName = $Matches[1] }
+                if ($gu.PartComponent  -match 'Name="([^"]+)"') { $mName = $Matches[1] }
+            } catch {}
+            if ($gName -and $mName) {
+                $r.group_memberships += @{ GroupName = $gName; MemberName = $mName }
+            }
+        }
+    } catch {
+        # Fallback: parse net localgroup for critical groups
+        try {
+            foreach ($grp in @('Administrators','Remote Desktop Users','Backup Operators')) {
+                $out = & net localgroup $grp 2>$null
+                if (-not $out) { continue }
+                $inMembers = $false
+                foreach ($line in $out) {
+                    if ($line -match '^----') { $inMembers = $true; continue }
+                    if ($line -match '^The command completed') { break }
+                    if ($inMembers -and $line.Trim()) {
+                        $r.group_memberships += @{ GroupName = $grp; MemberName = $line.Trim() }
+                    }
+                }
+            }
+        } catch { $r.errors += "GroupMemberships: $($_.Exception.Message)" }
+    }
+
     # ── COLLECT 3: Domain accounts (DC only) ─────────────────────────────────
     if ($r.is_dc) {
         try {
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
                 $adUsers = Get-ADUser -Filter * -Properties `
-                    Created,LastLogonDate,PasswordLastSet,
-                    Enabled,BadLogonCount,LockedOut
+                    Created,LastLogonDate,lastLogon,PasswordLastSet,
+                    Enabled,BadLogonCount,LockedOut,MemberOf
                 $r.dc_source = 'Get-ADUser'
                 foreach ($u in $adUsers) {
                     $r.dc_domain_raw += @{
@@ -205,11 +239,13 @@ public class RegLwt {
                         DisplayName     = [string]$u.Name
                         SID             = if ($u.SID) { $u.SID.Value } else { $null }
                         Enabled         = [bool]$u.Enabled
-                        WhenCreated     = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
-                        LastLogon       = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
+                        WhenCreated          = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
+                        LastLogonTimestamp    = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
+                        LastLogon            = $(try { if ($u.lastLogon -and [Int64]$u.lastLogon -gt 0) { [DateTime]::FromFileTimeUtc([Int64]$u.lastLogon).ToString('o') } else { $null } } catch { $null })
                         PasswordLastSet = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('o')} else { $null }
                         LockedOut       = [bool]$u.LockedOut
                         BadLogonCount   = [int]$u.BadLogonCount
+                        MemberOf        = @(foreach ($dn in @($u.MemberOf)) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
                         Source          = 'Get-ADUser'
                     }
                 }
@@ -221,8 +257,8 @@ public class RegLwt {
                 $searcher.PageSize = 1000
                 $searcher.PropertiesToLoad.AddRange(@(
                     "samaccountname","displayname","objectsid","whencreated",
-                    "lastlogontimestamp","pwdlastset","useraccountcontrol",
-                    "badpwdcount","lockouttime"
+                    "lastlogontimestamp","lastlogon","pwdlastset","useraccountcontrol",
+                    "badpwdcount","lockouttime","memberof"
                 ))
                 $results = $searcher.FindAll()
                 foreach ($entry in $results) {
@@ -235,9 +271,12 @@ public class RegLwt {
                     $wc = $null
                     try { if ($p["whencreated"].Count -gt 0) {
                         $wc = ([datetime]$p["whencreated"][0]).ToUniversalTime().ToString('o') } } catch {}
-                    $ll = $null
+                    $llTs = $null
                     try { $llFt = [Int64]$p["lastlogontimestamp"][0]
-                        if ($llFt -gt 0) { $ll = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                        if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                    $llPerDC = $null
+                    try { $llFtPerDC = [Int64]$p["lastlogon"][0]
+                        if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
                     $pls = $null
                     try { $plsFt = [Int64]$p["pwdlastset"][0]
                         if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
@@ -248,15 +287,17 @@ public class RegLwt {
                     $bpc = 0
                     try { $bpc = [int]$p["badpwdcount"][0] } catch {}
                     $r.dc_domain_raw += @{
-                        SamAccountName  = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
-                        DisplayName     = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
-                        SID             = $sidVal
-                        Enabled         = -not [bool]($uac -band 2)
-                        WhenCreated     = $wc
-                        LastLogon       = $ll
-                        PasswordLastSet = $pls
+                        SamAccountName    = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
+                        DisplayName       = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
+                        SID               = $sidVal
+                        Enabled           = -not [bool]($uac -band 2)
+                        WhenCreated       = $wc
+                        LastLogonTimestamp = $llTs
+                        LastLogon         = $llPerDC
+                        PasswordLastSet   = $pls
                         LockedOut       = $locked
                         BadLogonCount   = $bpc
+                        MemberOf        = @(foreach ($dn in @($p["memberof"])) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
                         Source          = 'ADSI'
                     }
                 }
@@ -419,6 +460,15 @@ function Invoke-Collector {
         $localAccountMap[[string]$u.SID] = @{ Disabled=[bool]$u.Disabled; Name=[string]$u.Name }
     }
 
+    # Build group membership lookup by username
+    $groupMap = @{}
+    foreach ($gm in @($raw.group_memberships)) {
+        if (-not $gm) { continue }
+        $mn = [string]$gm.MemberName
+        if (-not $groupMap.ContainsKey($mn)) { $groupMap[$mn] = @() }
+        $groupMap[$mn] += [string]$gm.GroupName
+    }
+
     # Build users[] — source = ProfileList, enriched with local account data
     $userMap = @{}
 
@@ -458,9 +508,10 @@ function Invoke-Collector {
                 TimestampMismatch = $fl.TimestampMismatch
             }
             LastLogonUTC    = $p.LastUseRaw
-            LastLogonSource = 'ProfileList LocalProfileLoadTime'
-            ProfilePath     = $p.ProfilePath
-            IsLoaded        = $isLoaded
+            LastLogonSource = if ($p.LastUseRaw) { 'ProfileList LocalProfileLoadTime' } else { $null }
+            ProfilePath      = $p.ProfilePath
+            IsLoaded         = $isLoaded
+            GroupMemberships = if ($p.Username -and $groupMap.ContainsKey($p.Username)) { $groupMap[$p.Username] } else { @() }
         }
     }
 
@@ -471,6 +522,9 @@ function Invoke-Collector {
         if ($userMap.ContainsKey($sidStr)) {
             $userMap[$sidStr].HasLocalAccount = $true
             $userMap[$sidStr].LocalDisabled   = [bool]$u.Disabled
+            if ($u.Name -and $groupMap.ContainsKey($u.Name) -and $userMap[$sidStr].GroupMemberships.Count -eq 0) {
+                $userMap[$sidStr].GroupMemberships = $groupMap[$u.Name]
+            }
             continue
         }
         $acctType = script:GetSidAccountType $sidStr $machineSIDPrefix
@@ -492,10 +546,11 @@ function Invoke-Collector {
                 RegistryKey   = @{ Value=$null; Available=$false; KeyPath="$plRoot\$sidStr" }
                 TimestampMismatch = $false
             }
-            LastLogonUTC    = $null
-            LastLogonSource = 'ProfileList LocalProfileLoadTime'
-            ProfilePath     = $null
-            IsLoaded        = $false
+            LastLogonUTC      = $null
+            LastLogonSource   = $null
+            ProfilePath       = $null
+            IsLoaded          = $false
+            GroupMemberships  = if ($u.Name -and $groupMap.ContainsKey($u.Name)) { $groupMap[$u.Name] } else { @() }
         }
     }
 
@@ -506,15 +561,17 @@ function Invoke-Collector {
     foreach ($u in @($raw.dc_domain_raw)) {
         if (-not $u) { continue }
         $domainAccounts += @{
-            SamAccountName    = $u.SamAccountName
-            DisplayName       = $u.DisplayName
-            SID               = $u.SID
-            Enabled           = [bool]$u.Enabled
-            WhenCreatedUTC    = $u.WhenCreated
-            LastLogonUTC      = $u.LastLogon
-            PasswordLastSetUTC= $u.PasswordLastSet
+            SamAccountName         = $u.SamAccountName
+            DisplayName            = $u.DisplayName
+            SID                    = $u.SID
+            Enabled                = [bool]$u.Enabled
+            WhenCreatedUTC         = $u.WhenCreated
+            LastLogonTimestampUTC  = $u.LastLogonTimestamp
+            LastLogonUTC           = $u.LastLogon
+            PasswordLastSetUTC     = $u.PasswordLastSet
             LockedOut         = [bool]$u.LockedOut
             BadLogonCount     = [int]$u.BadLogonCount
+            MemberOf          = @($u.MemberOf)
             Source            = $u.Source
         }
     }

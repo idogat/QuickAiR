@@ -245,14 +245,15 @@ function buildUserIndex(allHosts) {
           };
         }
         idx[key].machines.push({
-          hostname:        hostname,
-          FirstLogon:      user.FirstLogon,
-          LastLogon:       user.LastLogonUTC,
-          LastLogonSource: user.LastLogonSource,
-          ProfilePath:     user.ProfilePath,
-          IsLoaded:        user.IsLoaded,
-          HasLocalAccount: user.HasLocalAccount,
-          LocalDisabled:   user.LocalDisabled
+          hostname:         hostname,
+          FirstLogon:       user.FirstLogon,
+          LastLogon:        user.LastLogonUTC,
+          LastLogonSource:  user.LastLogonSource,
+          ProfilePath:      user.ProfilePath,
+          IsLoaded:         user.IsLoaded,
+          HasLocalAccount:  user.HasLocalAccount,
+          LocalDisabled:    user.LocalDisabled,
+          GroupMemberships: user.GroupMemberships || []
         });
       });
     }
@@ -274,13 +275,15 @@ function buildUserIndex(allHosts) {
           };
         }
         idx[key].domainInfo = {
-          dcHost:          hostname,
-          WhenCreated:     da.WhenCreatedUTC,
-          LastLogonAD:     da.LastLogonUTC,
-          PasswordLastSet: da.PasswordLastSetUTC,
+          dcHost:              hostname,
+          WhenCreated:         da.WhenCreatedUTC,
+          LastLogonAD:         da.LastLogonUTC,
+          LastLogonTimestampAD:da.LastLogonTimestampUTC,
+          PasswordLastSet:     da.PasswordLastSetUTC,
           Enabled:         da.Enabled,
           LockedOut:       da.LockedOut,
           BadLogonCount:   da.BadLogonCount,
+          MemberOf:        da.MemberOf || [],
           Source:          da.Source
         };
         if (da.SamAccountName) idx[key].Username = da.SamAccountName;

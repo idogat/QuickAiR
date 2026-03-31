@@ -18,7 +18,7 @@
 // ║    usersGetLastLogon, usersGetBest-   ║
 // ║    Conf                               ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.50                      ║
 // ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
@@ -46,7 +46,8 @@ const USER_TIPS = {
   LastLogon:       'Most recent logon across all machines. Source: ProfileList LastUseTime value. Updated on each logoff.',
   WhenCreated:     'Source: Active Directory whenCreated attribute. Set when account was created on DC. Only available when DC JSON is loaded.',
   WhenCreatedDC:   'Source: AD whenCreated attribute. Accurate \u2014 set once at account creation.',
-  LastLogonAD:     'Source: AD lastLogonTimestamp. Warning: replicates every 9\u201314 days. May be stale by up to 14 days.',
+  LastLogonAD:     'Source: AD lastLogon attribute (per-DC, not replicated). Authoritative for the DC that was queried.',
+  LastLogonTsAD:   'Source: AD lastLogonTimestamp (replicated). Warning: replicates every 9\u201314 days. May be stale by up to 14 days.',
   PasswordLastSet: 'Source: AD pwdLastSet attribute.',
   IsLoaded:        'ProfileList State flag (1 = currently loaded)',
   SID:             'S-1-5-21-<machine>-* = local account\nS-1-5-21-<domain>-* = domain account',
@@ -210,7 +211,7 @@ function renderUsers() {
       </select>
       <label style="font-size:12px;cursor:pointer">
         <input type="checkbox" id="users-nodc-filter" ${usersNoDcFilter?'checked':''} onchange="usersNoDcFilter=this.checked;usersApplyFilters()">
-        No DC data
+        Missing DC enrichment
       </label>
       <span id="users-count" style="color:var(--muted);font-size:11px;margin-left:4px"></span>
     </div>
@@ -304,6 +305,23 @@ function buildUserExpand(u) {
       <span class="k">Local Account</span>
         <span class="v" style="color:var(--green)">&#10003; exists${disStr}</span>`;
   }
+
+  // Collect group memberships from all machines + DC domain info
+  const allGroups = new Set();
+  u.machines.forEach(m => (m.GroupMemberships || []).forEach(g => allGroups.add(g)));
+  if (u.domainInfo && u.domainInfo.MemberOf) u.domainInfo.MemberOf.forEach(g => allGroups.add(g));
+  if (allGroups.size > 0) {
+    const badges = Array.from(allGroups).sort().map(g => {
+      const isAdmin = /^(Administrators|Domain Admins|Enterprise Admins|Schema Admins)$/i.test(g);
+      const style = isAdmin
+        ? 'background:rgba(255,100,50,0.15);border:1px solid var(--red);color:var(--red)'
+        : 'background:var(--surface);border:1px solid var(--border);color:var(--text)';
+      return '<span style="' + style + ';padding:1px 6px;border-radius:3px;font-size:10px;margin:1px 2px;display:inline-block">' + esc(g) + '</span>';
+    }).join(' ');
+    html += `
+      <span class="k">Groups</span>
+        <span class="v">${badges}</span>`;
+  }
   html += '</div>';
 
   // ── SECTION 2: DOMAIN INFO ──
@@ -319,8 +337,10 @@ function buildUserExpand(u) {
       <div class="kv-grid" style="margin-bottom:12px">
         <span class="k" title="${esc(USER_TIPS.WhenCreatedDC)}">Created</span>
           <span class="v" title="${esc(USER_TIPS.WhenCreatedDC)}">${fmtUTC(di.WhenCreated)}</span>
-        <span class="k" title="${esc(USER_TIPS.LastLogonAD)}">Last Logon (AD)</span>
+        <span class="k" title="${esc(USER_TIPS.LastLogonAD)}">Last Logon (AD, per-DC)</span>
           <span class="v" title="${esc(USER_TIPS.LastLogonAD)}">${fmtUTC(di.LastLogonAD)}</span>
+        <span class="k" title="${esc(USER_TIPS.LastLogonTsAD)}">Last Logon (AD, replicated)</span>
+          <span class="v" title="${esc(USER_TIPS.LastLogonTsAD)}">${fmtUTC(di.LastLogonTimestampAD)}</span>
         <span class="k" title="${esc(USER_TIPS.PasswordLastSet)}">Password Last Set</span>
           <span class="v" title="${esc(USER_TIPS.PasswordLastSet)}">${fmtUTC(di.PasswordLastSet)}</span>
         <span class="k">Enabled</span>
@@ -348,7 +368,6 @@ function buildUserExpand(u) {
         <tr>
           <th>Machine</th>
           <th title="${esc(USER_TIPS.FirstLogon)}">First Login</th>
-          <th title="${esc(USER_TIPS.Confidence)}">Confidence</th>
           <th title="${esc(USER_TIPS.LastLogon)}">Last Login</th>
           <th>Profile Path</th>
           <th title="${esc(USER_TIPS.IsLoaded)}">Loaded</th>
@@ -370,14 +389,13 @@ function buildUserExpand(u) {
       html += `<tr>
         <td>${esc(m.hostname)}</td>
         <td title="${esc(tip)}">${fl.UTC ? fmtUTC(fl.UTC) : '<span style="color:var(--muted)">&#8212;</span>'} ${confBadge(fl.Confidence)}</td>
-        <td title="${esc(USER_TIPS.Confidence)}">${confBadge(fl.Confidence)}</td>
         <td title="${esc(lastTip)}">${fmtUTC(m.LastLogon)}</td>
         <td class="mono" style="font-size:10px" title="${esc(profPathFull)}">${profPathShort}</td>
         <td style="text-align:center">${m.IsLoaded ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--muted)">&#8212;</span>'}</td>
       </tr>`;
 
       if (fl.TimestampMismatch) {
-        html += `<tr><td colspan="6" style="color:var(--amber);font-size:11px">? Timestamp mismatch across sources</td></tr>`;
+        html += `<tr><td colspan="5" style="color:var(--amber);font-size:11px">? Timestamp mismatch across sources</td></tr>`;
       }
     });
 
