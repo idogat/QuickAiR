@@ -165,6 +165,9 @@ foreach ($target in $Targets) {
 
     if (-not $connected) {
         Write-Log 'ERROR' "All $MAX_RETRY probe attempts failed for target. Skipping."
+        if ($ProgressFile) {
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Connection failed - host unreachable or WinRM not enabled`n") } catch {}
+        }
         continue
     }
 
@@ -177,7 +180,14 @@ foreach ($target in $Targets) {
             $winrmReachable = $true
             Write-Log 'INFO' "Remote session created for $target"
         } catch {
-            Write-Log 'ERROR' "Failed to create remote session: $($_.Exception.Message). Skipping."
+            $sessErr = $_.Exception.Message
+            Write-Log 'ERROR' "Failed to create remote session: $sessErr. Skipping."
+            if ($ProgressFile) {
+                $reason = if ($sessErr -match 'Access is denied|logon failure') { "Authentication failed - wrong credentials" }
+                          elseif ($sessErr -match 'WinRM.*cannot') { "WinRM not enabled on target" }
+                          else { $sessErr }
+                try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch {}
+            }
             continue
         }
     }

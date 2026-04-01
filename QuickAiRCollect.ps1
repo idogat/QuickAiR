@@ -627,7 +627,7 @@ function Invoke-Schedule {
                     $pr.Detail = $hs.Result
                 } else {
                     $pr.Status = 'Failed'
-                    $pr.Detail = 'Output file not written - collection may have failed'
+                    $pr.Detail = 'No output file - check collection.log for details'
                 }
                 $pr.IsDone  = $true
                 $pr.EndTime = [DateTime]::UtcNow
@@ -661,7 +661,7 @@ function Invoke-Schedule {
                 if ($outFiles.Count -gt 0 -and $outFiles[0].Length -gt 0) {
                     $pr.Status = 'Complete'; $pr.Detail = $outFiles[0].FullName
                 } else {
-                    $pr.Status = 'Failed'; $pr.Detail = 'Output file not written - collection may have failed'
+                    $pr.Status = 'Failed'; $pr.Detail = 'No output file - check collection.log for details'
                 }
             }
             $pr.IsDone  = $true
@@ -709,7 +709,7 @@ function Invoke-Schedule {
                 if ($pr.Detail -ne $hs.Result) { $pr.Detail = $hs.Result; $changed = $true }
             } else {
                 $pr.Status = 'Failed'
-                $pr.Detail = 'Output file not written - collection may have failed'
+                $pr.Detail = 'No output file - check collection.log for details'
                 $changed = $true
             }
             if ($changed) {
