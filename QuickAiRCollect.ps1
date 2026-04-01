@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.5                                           ║
+# ║  Version    : 1.6                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -583,6 +583,7 @@ function Invoke-Schedule {
     }
 
     # Apply progress to plugin rows
+    $connectedHosts = @{}
     foreach ($pr in $prSnap) {
         if ($pr.IsDone) { <# already resolved #> }
         elseif ($progressData.ContainsKey($pr.Hostname)) {
@@ -598,7 +599,7 @@ function Invoke-Schedule {
                 }
                 elseif ($st -eq 'Complete' -and -not $pr.IsDone) {
                     $pr.Status  = 'Complete'
-                    $pr.Detail  = if ($hs.Result) { $hs.Result } else { 'Done' }
+                    $pr.Detail  = 'Done'
                     $pr.IsDone  = $true
                     $pr.EndTime = [DateTime]::UtcNow
                 }
@@ -609,16 +610,22 @@ function Invoke-Schedule {
                     $pr.EndTime = [DateTime]::UtcNow
                 }
             }
-            # Connecting state — show on first non-done row if no plugin has started yet
-            elseif ($hs.Connecting -and $hs.Plugins.Count -eq 0 -and $pr.Status -eq 'Waiting') {
+            # Connecting state — show on first non-done row only (one per host)
+            elseif ($hs.Connecting -and $hs.Plugins.Count -eq 0 -and $pr.Status -eq 'Waiting' -and -not $connectedHosts.ContainsKey($pr.Hostname)) {
                 $pr.Status = 'Connecting'
                 $pr.Detail = 'Connecting...'
+                $connectedHosts[$pr.Hostname] = $true
             }
 
-            # HOSTDONE — mark any remaining undone rows as Complete
+            # HOSTDONE — mark any remaining undone rows, verify output first
             if ($hs.HostDone -and -not $pr.IsDone) {
-                $pr.Status  = 'Complete'
-                $pr.Detail  = if ($hs.Result) { $hs.Result } else { 'Done' }
+                if ($hs.Result -and (Test-Path $hs.Result) -and (Get-Item $hs.Result).Length -gt 0) {
+                    $pr.Status = 'Complete'
+                    $pr.Detail = $hs.Result
+                } else {
+                    $pr.Status = 'Failed'
+                    $pr.Detail = 'Output file not written - collection may have failed'
+                }
                 $pr.IsDone  = $true
                 $pr.EndTime = [DateTime]::UtcNow
             }
@@ -645,7 +652,14 @@ function Invoke-Schedule {
             if ($hasErrors) {
                 $pr.Status = 'Failed'; $pr.Detail = $errMsg
             } else {
-                $pr.Status = 'Complete'; $pr.Detail = 'Done'
+                $outDir = Join-Path $pr.OutputPath $pr.Hostname
+                $outFiles = @(Get-ChildItem $outDir -Filter '*.json' -ErrorAction SilentlyContinue |
+                              Sort-Object LastWriteTimeUtc -Descending)
+                if ($outFiles.Count -gt 0 -and $outFiles[0].Length -gt 0) {
+                    $pr.Status = 'Complete'; $pr.Detail = $outFiles[0].FullName
+                } else {
+                    $pr.Status = 'Failed'; $pr.Detail = 'Output file not written - collection may have failed'
+                }
             }
             $pr.IsDone  = $true
             $pr.EndTime = [DateTime]::UtcNow
@@ -677,6 +691,29 @@ function Invoke-Schedule {
         $timeStr = if ($pr.Status -match 'Collecting|Connecting' -or $pr.IsDone) { "${elapsed}s" } else { '' }
 
         Update-GridRow $pr $timeStr $pr.IsDone
+    }
+
+    # Post-loop: verify output file for hosts where HOSTDONE was received
+    foreach ($hostname in $progressData.Keys) {
+        $hs = $progressData[$hostname]
+        if (-not $hs.HostDone) { continue }
+        $fileOk = ($hs.Result -and (Test-Path $hs.Result) -and (Get-Item $hs.Result).Length -gt 0)
+        foreach ($pr in $prSnap) {
+            if ($pr.Hostname -ne $hostname -or $pr.Status -ne 'Complete') { continue }
+            $changed = $false
+            if ($fileOk) {
+                if ($pr.Detail -ne $hs.Result) { $pr.Detail = $hs.Result; $changed = $true }
+            } else {
+                $pr.Status = 'Failed'
+                $pr.Detail = 'Output file not written - collection may have failed'
+                $changed = $true
+            }
+            if ($changed) {
+                $elapsed = if ($pr.EndTime -ne [DateTime]::MinValue -and $pr.StartTime -ne [DateTime]::MinValue) {
+                    [int]($pr.EndTime - $pr.StartTime).TotalSeconds } else { 0 }
+                Update-GridRow $pr "${elapsed}s" $pr.IsDone
+            }
+        }
     }
 
     } finally { $script:ScheduleRunning = $false }
