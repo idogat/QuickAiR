@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.7                                           ║
+# ║  Version    : 1.8                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -408,18 +408,14 @@ function Start-HostRunspace {
             $collectStart = [DateTime]::UtcNow
             & $collectorPath @splat | Out-Null
 
-            # Find output JSON and write result to progress file
+            # Read output path from progress file (Collector.ps1 writes OUTPUT:<path>)
             $resultJson = ''
-            $hostDirs = @(Get-ChildItem $outputPath -Directory -ErrorAction SilentlyContinue)
-            foreach ($d in $hostDirs) {
-                $jsonFiles = @(Get-ChildItem $d.FullName -Filter '*.json' -ErrorAction SilentlyContinue |
-                                   Where-Object { $_.LastWriteTimeUtc -ge $collectStart } |
-                                   Sort-Object LastWriteTimeUtc -Descending)
-                if ($jsonFiles.Count -gt 0) {
-                    $resultJson = $jsonFiles[0].FullName
-                    break
+            try {
+                $pfLines = [System.IO.File]::ReadAllLines($progressFile)
+                foreach ($pfLine in $pfLines) {
+                    if ($pfLine -match '^OUTPUT:(.+)$') { $resultJson = $Matches[1]; break }
                 }
-            }
+            } catch {}
 
             # Signal completion via progress file (scheduler reads this)
             if ($resultJson) {
@@ -572,6 +568,7 @@ function Invoke-Schedule {
                         elseif ($line -match '^COLLECTING:(.+)$')        { $hostState.Plugins[$Matches[1]] = 'Collecting' }
                         elseif ($line -match '^DONE:(.+)$')              { $hostState.Plugins[$Matches[1]] = 'Complete' }
                         elseif ($line -match '^FAILED:([^:]+):(.*)$')    { $hostState.Plugins[$Matches[1]] = "Failed:$($Matches[2])" }
+                        elseif ($line -match '^OUTPUT:(.+)$')            { $hostState.Result     = $Matches[1] }
                         elseif ($line -match '^RESULT:(.+)$')            { $hostState.Result     = $Matches[1] }
                         elseif ($line -eq 'HOSTDONE')                    { $hostState.HostDone   = $true }
                         elseif ($line -match '^HOSTFAILED:(.+)$')        { $hostState.HostFailed = $Matches[1] }

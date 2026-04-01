@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -309,6 +309,9 @@ foreach ($target in $Targets) {
     # Write JSON output
     $written = Write-JsonOutput -Data $jsonOutput -HostDir (Join-Path $OutputPath $outHost) -Hostname $outHost
     Write-Log 'INFO' "Output: $($written.Path) | SHA256: $($written.Hash)"
+    if ($ProgressFile) {
+        try { [System.IO.File]::AppendAllText($ProgressFile, "OUTPUT:$($written.Path)`n") } catch {}
+    }
 
     $procCount  = @($output['Processes']).Count
     $connCount  = @($output['Network'].tcp).Count
