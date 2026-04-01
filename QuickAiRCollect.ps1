@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.6                                           ║
+# ║  Version    : 1.7                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -583,7 +583,6 @@ function Invoke-Schedule {
     }
 
     # Apply progress to plugin rows
-    $connectedHosts = @{}
     foreach ($pr in $prSnap) {
         if ($pr.IsDone) { <# already resolved #> }
         elseif ($progressData.ContainsKey($pr.Hostname)) {
@@ -610,11 +609,18 @@ function Invoke-Schedule {
                     $pr.EndTime = [DateTime]::UtcNow
                 }
             }
-            # Connecting state — show on first non-done row only (one per host)
-            elseif ($hs.Connecting -and $hs.Plugins.Count -eq 0 -and $pr.Status -eq 'Waiting' -and -not $connectedHosts.ContainsKey($pr.Hostname)) {
-                $pr.Status = 'Connecting'
-                $pr.Detail = 'Connecting...'
-                $connectedHosts[$pr.Hostname] = $true
+            # Connecting state — show on first row only (skip if another row already Connecting)
+            elseif ($hs.Connecting -and $hs.Plugins.Count -eq 0 -and $pr.Status -eq 'Waiting') {
+                $alreadyConnecting = $false
+                foreach ($other in $prSnap) {
+                    if ($other.Hostname -eq $pr.Hostname -and $other.Status -eq 'Connecting') {
+                        $alreadyConnecting = $true; break
+                    }
+                }
+                if (-not $alreadyConnecting) {
+                    $pr.Status = 'Connecting'
+                    $pr.Detail = 'Connecting...'
+                }
             }
 
             # HOSTDONE — mark any remaining undone rows, verify output first
@@ -666,7 +672,8 @@ function Invoke-Schedule {
         }
 
         # Dispose completed runspaces and clean up progress file
-        if ($pr.IsDone -and $null -ne $pr.PS_) {
+        # Wait for runspace to finish (HOSTDONE/RESULT written) before cleanup
+        if ($pr.IsDone -and $null -ne $pr.PS_ -and $null -ne $pr.RunHandle_ -and $pr.RunHandle_.IsCompleted) {
             $allDone = $true
             foreach ($other in $prSnap) {
                 if ($other.Hostname -eq $pr.Hostname -and -not $other.IsDone) { $allDone = $false; break }
