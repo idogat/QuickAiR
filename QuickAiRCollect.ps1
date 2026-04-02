@@ -16,7 +16,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 1.9                                           ║
+# ║  Version    : 2.0                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -258,6 +258,16 @@ function Get-RowBgColor {
     }
     if ($status -ne 'Queued') { return $COL_ROW_RUN }
     return $COL_ROW_NORM
+}
+
+function Test-AuthError {
+    param([string]$detail)
+    if ([string]::IsNullOrWhiteSpace($detail)) { return $false }
+    $patterns = @('user name or password', 'Access.+denied', 'LogonFailure', '401', 'Unauthorized')
+    foreach ($p in $patterns) {
+        if ($detail -match $p) { return $true }
+    }
+    return $false
 }
 #endregion
 
@@ -569,7 +579,7 @@ function Invoke-Schedule {
         # Build detail and status from parsed state
         if ($hostFailed) {
             $pr.Status  = 'Failed'
-            $pr.Detail  = $hostFailed
+            $pr.Detail  = if (Test-AuthError $hostFailed) { 'Authentication failed '+[char]0x2014+' wrong username or password.' } else { $hostFailed }
             $pr.IsDone  = $true
             $pr.EndTime = [DateTime]::UtcNow
         }
@@ -631,7 +641,8 @@ function Invoke-Schedule {
                 }
             } catch {}
             if ($hasErrors) {
-                $pr.Status = 'Failed'; $pr.Detail = "Collection error: $errMsg. Check collection.log in the output folder for details."
+                $authDetail = if (Test-AuthError $errMsg) { 'Authentication failed '+[char]0x2014+' wrong username or password.' } else { "Collection error: $errMsg. Check collection.log in the output folder for details." }
+                $pr.Status = 'Failed'; $pr.Detail = $authDetail
             } else {
                 $outDir = Join-Path $pr.OutputPath $pr.Hostname
                 $outFiles = @(Get-ChildItem $outDir -Filter '*.json' -ErrorAction SilentlyContinue |
@@ -677,8 +688,8 @@ function Build-UI {
     # ── Form ──────────────────────────────────────────────────
     $form = [System.Windows.Forms.Form]::new()
     $form.Text          = 'QuickAiR Collector'
-    $form.Size          = [System.Drawing.Size]::new(900, 500)
-    $form.MinimumSize   = [System.Drawing.Size]::new(700, 350)
+    $form.Size          = [System.Drawing.Size]::new(1000, 500)
+    $form.MinimumSize   = [System.Drawing.Size]::new(800, 350)
     $form.BackColor     = $COL_BG
     $form.ForeColor     = $COL_FG
     $form.TopMost       = $false
@@ -805,7 +816,8 @@ function Build-UI {
     $btnCancelSel  = New-BottomBtn 'Cancel Selected'   8   '#8b2020'
     $btnCancelAll  = New-BottomBtn 'Cancel All'         156 '#6e2020'
     $btnOpenOutput = New-BottomBtn 'Open Output Folder' 304 '#1f4e2e'
-    $btnClose      = New-BottomBtn 'Close'              452 '#21262d'
+    $btnRetrySel   = New-BottomBtn 'Retry'               452 '#1f4e6e'
+    $btnClose      = New-BottomBtn 'Close'              600 '#21262d'
     $script:BtnClose = $btnClose
 
     $btnCancelSel.Add_Click({
@@ -851,6 +863,50 @@ function Build-UI {
         Start-Process explorer.exe -ArgumentList $outPath
     })
 
+    $btnRetrySel.Add_Click({
+        # Collect target IDs from selected grid rows
+        $selectedIds = @{}
+        foreach ($row in @($script:Grid.SelectedRows)) {
+            $selectedIds[[string]$row.Tag] = $true
+        }
+        [System.Threading.Monitor]::Enter($script:Lock)
+        $snap = @($script:HostRows)
+        [System.Threading.Monitor]::Exit($script:Lock)
+        foreach ($pr in $snap) {
+            if (-not $selectedIds.ContainsKey($pr.TargetId)) { continue }
+            if (-not $pr.IsDone) { continue }
+            if ($pr.Status -eq 'Complete') { continue }
+
+            # Clear cached credential so user gets a fresh prompt
+            $targetKey = $pr.Hostname.ToLower()
+            $script:CredCache.Remove($targetKey)
+            if ($pr.Credential -and $pr.Credential.UserName -match '^([^\\]+)\\') {
+                $script:CredCache.Remove($Matches[1].ToLower())
+            }
+
+            # Prompt fresh credential on UI thread
+            $cred = Show-CredentialDialog $pr.Hostname
+            if ($null -eq $cred) { continue }   # Cancelled — rows stay Failed, Retry stays visible
+
+            # Store new credential in cache
+            $script:CredCache[$targetKey] = $cred
+            $domKey = if ($cred.UserName -match '^([^\\]+)\\') { $Matches[1].ToLower() } else { $targetKey }
+            $script:CredCache[$domKey] = $cred
+
+            # Reset host row — scheduler picks it up on next tick
+            $pr.Status       = 'Queued'
+            $pr.Detail       = ''
+            $pr.Progress     = ''
+            $pr.IsDone       = $false
+            $pr.Credential   = $null
+            $pr.EndTime      = [DateTime]::MinValue
+            $pr.ProgressFile = ''
+            if ($null -ne $pr.PS_) { try { $pr.PS_.Dispose() } catch { } }
+            $pr.PS_          = $null
+            $pr.RunHandle_   = $null
+        }
+    })
+
     $btnClose.Add_Click({
         [System.Threading.Monitor]::Enter($script:Lock)
         $anyRunning = @($script:HostRows | Where-Object { -not $_.IsDone })
@@ -862,7 +918,7 @@ function Build-UI {
         }
     })
 
-    $bottomPanel.Controls.AddRange(@($btnCancelSel, $btnCancelAll, $btnOpenOutput, $btnClose))
+    $bottomPanel.Controls.AddRange(@($btnCancelSel, $btnCancelAll, $btnOpenOutput, $btnRetrySel, $btnClose))
 
     # ── Assemble ──────────────────────────────────────────────
     $form.Controls.Add($grid)

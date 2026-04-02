@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.6                    ║
+# ║  Version   : 2.7                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -150,6 +150,7 @@ foreach ($target in $Targets) {
     # Capability probe with retry
     $caps      = $null
     $connected = $false
+    $lastProbeError = ''
     for ($attempt = 1; $attempt -le $MAX_RETRY; $attempt++) {
         try {
             $caps = Get-TargetCaps -Target $target -Cred $effectiveCred
@@ -161,7 +162,8 @@ foreach ($target in $Targets) {
             }
             break
         } catch {
-            Write-Log 'WARN' "Probe attempt $attempt/$MAX_RETRY failed: $($_.Exception.Message)"
+            $lastProbeError = $_.Exception.Message
+            Write-Log 'WARN' "Probe attempt $attempt/$MAX_RETRY failed: $lastProbeError"
             if ($attempt -lt $MAX_RETRY) { Start-Sleep -Seconds $RETRY_WAIT_SEC }
         }
     }
@@ -169,7 +171,8 @@ foreach ($target in $Targets) {
     if (-not $connected) {
         Write-Log 'ERROR' "All $MAX_RETRY probe attempts failed for target. Skipping."
         if ($ProgressFile) {
-            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Connection failed: host unreachable or WinRM not configured. Verify the host is online and WinRM is enabled (run Enable-PSRemoting on target).`n") } catch {}
+            $failDetail = if ($lastProbeError) { $lastProbeError } else { 'Connection failed: host unreachable or WinRM not configured. Verify the host is online and WinRM is enabled (run Enable-PSRemoting on target).' }
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failDetail`n") } catch {}
         }
         continue
     }
