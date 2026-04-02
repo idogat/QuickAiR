@@ -69,6 +69,9 @@ public class CatalogChecker
     [DllImport("wintrust.dll")]
     static extern IntPtr CryptCATAdminEnumCatalogFromHash(
         IntPtr hCatAdmin, IntPtr pbHash, int cbHash, int dwFlags, ref IntPtr phPrevCatInfo);
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode)]
+    static extern bool CryptCATCatalogInfoFromContext(
+        IntPtr hCatInfo, IntPtr psCatInfo, int dwFlags);
     [DllImport("wintrust.dll")]
     static extern bool CryptCATAdminReleaseCatalogContext(
         IntPtr hCatAdmin, IntPtr hCatInfo, int dwFlags);
@@ -81,36 +84,49 @@ public class CatalogChecker
     [DllImport("kernel32.dll")]
     static extern bool CloseHandle(IntPtr h);
 
-    public static bool IsInCatalog(string filePath)
+    public static string FindCatalog(string filePath)
     {
         IntPtr hFile = CreateFile(filePath, 0x80000000, 1,
             IntPtr.Zero, 3, 0, IntPtr.Zero);
-        if (hFile == new IntPtr(-1)) return false;
+        if (hFile == new IntPtr(-1)) return null;
         try
         {
             int hashSize = 0;
             CryptCATAdminCalcHashFromFileHandle(hFile, ref hashSize, IntPtr.Zero, 0);
-            if (hashSize == 0) return false;
+            if (hashSize == 0) return null;
             IntPtr hashBuf = Marshal.AllocHGlobal(hashSize);
             try
             {
                 if (!CryptCATAdminCalcHashFromFileHandle(hFile, ref hashSize, hashBuf, 0))
-                    return false;
+                    return null;
                 Guid subsystem = new Guid("F750E6C3-38EE-11D1-85E5-00C04FC295EE");
                 IntPtr hCatAdmin;
                 if (!CryptCATAdminAcquireContext(out hCatAdmin, ref subsystem, 0))
-                    return false;
+                    return null;
                 try
                 {
                     IntPtr hCatInfo = IntPtr.Zero;
                     hCatInfo = CryptCATAdminEnumCatalogFromHash(
                         hCatAdmin, hashBuf, hashSize, 0, ref hCatInfo);
-                    if (hCatInfo != IntPtr.Zero)
+                    if (hCatInfo == IntPtr.Zero) return null;
+                    try
+                    {
+                        int ciSize = 4 + 520;
+                        IntPtr pCI = Marshal.AllocHGlobal(ciSize);
+                        try
+                        {
+                            for (int i = 0; i < ciSize; i++) Marshal.WriteByte(pCI, i, 0);
+                            Marshal.WriteInt32(pCI, 0, ciSize);
+                            if (CryptCATCatalogInfoFromContext(hCatInfo, pCI, 0))
+                                return Marshal.PtrToStringUni(new IntPtr(pCI.ToInt64() + 4));
+                            return null;
+                        }
+                        finally { Marshal.FreeHGlobal(pCI); }
+                    }
+                    finally
                     {
                         CryptCATAdminReleaseCatalogContext(hCatAdmin, hCatInfo, 0);
-                        return true;
                     }
-                    return false;
                 }
                 finally { CryptCATAdminReleaseContext(hCatAdmin, 0); }
             }
@@ -127,12 +143,13 @@ public class CatalogChecker
     }
 
     $sigCache = @{}
+    $catSignerCache = @{}
     function _getSigPS2($path) {
         if (-not $path) { return $null }
         if ($sigCache.ContainsKey($path)) { return $sigCache[$path] }
-        $inCatalog = $false
+        $catPath = $null
         if ($_catAvailable) {
-            try { $inCatalog = [CatalogChecker]::IsInCatalog($path) } catch {}
+            try { $catPath = [CatalogChecker]::FindCatalog($path) } catch {}
         }
         $sigSubj = $null; $sigIss = $null; $cnW = $null; $hasEmbedded = $false
         try {
@@ -142,28 +159,42 @@ public class CatalogChecker
             if ($sigSubj -match 'CN=([^,]+)') { $cnW = $Matches[1].Trim() }
             $hasEmbedded = $true
         } catch {}
-        $isSigned = ($inCatalog -or $hasEmbedded)
         $result = $null
         if ($hasEmbedded) {
             $result = New-Object PSObject -Property @{
-                IsSigned=$true; IsValid=$true; Status='Valid'
+                IsSigned=$true; IsValid=$null; Status='Valid'
                 SignerSubject=$sigSubj; SignerCompany=$cnW; Issuer=$sigIss
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                IsOSBinary=$null; SignatureType='Embedded'
+                IsOSBinary=$null; SignatureType='Embedded'; CatalogFile=$null
             }
-        } elseif ($inCatalog) {
+        } elseif ($catPath) {
+            $cSigSubj = $null; $cSigIss = $null; $cCn = $null
+            if ($catSignerCache.ContainsKey($catPath)) {
+                $cached = $catSignerCache[$catPath]
+                $cSigSubj = $cached.Subject; $cSigIss = $cached.Issuer; $cCn = $cached.CN
+            } else {
+                try {
+                    $catCert = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($catPath)
+                    $cSigSubj = $catCert.Subject
+                    $cSigIss  = $catCert.Issuer
+                    if ($cSigSubj -match 'CN=([^,]+)') { $cCn = $Matches[1].Trim() }
+                } catch {}
+                $catSignerCache[$catPath] = New-Object PSObject -Property @{
+                    Subject=$cSigSubj; Issuer=$cSigIss; CN=$cCn
+                }
+            }
             $result = New-Object PSObject -Property @{
-                IsSigned=$true; IsValid=$true; Status='Valid'
-                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                IsSigned=$true; IsValid=$null; Status='CatalogPresent'
+                SignerSubject=$cSigSubj; SignerCompany=$cCn; Issuer=$cSigIss
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                IsOSBinary=$null; SignatureType='Catalog'
+                IsOSBinary=$null; SignatureType='Catalog'; CatalogFile=$catPath
             }
         } else {
             $result = New-Object PSObject -Property @{
                 IsSigned=$false; IsValid=$false; Status='NotSigned'
                 SignerSubject=$null; SignerCompany=$null; Issuer=$null
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                IsOSBinary=$null; SignatureType=$null
+                IsOSBinary=$null; SignatureType=$null; CatalogFile=$null
             }
         }
         $sigCache[$path] = $result
