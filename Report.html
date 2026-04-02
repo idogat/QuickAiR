@@ -332,7 +332,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-04-02T21:00:18.0050483Z",
+    "generated":  "2026-04-02T21:35:34.2875090Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -2619,29 +2619,27 @@ function dnsSortBy(col) {
 
 // ╔══════════════════════════════════════╗
 // ║  QuickAiR — 09_users.js               ║
-// ║  Users tab render, cross-host user   ║
-// ║  correlation by SID, per-user        ║
-// ║  expandable machine list, DC data    ║
-// ║  enrichment, first-login confidence  ║
+// ║  Users tab render, per-host display  ║
+// ║  with cross-host SID correlation in  ║
+// ║  expand panel, DC data enrichment,   ║
+// ║  first-login confidence              ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : window.userIndex,         ║
-// ║             activeHost.Users          ║
+// ║  Reads    : activeData().Users,       ║
+// ║             window.userIndex          ║
 // ║  Writes   : usersData, usersSearch,   ║
 // ║             usersTypeFilter,          ║
 // ║             usersConfFilter           ║
 // ║  Functions: renderUsers, renderUser-  ║
 // ║    Row, onUserRowClick, buildUser-    ║
 // ║    Expand, usersSortRows, usersApply- ║
-// ║    Filters, confBadge,                ║
-// ║    acctTypeBadge, usersGetFirstLogon, ║
-// ║    usersGetLastLogon, usersGetBest-   ║
-// ║    Conf                               ║
+// ║    Filters, confBadge, acctTypeBadge  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.50                      ║
+// ║  Version  : 4.00                      ║
 // ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
-// Unified table — one row per unique SID, cross-host correlation via userIndex.
+// Per-host table — one row per user on the active host.
+// Cross-host SID correlation shown in expand panel via window.userIndex.
 
 let usersSearch    = '';
 let usersTypeFilter= 'All';
@@ -2690,55 +2688,34 @@ function acctTypeBadge(t) {
   return '<span style="' + s + ';padding:1px 5px;border-radius:3px;font-size:10px">' + esc(t || '?') + '</span>';
 }
 
-function usersGetFirstLogon(u) {
-  let best = null;
-  u.machines.forEach(m => {
-    if (!m.FirstLogon || !m.FirstLogon.UTC) return;
-    if (!best || m.FirstLogon.UTC < best.UTC) best = m.FirstLogon;
-  });
-  return best;
-}
-
-function usersGetLastLogon(u) {
-  let best = null;
-  u.machines.forEach(m => {
-    if (!m.LastLogon) return;
-    if (!best || m.LastLogon > best) best = m.LastLogon;
-  });
-  return best;
-}
-
-function usersGetBestConf(u) {
-  let best = 'N/A';
-  u.machines.forEach(m => {
-    const c = m.FirstLogon ? (m.FirstLogon.Confidence || 'N/A') : 'N/A';
-    if ((CONF_ORDER[c] ?? 99) < (CONF_ORDER[best] ?? 99)) best = c;
-  });
-  return best;
-}
 
 // ── Sort ──────────────────────────────────────────────────────────────────────
 function usersSortRows(rows) {
   if (!sortState.tab || sortState.tab !== 'users' || sortState.dir === 'none') return rows;
   const dir = sortState.dir === 'asc' ? 1 : -1;
   const col = sortState.column;
+  const idx = window.userIndex || {};
   return rows.slice().sort((a, b) => {
     let av, bv;
     switch (col) {
       case 'username':   av = str(a.Username); bv = str(b.Username); break;
       case 'acctType':   av = str(a.AccountType); bv = str(b.AccountType); break;
       case 'domain':     av = str(a.Domain); bv = str(b.Domain); break;
-      case 'dcCreated':
-        av = a.domainInfo ? (a.domainInfo.WhenCreated || '') : '';
-        bv = b.domainInfo ? (b.domainInfo.WhenCreated || '') : ''; break;
-      case 'firstLogin': {
-        const af = usersGetFirstLogon(a); const bf = usersGetFirstLogon(b);
-        av = af ? af.UTC : ''; bv = bf ? bf.UTC : ''; break;
+      case 'dcCreated': {
+        const adi = idx[a.SID]; const bdi = idx[b.SID];
+        av = (adi && adi.domainInfo) ? (adi.domainInfo.WhenCreated || '') : '';
+        bv = (bdi && bdi.domainInfo) ? (bdi.domainInfo.WhenCreated || '') : ''; break;
       }
-      case 'lastLogin':  av = usersGetLastLogon(a) || ''; bv = usersGetLastLogon(b) || ''; break;
+      case 'firstLogin':
+        av = (a.FirstLogon && a.FirstLogon.UTC) ? a.FirstLogon.UTC : '';
+        bv = (b.FirstLogon && b.FirstLogon.UTC) ? b.FirstLogon.UTC : ''; break;
+      case 'lastLogin':
+        av = a.LastLogonUTC || ''; bv = b.LastLogonUTC || ''; break;
       case 'confidence': {
-        const ao = CONF_ORDER[usersGetBestConf(a)] ?? 99;
-        const bo = CONF_ORDER[usersGetBestConf(b)] ?? 99;
+        const ac = a.FirstLogon ? (a.FirstLogon.Confidence || 'N/A') : 'N/A';
+        const bc = b.FirstLogon ? (b.FirstLogon.Confidence || 'N/A') : 'N/A';
+        const ao = CONF_ORDER[ac] ?? 99;
+        const bo = CONF_ORDER[bc] ?? 99;
         return (ao - bo) * dir;
       }
       default: av = ''; bv = '';
@@ -2752,18 +2729,30 @@ function usersSortRows(rows) {
 
 // ── Filter + render ───────────────────────────────────────────────────────────
 function usersApplyFilters() {
+  const d = activeData();
+  if (!d || !d.Users || !d.Users.users) {
+    usersData = [];
+    const cnt = el('users-count');
+    if (cnt) cnt.textContent = '0 users';
+    if (state.vsInstances['users']) state.vsInstances['users'].update([]);
+    return;
+  }
+
   const idx = window.userIndex || {};
   const lq  = usersSearch.toLowerCase();
 
-  let rows = Object.values(idx).filter(u => {
+  let rows = d.Users.users.filter(u => {
+    if (!u.SID) return false;
     if (lq && !str(u.Username).toLowerCase().includes(lq) &&
               !str(u.Domain).toLowerCase().includes(lq) &&
               !str(u.SID).toLowerCase().includes(lq)) return false;
     if (usersTypeFilter !== 'All' && u.AccountType !== usersTypeFilter) return false;
-    if (usersConfFilter !== 'All' && usersGetBestConf(u) !== usersConfFilter) return false;
+    const conf = u.FirstLogon ? (u.FirstLogon.Confidence || 'N/A') : 'N/A';
+    if (usersConfFilter !== 'All' && conf !== usersConfFilter) return false;
     if (usersNoDcFilter) {
       if (u.AccountType !== 'Domain') return false;
-      if (u.domainInfo) return false;
+      const gi = idx[u.SID];
+      if (gi && gi.domainInfo) return false;
     }
     return true;
   });
@@ -2790,21 +2779,20 @@ function renderUsers() {
   const panel = el('panel-users');
   if (!panel) return;
 
-  const hasAnyUsers = Object.values(state.hosts).some(h => h.Users);
-  if (!hasAnyUsers) {
-    panel.innerHTML = '<div class="solo-notice">Load a JSON file to see user data.</div>';
+  const d = activeData();
+  if (!d || !d.Users) {
+    panel.innerHTML = '<div class="solo-notice">No file loaded.</div>';
     return;
   }
 
-  const hasUsersData = Object.values(state.hosts).some(h => h.Users && h.Users.users && h.Users.users.length > 0);
-  if (!hasUsersData) {
+  if (!d.Users.users || d.Users.users.length === 0) {
     panel.innerHTML = '<div class="solo-notice">No user data in this JSON.</div>';
     return;
   }
 
-  // DC banner: domain users present but no DC JSON loaded
+  // DC banner: domain users on this host but no DC JSON loaded anywhere
   const idx = window.userIndex || {};
-  const hasDomainUsers = Object.values(idx).some(u => u.AccountType === 'Domain');
+  const hasDomainUsers = d.Users.users.some(u => u.AccountType === 'Domain');
   const hasDcLoaded    = Object.values(state.hosts).some(h => h.Users && h.Users.is_domain_controller);
   const showDcBanner   = hasDomainUsers && !hasDcLoaded;
 
@@ -2860,17 +2848,20 @@ function renderUsers() {
 
 // ── Row render ────────────────────────────────────────────────────────────────
 function renderUserRow(u) {
-  const bestConf = usersGetBestConf(u);
-  const fl       = usersGetFirstLogon(u);
-  const lastLogon= usersGetLastLogon(u);
-  const dcDate   = u.domainInfo ? fmtUTC(u.domainInfo.WhenCreated) : (
+  const idx = window.userIndex || {};
+  const gi  = idx[u.SID];
+  const fl  = u.FirstLogon;
+  const conf = fl ? (fl.Confidence || 'N/A') : 'N/A';
+  const lastLogon = u.LastLogonUTC;
+  const di  = gi ? gi.domainInfo : null;
+  const dcDate = di ? fmtUTC(di.WhenCreated) : (
     u.AccountType === 'Local'
       ? '<span style="color:var(--muted)" title="Local accounts have no AD creation date">?</span>'
       : '<span style="color:var(--muted)">&#8212;</span>'
   );
 
   let firstLoginCell;
-  if (fl) {
+  if (fl && fl.UTC) {
     firstLoginCell = fmtUTC(fl.UTC) + ' ' + confBadge(fl.Confidence);
   } else {
     firstLoginCell = '<span style="color:var(--muted)">&#8212;</span>';
@@ -2883,7 +2874,7 @@ function renderUserRow(u) {
     <div class="td dim" title="${esc(USER_TIPS.WhenCreated)}">${dcDate}</div>
     <div class="td dim" title="${esc(USER_TIPS.FirstLogon)}">${firstLoginCell}</div>
     <div class="td dim" title="${esc(USER_TIPS.LastLogon)}">${fmtUTC(lastLogon)}</div>
-    <div class="td">${confBadge(bestConf)}</div>`;
+    <div class="td">${confBadge(conf)}</div>`;
 }
 
 // ── Row click ─────────────────────────────────────────────────────────────────
@@ -2900,6 +2891,11 @@ function onUserRowClick(i, u, rowEl) {
 
 // ── Row expand ────────────────────────────────────────────────────────────────
 function buildUserExpand(u) {
+  // Look up cross-host data from the global index
+  const idx = window.userIndex || {};
+  const gi  = idx[u.SID] || {};
+  const di  = gi.domainInfo || null;
+
   let html = '<div style="padding:10px 14px">';
 
   // ── SECTION 1: IDENTITY ──
@@ -2925,10 +2921,12 @@ function buildUserExpand(u) {
         <span class="v" style="color:var(--green)">&#10003; exists${disStr}</span>`;
   }
 
-  // Collect group memberships from all machines + DC domain info
+  // Collect group memberships from this user + all machines in index + DC domain info
   const allGroups = new Set();
-  u.machines.forEach(m => (m.GroupMemberships || []).forEach(g => allGroups.add(g)));
-  if (u.domainInfo && u.domainInfo.MemberOf) u.domainInfo.MemberOf.forEach(g => allGroups.add(g));
+  const ug = u.GroupMemberships;
+  (Array.isArray(ug) ? ug : ug ? [ug] : []).forEach(g => allGroups.add(g));
+  if (gi.machines) gi.machines.forEach(m => { const mg = m.GroupMemberships; (Array.isArray(mg) ? mg : mg ? [mg] : []).forEach(g => allGroups.add(g)); });
+  if (di && di.MemberOf) di.MemberOf.forEach(g => allGroups.add(g));
   if (allGroups.size > 0) {
     const badges = Array.from(allGroups).sort().map(g => {
       const isAdmin = /^(Administrators|Domain Admins|Enterprise Admins|Schema Admins)$/i.test(g);
@@ -2944,8 +2942,7 @@ function buildUserExpand(u) {
   html += '</div>';
 
   // ── SECTION 2: DOMAIN INFO ──
-  if (u.domainInfo) {
-    const di  = u.domainInfo;
+  if (di) {
     const src = di.Source || '?';
     const srcColor = src === 'Get-ADUser' ? 'var(--green)' : 'var(--accent)';
     html += `
@@ -2979,10 +2976,11 @@ function buildUserExpand(u) {
         Local account &#8212; no AD data available</div>`;
   }
 
-  // ── SECTION 3: MACHINE APPEARANCES ──
-  if (u.machines.length > 0) {
+  // ── SECTION 3: MACHINE APPEARANCES (cross-host from userIndex) ──
+  const machines = gi.machines || [];
+  if (machines.length > 0) {
     html += `
-      <h4 style="margin:0 0 6px">Machine Appearances (${u.machines.length})</h4>
+      <h4 style="margin:0 0 6px">Machine Appearances (${machines.length})</h4>
       <table class="expand-tbl" style="margin-bottom:10px">
         <tr>
           <th>Machine</th>
@@ -2992,7 +2990,7 @@ function buildUserExpand(u) {
           <th title="${esc(USER_TIPS.IsLoaded)}">Loaded</th>
         </tr>`;
 
-    u.machines.forEach(m => {
+    machines.forEach(m => {
       const fl  = m.FirstLogon || {};
       const pf  = fl.ProfileFolder || {};
       const nt  = fl.NTUserDat || {};
