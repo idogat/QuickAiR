@@ -332,7 +332,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-03-31T16:17:19.9131567Z",
+    "generated":  "2026-04-02T21:00:18.0050483Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -1571,7 +1571,8 @@ let procData    = [];
 function renderSignedIcon(sig) {
   if (!sig) return '<span style="color:var(--muted)">?</span>';
   if (sig.IsSigned === true  && sig.IsValid === true)  return '<span style="color:var(--green)">&#10003;</span>';
-  if (sig.IsSigned === true  && sig.IsValid === false)  return '<span style="color:var(--red)">&#10007;</span>';
+  if (sig.IsSigned === true  && sig.IsValid === false) return '<span style="color:var(--red)">&#10007;</span>';
+  if (sig.IsSigned === true  && sig.IsValid == null)   return '<span style="color:var(--green)">&#10003;</span>';
   if (sig.IsSigned === false) return '<span style="color:var(--muted)">&mdash;</span>';
   return '<span style="color:var(--amber)">?</span>';
 }
@@ -2346,7 +2347,7 @@ function renderDllRow(e, i) {
     <div class="td dim">${esc(e.Company||'')}</div>
     <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
-    <div class="td" title="${sig && /^PS2_/.test(sig.Status||'') ? 'PS2: unvalidated (cert presence only)' : (sig ? (sig.Status||'') : '')}">${renderSignedIcon(sig)}${sig && /^PS2_/.test(sig.Status||'') ? '<span style="font-size:8px;color:var(--amber)" title="PS2 — signature not validated">&#9679;</span>' : ''}</div>
+    <div class="td" title="${sig ? (sig.CatalogFile ? 'Catalog: '+sig.CatalogFile : (sig.Status||'')) : ''}">${renderSignedIcon(sig)}${sig && sig.SignatureType==='Catalog' ? '<span style="font-size:8px;color:var(--amber)" title="Catalog-signed (hash in Windows catalog DB)">&#9679;</span>' : ''}</div>
     <div class="td dim">${esc(signerCo)}</div>`;
 }
 
