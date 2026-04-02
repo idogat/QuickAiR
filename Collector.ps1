@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.7                    ║
+# ║  Version   : 2.8                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -147,6 +147,27 @@ foreach ($target in $Targets) {
         } catch { Write-Log 'WARN' "Could not update TrustedHosts: $($_.Exception.Message)" }
     }
 
+    # Shorten verbose WinRM errors to short actionable messages
+    function Format-ConnectionError([string]$msg) {
+        if ([string]::IsNullOrWhiteSpace($msg)) { return 'Connection failed.' }
+        $map = @(
+            @{ Pattern = 'client cannot connect to the destination';   Short = 'Connection refused: host unreachable or WinRM not listening.' }
+            @{ Pattern = 'server name cannot be resolved';             Short = 'DNS resolution failed: hostname not found.' }
+            @{ Pattern = 'network path was not found';                 Short = 'Network path not found: host unreachable.' }
+            @{ Pattern = 'Access is denied|logon failure|user name or password'; Short = 'Authentication failed: credentials rejected by target.' }
+            @{ Pattern = 'WinRM cannot complete';                      Short = 'WinRM not configured on target.' }
+            @{ Pattern = 'WinRM client cannot process the request';    Short = 'WinRM request failed: check target configuration.' }
+            @{ Pattern = 'connection attempt failed';                  Short = 'Connection timed out: host unreachable.' }
+        )
+        foreach ($m in $map) {
+            if ($msg -match $m.Pattern) { return $m.Short }
+        }
+        # Fallback: first sentence, max 120 chars
+        $short = ($msg -split '\.\s', 2)[0]
+        if ($short.Length -gt 120) { $short = $short.Substring(0, 117) + '...' }
+        return $short
+    }
+
     # Capability probe with retry
     $caps      = $null
     $connected = $false
@@ -171,7 +192,7 @@ foreach ($target in $Targets) {
     if (-not $connected) {
         Write-Log 'ERROR' "All $MAX_RETRY probe attempts failed for target. Skipping."
         if ($ProgressFile) {
-            $failDetail = if ($lastProbeError) { $lastProbeError } else { 'Connection failed: host unreachable or WinRM not configured. Verify the host is online and WinRM is enabled (run Enable-PSRemoting on target).' }
+            $failDetail = if ($lastProbeError) { Format-ConnectionError $lastProbeError } else { 'Connection failed: host unreachable or WinRM not configured.' }
             try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failDetail`n") } catch {}
         }
         continue
@@ -189,9 +210,7 @@ foreach ($target in $Targets) {
             $sessErr = $_.Exception.Message
             Write-Log 'ERROR' "Failed to create remote session: $sessErr. Skipping."
             if ($ProgressFile) {
-                $reason = if ($sessErr -match 'Access is denied|logon failure') { "Authentication failed: credentials rejected by target. Verify username/password and ensure the account has admin rights on the remote host." }
-                          elseif ($sessErr -match 'WinRM.*cannot') { "Session failed: WinRM service not running on target. Run 'Enable-PSRemoting -Force' as admin on the target machine." }
-                          else { "Session failed: $sessErr. Check network connectivity and WinRM configuration on the target." }
+                $reason = Format-ConnectionError $sessErr
                 try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch {}
             }
             continue

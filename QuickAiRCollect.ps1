@@ -17,7 +17,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 2.0                                           ║
+# ║  Version    : 2.1                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -488,6 +488,7 @@ function Add-GridRow {
         [object]'')
     $row = $script:Grid.Rows[$rowIdx]
     $row.Tag = $pRow.TargetId
+    $row.Cells[4].ToolTipText = [string]$pRow.Detail
     Set-RowStyle $row $pRow.Status $false
 }
 
@@ -500,6 +501,7 @@ function Update-GridRow {
         $row.Cells[2].Value = [object](Get-StatusDisplay $pRow.Status)
         $row.Cells[3].Value = [object]([string]$pRow.Progress)
         $row.Cells[4].Value = [object]([string]$pRow.Detail)
+        $row.Cells[4].ToolTipText = [string]$pRow.Detail
         $row.Cells[5].Value = [object]$timeStr
         Set-RowStyle $row $pRow.Status $isDone
         break
