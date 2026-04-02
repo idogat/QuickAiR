@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.0                    ║
+# ║  Version   : 3.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -46,6 +46,88 @@ $script:DLL_SB = {
     if ($PSVersionTable -and $PSVersionTable.PSVersion) {
         $psMajor = $PSVersionTable.PSVersion.Major
     }
+
+    # Catalog signature check P/Invoke for PS 2.0
+    # Uses CryptCATAdmin APIs to check if file hash is in Windows catalog DB.
+    # Falls back to CreateFromSignedFile for embedded sig details.
+    $_catAvailable = $false
+    if ($psMajor -lt 3) {
+        try {
+            if (-not ('CatalogChecker' -as [type])) {
+                Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public class CatalogChecker
+{
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminCalcHashFromFileHandle(
+        IntPtr hFile, ref int pcbHash, IntPtr pbHash, int dwFlags);
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminAcquireContext(
+        out IntPtr phCatAdmin, ref Guid pgSubsystem, int dwFlags);
+    [DllImport("wintrust.dll")]
+    static extern IntPtr CryptCATAdminEnumCatalogFromHash(
+        IntPtr hCatAdmin, IntPtr pbHash, int cbHash, int dwFlags, ref IntPtr phPrevCatInfo);
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminReleaseCatalogContext(
+        IntPtr hCatAdmin, IntPtr hCatInfo, int dwFlags);
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminReleaseContext(
+        IntPtr hCatAdmin, int dwFlags);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateFile(string fn, uint access, uint share,
+        IntPtr sa, uint disp, uint flags, IntPtr tmpl);
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr h);
+
+    public static bool IsInCatalog(string filePath)
+    {
+        IntPtr hFile = CreateFile(filePath, 0x80000000, 1,
+            IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (hFile == new IntPtr(-1)) return false;
+        try
+        {
+            int hashSize = 0;
+            CryptCATAdminCalcHashFromFileHandle(hFile, ref hashSize, IntPtr.Zero, 0);
+            if (hashSize == 0) return false;
+            IntPtr hashBuf = Marshal.AllocHGlobal(hashSize);
+            try
+            {
+                if (!CryptCATAdminCalcHashFromFileHandle(hFile, ref hashSize, hashBuf, 0))
+                    return false;
+                Guid subsystem = new Guid("F750E6C3-38EE-11D1-85E5-00C04FC295EE");
+                IntPtr hCatAdmin;
+                if (!CryptCATAdminAcquireContext(out hCatAdmin, ref subsystem, 0))
+                    return false;
+                try
+                {
+                    IntPtr hCatInfo = IntPtr.Zero;
+                    hCatInfo = CryptCATAdminEnumCatalogFromHash(
+                        hCatAdmin, hashBuf, hashSize, 0, ref hCatInfo);
+                    if (hCatInfo != IntPtr.Zero)
+                    {
+                        CryptCATAdminReleaseCatalogContext(hCatAdmin, hCatInfo, 0);
+                        return true;
+                    }
+                    return false;
+                }
+                finally { CryptCATAdminReleaseContext(hCatAdmin, 0); }
+            }
+            finally { Marshal.FreeHGlobal(hashBuf); }
+        }
+        finally { CloseHandle(hFile); }
+    }
+}
+'@
+            }
+            $_catAvailable = $true
+        } catch {
+            $_catAvailable = $false
+        }
+    }
+
+    $sigCache = @{}
 
     $out = @()
     $skippedProcs = @()
@@ -166,22 +248,47 @@ $script:DLL_SB = {
                         }
                     }
                 } else {
-                    # PS 2.0 — X509Certificate::CreateFromSignedFile
-                    try {
-                        $certW = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($mPath)
-                        $sigD = New-Object PSObject -Property @{
-                            IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
-                            SignerSubject=$certW.Subject; SignerCompany=$null; Issuer=$certW.Issuer
-                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                            IsOSBinary=$null; SignatureType=$null
+                    # PS 2.0 — Catalog DB check + CreateFromSignedFile for cert details
+                    if ($sigCache.ContainsKey($mPath)) {
+                        $sigD = $sigCache[$mPath]
+                    } else {
+                        $inCatalog = $false
+                        if ($_catAvailable) {
+                            try { $inCatalog = [CatalogChecker]::IsInCatalog($mPath) } catch {}
                         }
-                    } catch {
-                        $sigD = New-Object PSObject -Property @{
-                            IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
-                            SignerSubject=$null; SignerCompany=$null; Issuer=$null
-                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                            IsOSBinary=$null; SignatureType=$null
+                        # Try embedded sig for cert details
+                        $sigSubj = $null; $sigIss = $null; $cnW = $null; $hasEmbedded = $false
+                        try {
+                            $certW = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($mPath)
+                            $sigSubj = $certW.Subject
+                            $sigIss  = $certW.Issuer
+                            if ($sigSubj -match 'CN=([^,]+)') { $cnW = $Matches[1].Trim() }
+                            $hasEmbedded = $true
+                        } catch {}
+                        $isSigned = ($inCatalog -or $hasEmbedded)
+                        if ($hasEmbedded) {
+                            $sigD = New-Object PSObject -Property @{
+                                IsSigned=$true; IsValid=$true; Status='Valid'
+                                SignerSubject=$sigSubj; SignerCompany=$cnW; Issuer=$sigIss
+                                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                                IsOSBinary=$null; SignatureType='Embedded'
+                            }
+                        } elseif ($inCatalog) {
+                            $sigD = New-Object PSObject -Property @{
+                                IsSigned=$true; IsValid=$true; Status='Valid'
+                                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                                IsOSBinary=$null; SignatureType='Catalog'
+                            }
+                        } else {
+                            $sigD = New-Object PSObject -Property @{
+                                IsSigned=$false; IsValid=$false; Status='NotSigned'
+                                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                                IsOSBinary=$null; SignatureType=$null
+                            }
                         }
+                        $sigCache[$mPath] = $sigD
                     }
                 }
             }

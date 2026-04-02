@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 2.8                         ║
+# ║  Version   : 2.9                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -50,24 +50,124 @@ $script:PROC_SB_WMI = {
             else { return @($null, "COMPUTE_ERROR: $m") }
         }
     }
+    # Catalog signature check P/Invoke for PS 2.0
+    $_catAvailable = $false
+    try {
+        if (-not ('CatalogChecker' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public class CatalogChecker
+{
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminCalcHashFromFileHandle(
+        IntPtr hFile, ref int pcbHash, IntPtr pbHash, int dwFlags);
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminAcquireContext(
+        out IntPtr phCatAdmin, ref Guid pgSubsystem, int dwFlags);
+    [DllImport("wintrust.dll")]
+    static extern IntPtr CryptCATAdminEnumCatalogFromHash(
+        IntPtr hCatAdmin, IntPtr pbHash, int cbHash, int dwFlags, ref IntPtr phPrevCatInfo);
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminReleaseCatalogContext(
+        IntPtr hCatAdmin, IntPtr hCatInfo, int dwFlags);
+    [DllImport("wintrust.dll")]
+    static extern bool CryptCATAdminReleaseContext(
+        IntPtr hCatAdmin, int dwFlags);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateFile(string fn, uint access, uint share,
+        IntPtr sa, uint disp, uint flags, IntPtr tmpl);
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr h);
+
+    public static bool IsInCatalog(string filePath)
+    {
+        IntPtr hFile = CreateFile(filePath, 0x80000000, 1,
+            IntPtr.Zero, 3, 0, IntPtr.Zero);
+        if (hFile == new IntPtr(-1)) return false;
+        try
+        {
+            int hashSize = 0;
+            CryptCATAdminCalcHashFromFileHandle(hFile, ref hashSize, IntPtr.Zero, 0);
+            if (hashSize == 0) return false;
+            IntPtr hashBuf = Marshal.AllocHGlobal(hashSize);
+            try
+            {
+                if (!CryptCATAdminCalcHashFromFileHandle(hFile, ref hashSize, hashBuf, 0))
+                    return false;
+                Guid subsystem = new Guid("F750E6C3-38EE-11D1-85E5-00C04FC295EE");
+                IntPtr hCatAdmin;
+                if (!CryptCATAdminAcquireContext(out hCatAdmin, ref subsystem, 0))
+                    return false;
+                try
+                {
+                    IntPtr hCatInfo = IntPtr.Zero;
+                    hCatInfo = CryptCATAdminEnumCatalogFromHash(
+                        hCatAdmin, hashBuf, hashSize, 0, ref hCatInfo);
+                    if (hCatInfo != IntPtr.Zero)
+                    {
+                        CryptCATAdminReleaseCatalogContext(hCatAdmin, hCatInfo, 0);
+                        return true;
+                    }
+                    return false;
+                }
+                finally { CryptCATAdminReleaseContext(hCatAdmin, 0); }
+            }
+            finally { Marshal.FreeHGlobal(hashBuf); }
+        }
+        finally { CloseHandle(hFile); }
+    }
+}
+'@ -ErrorAction Stop
+        }
+        $_catAvailable = $true
+    } catch {
+        $_catAvailable = $false
+    }
+
+    $sigCache = @{}
     function _getSigPS2($path) {
         if (-not $path) { return $null }
+        if ($sigCache.ContainsKey($path)) { return $sigCache[$path] }
+        $inCatalog = $false
+        if ($_catAvailable) {
+            try { $inCatalog = [CatalogChecker]::IsInCatalog($path) } catch {}
+        }
+        $sigSubj = $null; $sigIss = $null; $cnW = $null; $hasEmbedded = $false
         try {
             $cert = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($path)
-            return New-Object PSObject -Property @{
-                IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
-                SignerSubject=$cert.Subject; SignerCompany=$null; Issuer=$cert.Issuer
+            $sigSubj = $cert.Subject
+            $sigIss  = $cert.Issuer
+            if ($sigSubj -match 'CN=([^,]+)') { $cnW = $Matches[1].Trim() }
+            $hasEmbedded = $true
+        } catch {}
+        $isSigned = ($inCatalog -or $hasEmbedded)
+        $result = $null
+        if ($hasEmbedded) {
+            $result = New-Object PSObject -Property @{
+                IsSigned=$true; IsValid=$true; Status='Valid'
+                SignerSubject=$sigSubj; SignerCompany=$cnW; Issuer=$sigIss
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                IsOSBinary=$null; SignatureType=$null
+                IsOSBinary=$null; SignatureType='Embedded'
             }
-        } catch {
-            return New-Object PSObject -Property @{
-                IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
+        } elseif ($inCatalog) {
+            $result = New-Object PSObject -Property @{
+                IsSigned=$true; IsValid=$true; Status='Valid'
+                SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                IsOSBinary=$null; SignatureType='Catalog'
+            }
+        } else {
+            $result = New-Object PSObject -Property @{
+                IsSigned=$false; IsValid=$false; Status='NotSigned'
                 SignerSubject=$null; SignerCompany=$null; Issuer=$null
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
                 IsOSBinary=$null; SignatureType=$null
             }
         }
+        $sigCache[$path] = $result
+        return $result
     }
     function _getIntegrityLevel($pid_) {
         if ($null -eq $pid_ -or $pid_ -eq 0) { return @($null, 'PID_ZERO_OR_NULL') }
