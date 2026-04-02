@@ -781,6 +781,7 @@ function Invoke-Collector {
                             TimeStamper   = $(if ($s_.PSObject.Properties['TimeStamper'])   { $s_.TimeStamper }   else { $null })
                             IsOSBinary    = $(if ($s_.PSObject.Properties['IsOSBinary'])    { $s_.IsOSBinary }    else { $null })
                             SignatureType = $(if ($s_.PSObject.Properties['SignatureType']) { $s_.SignatureType } else { $null })
+                            CatalogFile   = $(if ($s_.PSObject.Properties['CatalogFile'])   { $s_.CatalogFile }   else { $null })
                         }
                     } catch {}
                 }

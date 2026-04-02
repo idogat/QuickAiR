@@ -272,8 +272,9 @@ function onProcRowClick(i, p, rowEl) {
       ${p.Signature ? `<span class="k">Sig Status</span>   <span class="v${/^PS2_/.test(p.Signature.Status||'')?' style="color:var(--amber)"':''}">${esc(p.Signature.Status||'—')}${/^PS2_/.test(p.Signature.Status||'')?' (unvalidated)':''}</span>
       <span class="k">IsOSBinary</span>   <span class="v" style="color:${p.Signature.IsOSBinary===true?'var(--green)':p.Signature.IsOSBinary===false?'var(--red)':'var(--muted)'}">${p.Signature.IsOSBinary===true?'Yes':p.Signature.IsOSBinary===false?'No':'—'}</span>
       <span class="k">SignatureType</span><span class="v">${esc(p.Signature.SignatureType||'—')}</span>
-      <span class="k">SignerSubject</span> <span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
-      <span class="k">SignerCompany</span> <span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
+      ${p.Signature.CatalogFile ? `<span class="k">CatalogFile</span> <span class="v mono">${esc(p.Signature.CatalogFile)}</span>` : ''}
+      <span class="k">${p.Signature.CatalogFile ? 'CatalogSigner' : 'SignerSubject'}</span> <span class="v">${esc(p.Signature.SignerSubject||'—')}</span>
+      <span class="k">${p.Signature.CatalogFile ? 'CatalogSignerCo' : 'SignerCompany'}</span> <span class="v">${esc(p.Signature.SignerCompany||'—')}</span>
       <span class="k">Issuer</span>       <span class="v">${esc(p.Signature.Issuer||'—')}</span>
       <span class="k">Thumbprint</span>   <span class="v mono">${esc(p.Signature.Thumbprint||'—')}</span>
       <span class="k">NotAfter</span>     <span class="v">${esc(p.Signature.NotAfter||'—')}</span>
