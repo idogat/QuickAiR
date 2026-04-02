@@ -147,7 +147,7 @@ function renderDllRow(e, i) {
     <div class="td dim">${esc(e.Company||'')}</div>
     <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
-    <div class="td" title="${sig ? (sig.CatalogFile ? 'Catalog: '+sig.CatalogFile : (sig.Status||'')) : ''}">${renderSignedIcon(sig)}${sig && sig.SignatureType==='Catalog' ? '<span style="font-size:8px;color:var(--amber)" title="Catalog-signed (hash in Windows catalog DB)">&#9679;</span>' : ''}</div>
+    <div class="td" title="${sig ? (sig.CatalogFile ? 'Catalog: '+sig.CatalogFile : (sig.Status||'')) : ''}">${renderSignedIcon(sig)}</div>
     <div class="td dim">${esc(signerCo)}</div>`;
 }
 

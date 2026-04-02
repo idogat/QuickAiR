@@ -26,9 +26,10 @@ let procData    = [];
 
 function renderSignedIcon(sig) {
   if (!sig) return '<span style="color:var(--muted)">?</span>';
-  if (sig.IsSigned === true  && sig.IsValid === true)  return '<span style="color:var(--green)">&#10003;</span>';
-  if (sig.IsSigned === true  && sig.IsValid === false) return '<span style="color:var(--red)">&#10007;</span>';
-  if (sig.IsSigned === true  && sig.IsValid == null)   return '<span style="color:var(--green)">&#10003;</span>';
+  const cat = sig.SignatureType === 'Catalog' ? '<span style="font-size:8px;color:var(--amber)" title="Catalog-signed (hash in Windows catalog DB)">&#9679;</span>' : '';
+  if (sig.IsSigned === true  && sig.IsValid === true)  return '<span style="color:var(--green)">&#10003;</span>' + cat;
+  if (sig.IsSigned === true  && sig.IsValid === false) return '<span style="color:var(--red)">&#10007;</span>' + cat;
+  if (sig.IsSigned === true  && sig.IsValid == null)   return '<span style="color:var(--green)">&#10003;</span>' + cat;
   if (sig.IsSigned === false) return '<span style="color:var(--muted)">&mdash;</span>';
   return '<span style="color:var(--amber)">?</span>';
 }
