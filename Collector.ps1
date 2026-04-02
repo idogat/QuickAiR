@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.5                    ║
+# ║  Version   : 2.6                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -156,6 +156,9 @@ foreach ($target in $Targets) {
             if ($caps.Error) { throw $caps.Error }
             $connected = $true
             Write-Log 'INFO' "Capability probe OK | PS=$($caps.PSVersion) | CIM=$($caps.HasCIM) | NetCIM=$($caps.HasNetTCPIP) | DnsCIM=$($caps.HasDNSClient)"
+            if ($ProgressFile) {
+                try { [System.IO.File]::AppendAllText($ProgressFile, "PROBE:PS=$($caps.PSVersion)|CIM=$($caps.HasCIM)|NetCIM=$($caps.HasNetTCPIP)|DnsCIM=$($caps.HasDNSClient)`n") } catch {}
+            }
             break
         } catch {
             Write-Log 'WARN' "Probe attempt $attempt/$MAX_RETRY failed: $($_.Exception.Message)"
@@ -166,7 +169,7 @@ foreach ($target in $Targets) {
     if (-not $connected) {
         Write-Log 'ERROR' "All $MAX_RETRY probe attempts failed for target. Skipping."
         if ($ProgressFile) {
-            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Connection failed - host unreachable or WinRM not enabled`n") } catch {}
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Connection failed: host unreachable or WinRM not configured. Verify the host is online and WinRM is enabled (run Enable-PSRemoting on target).`n") } catch {}
         }
         continue
     }
@@ -183,9 +186,9 @@ foreach ($target in $Targets) {
             $sessErr = $_.Exception.Message
             Write-Log 'ERROR' "Failed to create remote session: $sessErr. Skipping."
             if ($ProgressFile) {
-                $reason = if ($sessErr -match 'Access is denied|logon failure') { "Authentication failed - wrong credentials" }
-                          elseif ($sessErr -match 'WinRM.*cannot') { "WinRM not enabled on target" }
-                          else { $sessErr }
+                $reason = if ($sessErr -match 'Access is denied|logon failure') { "Authentication failed: credentials rejected by target. Verify username/password and ensure the account has admin rights on the remote host." }
+                          elseif ($sessErr -match 'WinRM.*cannot') { "Session failed: WinRM service not running on target. Run 'Enable-PSRemoting -Force' as admin on the target machine." }
+                          else { "Session failed: $sessErr. Check network connectivity and WinRM configuration on the target." }
                 try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch {}
             }
             continue
