@@ -200,8 +200,9 @@ function onDllRowClick(i, e, rowEl) {
       ${sig2 ? `<span class="k">Sig Status</span>   <span class="v${/^PS2_/.test(sig2.Status||'')?' style="color:var(--amber)"':''}">${esc(sig2.Status||'—')}${/^PS2_/.test(sig2.Status||'')?' (unvalidated)':''}</span>
       <span class="k">IsOSBinary</span>   <span class="v" style="color:${sig2.IsOSBinary===true?'var(--green)':sig2.IsOSBinary===false?'var(--red)':'var(--muted)'}">${sig2.IsOSBinary===true?'Yes':sig2.IsOSBinary===false?'No':'—'}</span>
       <span class="k">SignatureType</span><span class="v">${esc(sig2.SignatureType||'—')}</span>
-      <span class="k">SignerSubject</span> <span class="v">${esc(sig2.SignerSubject||'—')}</span>
-      <span class="k">SignerCompany</span> <span class="v">${esc(sig2.SignerCompany||'—')}</span>
+      ${sig2.CatalogFile ? `<span class="k">CatalogFile</span> <span class="v mono">${esc(sig2.CatalogFile)}</span>` : ''}
+      <span class="k">${sig2.CatalogFile ? 'CatalogSigner' : 'SignerSubject'}</span> <span class="v">${esc(sig2.SignerSubject||'—')}</span>
+      <span class="k">${sig2.CatalogFile ? 'CatalogSignerCo' : 'SignerCompany'}</span> <span class="v">${esc(sig2.SignerCompany||'—')}</span>
       <span class="k">Issuer</span>       <span class="v">${esc(sig2.Issuer||'—')}</span>
       <span class="k">Thumbprint</span>   <span class="v mono">${esc(sig2.Thumbprint||'—')}</span>
       <span class="k">NotAfter</span>     <span class="v">${esc(sig2.NotAfter||'—')}</span>
