@@ -1,26 +1,28 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
 # ║  QuickAiR — DLLs.psm1                ║
-# ║  Loaded modules per process.        ║
-# ║  SHA256 for all DLLs.              ║
+# ║  Loaded modules per process via     ║
+# ║  .NET Process.Modules + SHA256.     ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : Invoke-Collector       ║
 # ║  Inputs    : -Session               ║
 # ║              -TargetPSVersion       ║
 # ║              -TargetCapabilities    ║
 # ║  Output    : @{ data=dlls[];        ║
-# ║               source=string;        ║
+# ║               source='dotnet';      ║
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 2.5                    ║
+# ║  Version   : 3.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-# ── .NET scriptblock (PS 3+) ─────────────────────────────────────────────────
-$script:DLL_SB_DOTNET = {
+# ── Unified scriptblock (PS 2.0+) ────────────────────────────────────────────
+# Uses .NET Process.Modules for enumeration on all PS versions.
+# Signature: Get-AuthenticodeSignature on PS 3+, X509Certificate on PS 2.0.
+$script:DLL_SB = {
     function _sha256($p) {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
@@ -38,6 +40,12 @@ $script:DLL_SB_DOTNET = {
     }
     $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
+
+    # Detect PS version once (runs on target)
+    $psMajor = 2
+    if ($PSVersionTable -and $PSVersionTable.PSVersion) {
+        $psMajor = $PSVersionTable.PSVersion.Major
+    }
 
     $out = @()
     $skippedProcs = @()
@@ -65,7 +73,8 @@ $script:DLL_SB_DOTNET = {
         try {
             $mods = $p.Modules
         } catch {
-            $reason = if ($_.Exception.Message -match 'Access') { 'ACCESS_DENIED' } else { $_.Exception.Message }
+            $reason = $_.Exception.Message
+            if ($_.Exception.Message -match 'Access') { $reason = 'ACCESS_DENIED' }
             $out += New-Object PSObject -Property @{
                 ProcessId     = $procId
                 ProcessName   = $pName
@@ -109,37 +118,70 @@ $script:DLL_SB_DOTNET = {
                 } catch {}
             }
 
-            # Signature inline (PS 3+)
+            # Signature: branch by PS version
             $sigD = $null
             if ($mPath) {
-                try {
-                    $sigD3 = Get-AuthenticodeSignature -FilePath $mPath -ErrorAction Stop
-                    $certD3 = $null; $cnD3 = $null
-                    if ($sigD3.SignerCertificate) {
-                        $subjD3 = $sigD3.SignerCertificate.Subject
-                        $cnD3 = if ($subjD3 -match 'CN=([^,]+)') { $Matches[1].Trim() } else { $null }
+                if ($psMajor -ge 3) {
+                    # PS 3+ — Get-AuthenticodeSignature
+                    try {
+                        $sigD3 = Get-AuthenticodeSignature -FilePath $mPath -ErrorAction Stop
+                        $cnD3 = $null
+                        if ($sigD3.SignerCertificate) {
+                            $subjD3 = $sigD3.SignerCertificate.Subject
+                            if ($subjD3 -match 'CN=([^,]+)') { $cnD3 = $Matches[1].Trim() }
+                        }
+                        $isOSBinD = $null; try { $isOSBinD = $sigD3.IsOSBinary } catch {}
+                        $sigTypeD = $null; try { $sigTypeD = $sigD3.SignatureType.ToString() } catch {}
+                        $sigSubject    = $null; $sigIssuer  = $null
+                        $sigThumb      = $null; $sigNotAfter = $null
+                        $sigTimestamper = $null
+                        if ($sigD3.SignerCertificate) {
+                            $sigSubject  = $sigD3.SignerCertificate.Subject
+                            $sigIssuer   = $sigD3.SignerCertificate.Issuer
+                            $sigThumb    = $sigD3.SignerCertificate.Thumbprint
+                            $sigNotAfter = $sigD3.SignerCertificate.NotAfter.ToUniversalTime().ToString('o')
+                        }
+                        if ($sigD3.TimeStamperCertificate) {
+                            $sigTimestamper = $sigD3.TimeStamperCertificate.Subject
+                        }
+                        $sigD = New-Object PSObject -Property @{
+                            IsSigned      = ($sigD3.Status -ne 'NotSigned')
+                            IsValid       = ($sigD3.Status -eq 'Valid')
+                            Status        = $sigD3.Status.ToString()
+                            SignerSubject = $sigSubject
+                            SignerCompany = $cnD3
+                            Issuer        = $sigIssuer
+                            Thumbprint    = $sigThumb
+                            NotAfter      = $sigNotAfter
+                            TimeStamper   = $sigTimestamper
+                            IsOSBinary    = $isOSBinD
+                            SignatureType = $sigTypeD
+                        }
+                    } catch {
+                        $sigD = New-Object PSObject -Property @{
+                            IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
+                            SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                            IsOSBinary=$null; SignatureType=$null
+                        }
                     }
-                    $isOSBinD = $null; try { $isOSBinD = $sigD3.IsOSBinary } catch {}
-                    $sigTypeD = $null; try { $sigTypeD = $sigD3.SignatureType.ToString() } catch {}
-                    $sigD = New-Object PSObject -Property @{
-                        IsSigned     = ($sigD3.Status -ne 'NotSigned')
-                        IsValid      = ($sigD3.Status -eq 'Valid')
-                        Status       = $sigD3.Status.ToString()
-                        SignerSubject = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Subject } else { $null }
-                        SignerCompany = $cnD3
-                        Issuer       = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Issuer } else { $null }
-                        Thumbprint   = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.Thumbprint } else { $null }
-                        NotAfter     = if ($sigD3.SignerCertificate) { $sigD3.SignerCertificate.NotAfter.ToUniversalTime().ToString('o') } else { $null }
-                        TimeStamper  = if ($sigD3.TimeStamperCertificate) { $sigD3.TimeStamperCertificate.Subject } else { $null }
-                        IsOSBinary   = $isOSBinD
-                        SignatureType = $sigTypeD
-                    }
-                } catch {
-                    $sigD = New-Object PSObject -Property @{
-                        IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
-                        SignerSubject=$null; SignerCompany=$null; Issuer=$null
-                        Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                        IsOSBinary=$null; SignatureType=$null
+                } else {
+                    # PS 2.0 — X509Certificate::CreateFromSignedFile
+                    try {
+                        $certW = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($mPath)
+                        $sigD = New-Object PSObject -Property @{
+                            IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
+                            SignerSubject=$certW.Subject; SignerCompany=$null; Issuer=$certW.Issuer
+                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                            IsOSBinary=$null; SignatureType=$null
+                        }
+                    } catch {
+                        $sigD = New-Object PSObject -Property @{
+                            IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
+                            SignerSubject=$null; SignerCompany=$null; Issuer=$null
+                            Thumbprint=$null; NotAfter=$null; TimeStamper=$null
+                            IsOSBinary=$null; SignatureType=$null
+                        }
                     }
                 }
             }
@@ -164,177 +206,6 @@ $script:DLL_SB_DOTNET = {
     New-Object PSObject -Property @{ _dlls = $out; _skipped = $skippedProcs }
 }
 
-# ── WMI scriptblock (PS 2.0) ─────────────────────────────────────────────────
-$script:DLL_SB_WMI = {
-    function _sha256($p) {
-        if (-not $p) { return @($null, 'PATH_NULL') }
-        try {
-            if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-            $s  = [Security.Cryptography.SHA256]::Create()
-            $h  = $s.ComputeHash($fs); $fs.Dispose(); $s.Dispose()
-            return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
-        } catch {
-            $m = $_.Exception.Message
-            if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
-            elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
-            else { return @($null, "COMPUTE_ERROR: $m") }
-        }
-    }
-    $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
-    $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
-
-    $out = @()
-    $skippedProcs = @()
-    $procs = $null
-    try { $procs = Get-WmiObject Win32_Process } catch { $procs = @() }
-
-    foreach ($p in $procs) {
-        $pName = $null
-        $procId   = $null
-        try { $pName = $p.Name }      catch {}
-        try { $procId   = [int]$p.ProcessId } catch {}
-        if ($null -eq $procId) { continue }
-        if (-not $pName) { continue }
-
-        $pNameNoExt = $pName -replace '\.exe$',''
-        $skip = $false
-        foreach ($pp in $PROTECTED_PROCS) {
-            if ($pNameNoExt -ieq $pp -or $pName -ieq $pp) { $skip = $true; break }
-        }
-        if ($skip) {
-            $skippedProcs += New-Object PSObject -Property @{ ProcessId=$procId; ProcessName=$pName }
-            continue
-        }
-
-        # Try Win32_ProcessVMMapsFiles first, then CIM_ProcessExecutable
-        $assocObjs = $null
-        $useDependent = $false
-
-        try {
-            $assocObjs   = Get-WmiObject Win32_ProcessVMMapsFiles -Filter "Antecedent like '%Handle=""$procId""%'" -ErrorAction Stop
-            $useDependent = $false
-        } catch {
-            try {
-                $assocObjs   = Get-WmiObject CIM_ProcessExecutable -Filter "Dependent like '%Handle=""$procId""%'" -ErrorAction Stop
-                $useDependent = $true
-            } catch {
-                $out += New-Object PSObject -Property @{
-                    ProcessId     = $procId
-                    ProcessName   = $pName
-                    ModuleName    = $null
-                    ModulePath    = $null
-                    FileVersion   = $null
-                    Company       = $null
-                    FileHash      = $null
-                    SHA256Error   = $null
-                    IsPrivatePath = $null
-                    Signature     = $null
-    
-                    reason        = 'WMI_UNAVAILABLE'
-                    source        = 'wmi'
-                }
-                continue
-            }
-        }
-
-        if (-not $assocObjs) {
-            $out += New-Object PSObject -Property @{
-                ProcessId     = $procId
-                ProcessName   = $pName
-                ModuleName    = $null
-                ModulePath    = $null
-                FileVersion   = $null
-                Company       = $null
-                FileHash      = $null
-                SHA256Error   = $null
-                IsPrivatePath = $null
-                Signature     = $null
-
-                reason        = 'WMI_UNAVAILABLE'
-                source        = 'wmi'
-            }
-            continue
-        }
-
-        foreach ($assoc in $assocObjs) {
-            $mPath = $null
-            try {
-                if (-not $useDependent) {
-                    # Win32_ProcessVMMapsFiles: file ref is Dependent
-                    $fileRef = $assoc.Dependent
-                    $mPath   = ([wmi]$fileRef).Name
-                } else {
-                    # CIM_ProcessExecutable: file ref is Antecedent
-                    $fileRef = $assoc.Antecedent
-                    $mPath   = ([wmi]$fileRef).Name
-                }
-            } catch {}
-            if (-not $mPath) { continue }
-
-            $mName = [System.IO.Path]::GetFileName($mPath)
-
-            # Filter non-module files (WMI returns all memory-mapped files)
-            $ext = [System.IO.Path]::GetExtension($mPath).ToLower()
-            if ($ext -and $ext -ne '.dll' -and $ext -ne '.exe' -and $ext -ne '.sys' -and $ext -ne '.drv' -and $ext -ne '.ocx' -and $ext -ne '.cpl') { continue }
-
-            $isPrivate = $false
-            foreach ($marker in $PRIVATE_MARKERS) {
-                if ($mPath -like "*$marker*") { $isPrivate = $true; break }
-            }
-
-            $r = _sha256 $mPath; $fileHash = $r[0]; $sha256ErrW = $r[1]
-
-            $ver     = $null
-            $company = $null
-            try {
-                $escapedPath = $mPath -replace "\\","\\\\"
-                $wmiFile = Get-WmiObject CIM_DataFile -Filter "Name='$escapedPath'" -ErrorAction Stop
-                if ($wmiFile) {
-                    $ver     = $wmiFile.Version
-                    $company = $wmiFile.Manufacturer
-                }
-            } catch {}
-
-            # Signature inline (PS 2.0 compatible)
-            $sigW = $null
-            try {
-                $certW = [System.Security.Cryptography.X509Certificates.X509Certificate]::CreateFromSignedFile($mPath)
-                $sigW = New-Object PSObject -Property @{
-                    IsSigned=$true; IsValid=$null; Status='PS2_CERT_PRESENT'
-                    SignerSubject=$certW.Subject; SignerCompany=$null; Issuer=$certW.Issuer
-                    Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                    IsOSBinary=$null; SignatureType=$null
-                }
-            } catch {
-                $sigW = New-Object PSObject -Property @{
-                    IsSigned=$null; IsValid=$null; Status='PS2_UNSUPPORTED'
-                    SignerSubject=$null; SignerCompany=$null; Issuer=$null
-                    Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                    IsOSBinary=$null; SignatureType=$null
-                }
-            }
-
-            $out += New-Object PSObject -Property @{
-                ProcessId     = $procId
-                ProcessName   = $pName
-                ModuleName    = $mName
-                ModulePath    = $mPath
-                FileVersion   = $ver
-                Company       = $company
-                FileHash      = $fileHash
-                SHA256Error   = $sha256ErrW
-                IsPrivatePath = $isPrivate
-                Signature     = $sigW
-
-                reason        = $null
-                source        = 'wmi'
-            }
-        }
-    }
-    New-Object PSObject -Property @{ _dlls = $out; _skipped = $skippedProcs }
-}
-
 # ── Invoke-Collector ──────────────────────────────────────────────────────────
 function Invoke-Collector {
     param(
@@ -346,8 +217,7 @@ function Invoke-Collector {
     $errors = @()
     $dlls   = @()
 
-    $useDotNet = ([int]$TargetPSVersion -ge 3)
-    $sb        = if ($useDotNet) { $script:DLL_SB_DOTNET } else { $script:DLL_SB_WMI }
+    $sb = $script:DLL_SB
 
     $skippedProcs = @()
 
@@ -414,17 +284,7 @@ function Invoke-Collector {
         $errors += @{ artifact = 'DLLs'; severity = 'warning'; message = "Protected processes skipped for DLL enumeration: $($skippedNames -join ', ')" }
     }
 
-    # Determine source string
-    $hasDotnet = $false
-    $hasWmi    = $false
-    foreach ($d in $dlls) {
-        if ($d.source -eq 'dotnet') { $hasDotnet = $true }
-        if ($d.source -eq 'wmi')    { $hasWmi    = $true }
-    }
-    $src = if ($hasDotnet -and $hasWmi) { 'mixed' }
-           elseif ($hasDotnet)          { 'dotnet' }
-           elseif ($hasWmi)             { 'wmi' }
-           else                         { if ($useDotNet) { 'dotnet' } else { 'wmi' } }
+    $src = 'dotnet'
 
     return @{ data = @($dlls); source = $src; errors = $errors }
 }

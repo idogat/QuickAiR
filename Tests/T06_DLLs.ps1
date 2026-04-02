@@ -5,7 +5,7 @@
 # ║  T14 DLL field validation                                   ║
 # ║  T15 Private path detection (positive cases)                ║
 # ║  T76 Signature field structure and types                    ║
-# ║  T77 Source field valid values (dotnet or wmi)              ║
+# ║  T77 Source field valid values (dotnet)                     ║
 # ║  T78 SHA256Error valid values                               ║
 # ║  T79 Protected process skip (no lsass/csrss/etc)            ║
 # ║  T80 Negative IsPrivatePath (System32/SysWOW64 = false)     ║
@@ -237,13 +237,13 @@ if (-not $data.DLLs) {
 }
 
 # ---------------------------------------------------------------
-# T77 - Source field valid values (dotnet or wmi)
+# T77 - Source field valid values (dotnet)
 # ---------------------------------------------------------------
 if (-not $data.DLLs) {
     Add-R "T77" $true "Source field validation (SKIP - no DLLs key in JSON)" @() $true
 } else {
     $dlls = @($data.DLLs)
-    $VALID_SOURCES = @('dotnet','wmi')
+    $VALID_SOURCES = @('dotnet')
     $t77Violations = @()
 
     foreach ($e in $dlls) {
@@ -251,13 +251,13 @@ if (-not $data.DLLs) {
         if ($srcVal -eq $null -or $srcVal -eq '') {
             $t77Violations += "PID=$($e.ProcessId) ModuleName=$($e.ModuleName) has null/empty source field"
         } elseif ($VALID_SOURCES -notcontains $srcVal) {
-            $t77Violations += "PID=$($e.ProcessId) ModuleName=$($e.ModuleName) has source='$srcVal' (expected: dotnet or wmi)"
+            $t77Violations += "PID=$($e.ProcessId) ModuleName=$($e.ModuleName) has source='$srcVal' (expected: dotnet)"
         }
         if ($t77Violations.Count -ge 25) { break }
     }
 
     if ($t77Violations.Count -eq 0) {
-        Add-R "T77" $true "Source field valid on all $($dlls.Count) DLL entries (dotnet or wmi)"
+        Add-R "T77" $true "Source field valid on all $($dlls.Count) DLL entries (dotnet)"
     } else {
         Add-R "T77" $false "Source field invalid: $($t77Violations.Count) violations" $t77Violations
     }
