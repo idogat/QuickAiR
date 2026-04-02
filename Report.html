@@ -2741,7 +2741,25 @@ function usersApplyFilters() {
   const idx = window.userIndex || {};
   const lq  = usersSearch.toLowerCase();
 
-  let rows = d.Users.users.filter(u => {
+  // Merge domain_accounts not already in users (DC-only accounts like newnew, mumu)
+  const seenSIDs = new Set(d.Users.users.map(u => u.SID));
+  const dcOnly = (d.Users.domain_accounts || [])
+    .filter(da => da.SID && !seenSIDs.has(da.SID))
+    .map(da => ({
+      SID:         da.SID,
+      Username:    da.SamAccountName || da.DisplayName || '?',
+      Domain:      d.Users.domain_name || '',
+      AccountType: 'Domain',
+      SIDMetadata: { WellKnown: false, Description: '' },
+      HasLocalAccount: false,
+      GroupMemberships: da.MemberOf || [],
+      FirstLogon:  null,
+      LastLogonUTC:null,
+      ProfilePath: '',
+      _dcOnly:     true
+    }));
+
+  let rows = d.Users.users.concat(dcOnly).filter(u => {
     if (!u.SID) return false;
     if (lq && !str(u.Username).toLowerCase().includes(lq) &&
               !str(u.Domain).toLowerCase().includes(lq) &&
@@ -2785,7 +2803,9 @@ function renderUsers() {
     return;
   }
 
-  if (!d.Users.users || d.Users.users.length === 0) {
+  const hasUsers = (d.Users.users && d.Users.users.length > 0) ||
+                   (d.Users.domain_accounts && d.Users.domain_accounts.length > 0);
+  if (!hasUsers) {
     panel.innerHTML = '<div class="solo-notice">No user data in this JSON.</div>';
     return;
   }
