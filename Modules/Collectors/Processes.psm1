@@ -41,7 +41,7 @@ $script:PROC_SB_WMI = {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $s = [Security.Cryptography.SHA256]::Create()
             $st = [System.IO.File]::OpenRead($p)
-            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Clear() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -257,7 +257,7 @@ $script:PROC_SB_CIM = {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $s = [Security.Cryptography.SHA256]::Create()
             $st = [System.IO.File]::OpenRead($p)
-            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Clear() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -467,7 +467,7 @@ function _sha256($p) {
         if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
         $s = [Security.Cryptography.SHA256]::Create()
         $st = [System.IO.File]::OpenRead($p)
-        try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
+        try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Clear() }
         return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
     } catch {
         $m = $_.Exception.Message

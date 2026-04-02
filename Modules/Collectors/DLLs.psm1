@@ -29,7 +29,7 @@ $script:DLL_SB = {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
             $s  = [Security.Cryptography.SHA256]::Create()
-            $h  = $s.ComputeHash($fs); $fs.Dispose(); $s.Dispose()
+            $h  = $s.ComputeHash($fs); $fs.Close(); $s.Clear()
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
