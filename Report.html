@@ -332,7 +332,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-04-02T21:35:34.2875090Z",
+    "generated":  "2026-04-02T22:01:44.3388587Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -3795,6 +3795,8 @@ function colAddTarget() {
   inp.value = '';
   el('col-import-msg').innerHTML = '';
   renderCollect();
+  var ri = el('col-hostname');
+  if (ri) ri.focus();
 }
 
 function colRemoveTarget(idx) {

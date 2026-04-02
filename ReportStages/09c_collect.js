@@ -168,6 +168,8 @@ function colAddTarget() {
   inp.value = '';
   el('col-import-msg').innerHTML = '';
   renderCollect();
+  var ri = el('col-hostname');
+  if (ri) ri.focus();
 }
 
 function colRemoveTarget(idx) {
