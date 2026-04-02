@@ -13,7 +13,7 @@
 // ║    colCollect, colToggleSection,     ║
 // ║    colUpdateOutputPath              ║
 // ║  Depends  : 03_core.js              ║
-// ║  Version  : 1.00                     ║
+// ║  Version  : 1.01                     ║
 // ╚══════════════════════════════════════╝
 
 // ── COLLECT TAB ─────────────────────────────────────────────────────────────────
@@ -139,6 +139,10 @@ function renderCollect() {
         '<div class="col-settings-row">' +
           '<label>Method:</label>' +
           '<span class="col-method">WinRM</span>' +
+        '</div>' +
+        '<div class="col-settings-row">' +
+          '<label>Max Concurrent:</label>' +
+          '<input type="number" id="col-max-concurrent" value="5" min="1" max="20" style="width:60px;padding:4px 8px;font-size:12px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px">' +
         '</div>' +
         '<div style="margin-top:16px">' +
           '<button class="col-btn col-btn-primary"' + collectDisabled + ' onclick="colCollect()">Collect &#8594;</button>' +
@@ -276,7 +280,9 @@ function colCollect() {
   });
 
   var encoded = encodeURIComponent(btoa(JSON.stringify(targets)));
-  var uri = 'quickair-collect://collect?targets=' + encoded;
+  var maxC = parseInt((el('col-max-concurrent') || {}).value, 10) || 5;
+  if (maxC < 1) maxC = 1; if (maxC > 20) maxC = 20;
+  var uri = 'quickair-collect://collect?targets=' + encoded + '&maxConcurrent=' + maxC;
 
   console.log('[COLLECT] URI generated:', uri);
   var ifr = document.createElement('iframe');

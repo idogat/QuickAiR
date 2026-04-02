@@ -9,7 +9,8 @@
 # ║  Parameters : -URI string (required)                        ║
 # ║               -MaxConcurrent int (default 5)                ║
 # ║                                                             ║
-# ║  URI format : quickair-collect://collect?targets=<base64>    ║
+# ║  URI format : quickair-collect://collect?targets=<b64>       ║
+# ║               [&maxConcurrent=N]                             ║
 # ║  where base64-json decodes to a JSON array:                 ║
 # ║    [{ "hostname":"192.168.1.106",                           ║
 # ║       "outputPath":".\\DFIROutput\\",                       ║
@@ -135,6 +136,14 @@ function Parse-CollectURI {
         }
         else {
             return @()
+        }
+
+        # Apply maxConcurrent from URI if provided
+        if ($qParams['maxConcurrent']) {
+            $mc = 0
+            if ([int]::TryParse($qParams['maxConcurrent'], [ref]$mc)) {
+                $script:MaxConcurrent = [Math]::Max(1, [Math]::Min(20, $mc))
+            }
         }
     }
     catch {
@@ -353,6 +362,40 @@ function Resolve-Credential {
     $script:CredCache[$domKey] = $cred
     $script:CredCache[$key]    = $cred
     return $cred
+}
+
+function Resolve-AllCredentials {
+    # Prompt for all unique non-local hosts upfront before scheduling starts.
+    [System.Threading.Monitor]::Enter($script:Lock)
+    $snap = @($script:PluginRows)
+    [System.Threading.Monitor]::Exit($script:Lock)
+
+    $seen = @{}
+    foreach ($pr in $snap) {
+        $h = $pr.Hostname
+        if ($seen.ContainsKey($h)) { continue }
+        $seen[$h] = $true
+
+        $isLocal = ($h -eq 'localhost' -or $h -eq '127.0.0.1' -or $h -ieq $env:COMPUTERNAME)
+        if ($isLocal) { continue }
+
+        $key = $h.ToLower()
+        if ($script:CredCache.ContainsKey($key)) { continue }
+
+        $cred = Show-CredentialDialog $h
+        if ($null -eq $cred) {
+            foreach ($pr2 in $snap) {
+                if ($pr2.Hostname -eq $h -and -not $pr2.IsDone) {
+                    $pr2.Status = 'Failed'; $pr2.Detail = 'Credential cancelled'
+                    $pr2.IsDone = $true; $pr2.EndTime = [DateTime]::UtcNow
+                }
+            }
+            continue
+        }
+        $domKey = if ($cred.UserName -match '^([^\\]+)\\') { $Matches[1].ToLower() } else { $key }
+        $script:CredCache[$domKey] = $cred
+        $script:CredCache[$key]    = $cred
+    }
 }
 #endregion
 
@@ -1016,7 +1059,10 @@ try {
 
     $form = Build-UI
     try {
-        if ($rawTargets -and $rawTargets.Count -gt 0) { Add-Targets $rawTargets }
+        if ($rawTargets -and $rawTargets.Count -gt 0) {
+            Add-Targets $rawTargets
+            Resolve-AllCredentials
+        }
     }
     catch {
         $msg = "ADD-TARGETS $(([DateTime]::UtcNow.ToString('o'))): $($_.Exception.GetType()): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
