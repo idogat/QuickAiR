@@ -33,8 +33,6 @@
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
-$script:_regLwtAttempted = $false
-$script:_regLwtAvailable = $false
 
 # ── PS 2.0-compatible scriptblock — runs ON the target ──────────────────────
 $script:USERS_SB = {

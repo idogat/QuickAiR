@@ -554,6 +554,10 @@ function Invoke-Collector {
                         IsPrivateIP    = $false
                     }
                 }
+                # Propagate UDP error from CIM scriptblock
+                if ($r.PSObject.Properties['UdpError'] -and $r.UdpError) {
+                    $errors += @{ artifact = 'network_udp'; severity = 'warning'; message = $r.UdpError }
+                }
             } elseif ($r.Lines) {
                 $parsed = ConvertFrom-NetstatOutput -Lines $r.Lines
                 $conns    = $parsed.Tcp
