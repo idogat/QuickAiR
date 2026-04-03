@@ -8,8 +8,8 @@
 # ║              $FallbackOffsetMin     ║
 # ║  Output    : UTC ISO 8601 string    ║
 # ║  Depends   : none                   ║
-# ║  PS compat : 2.0+                   ║
-# ║  Version   : 2.2                    ║
+# ║  PS compat : 5.1 (analyst machine)  ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -51,9 +51,17 @@ function ConvertTo-UtcIso {
         return $null
     }
 
-    # Generic parse fallback
+    # Generic parse fallback — apply target timezone offset, not analyst-local
     try {
-        $dt = [datetime]::Parse($s)
+        $dt = [datetime]::Parse($s, [System.Globalization.CultureInfo]::InvariantCulture,
+                                [System.Globalization.DateTimeStyles]::None)
+        if ($dt.Kind -eq [DateTimeKind]::Utc) {
+            return $dt.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        }
+        # If offset provided, treat parsed time as target-local and subtract offset
+        if ($FallbackOffsetMin -ne 0) {
+            return $dt.AddMinutes(-$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
+        }
         return $dt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     } catch { return $null }
 }

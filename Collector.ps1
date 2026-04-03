@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.1                    ║
+# ║  Version   : 3.2                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -95,7 +95,12 @@ Import-Module "$PSScriptRoot\Modules\Core\Output.psm1"     -Force
 #endregion
 
 #region --- Setup Output & Log ---
-New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction SilentlyContinue | Out-Null
+try {
+    New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction Stop | Out-Null
+} catch {
+    Write-Host "FATAL: Cannot create output directory '$OutputPath': $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
 Initialize-Log -Path (Join-Path $OutputPath "collection.log") -Quiet:$Quiet.IsPresent
 
 Write-Log 'INFO' "QuickAiR Collector v$COLLECTOR_VERSION starting"
@@ -267,21 +272,37 @@ foreach ($target in $Targets) {
                 }
             }
         } else {
-            # WMI fallback already determined from probe
+            # WMI probe succeeded but WinRM probe failed — retry WinRM session once
+            # (transient WinRM failures should not permanently degrade collection)
             $winrmReachable = $false
+            $winrmRetried   = $false
             try {
-                $session          = New-WMISession -Target $target -Credential $effectiveCred
-                $connectionMethod = 'WMI'
-                Write-Log 'INFO' "Connected to $target via WMI (WinRM unavailable)"
-                if (-not $Quiet) {
-                    Write-Host "  WinRM unavailable - using WMI fallback for $target" -ForegroundColor Yellow
-                }
+                $session          = New-RemoteSession -Target $target -Credential $effectiveCred
+                $winrmReachable   = $true
+                $connectionMethod = 'WinRM'
+                $usingWmiFallback = $false
+                $winrmRetried     = $true
+                # Re-probe caps via WinRM for accurate capability data
+                $caps = Get-TargetCaps -Target $target -Cred $effectiveCred
+                Write-Log 'INFO' "WinRM session succeeded on retry for $target (avoiding WMI degradation)"
             } catch {
-                Write-Log 'ERROR' "WMI session creation failed for $target. Skipping."
-                if ($ProgressFile) {
-                    try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:WMI session failed`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
+                Write-Log 'INFO' "WinRM session retry failed for $target, proceeding with WMI"
+            }
+            if (-not $winrmRetried) {
+                try {
+                    $session          = New-WMISession -Target $target -Credential $effectiveCred
+                    $connectionMethod = 'WMI'
+                    Write-Log 'INFO' "Connected to $target via WMI (WinRM unavailable)"
+                    if (-not $Quiet) {
+                        Write-Host "  WinRM unavailable - using WMI fallback for $target" -ForegroundColor Yellow
+                    }
+                } catch {
+                    Write-Log 'ERROR' "WMI session creation failed for $target. Skipping."
+                    if ($ProgressFile) {
+                        try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:WMI session failed`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
+                    }
+                    continue
                 }
-                continue
             }
         }
     }
@@ -301,11 +322,14 @@ foreach ($target in $Targets) {
         $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
+            $wmiScope.Options.Timeout = [TimeSpan]::FromSeconds(30)
             if ($effectiveCred) {
                 $wmiScope.Options.Username = $effectiveCred.UserName
                 $wmiScope.Options.Password = $effectiveCred.GetNetworkCredential().Password
             }
-            $wmiScope.Connect()
+            try { $wmiScope.Connect() } catch {
+                throw (New-Object System.Management.ManagementException("WMI SMB probe connection failed for $target"))
+            }
             $q = New-Object System.Management.ObjectQuery("SELECT Name, Path FROM Win32_Share WHERE Type = 2147483648")
             $searcher = New-Object System.Management.ManagementObjectSearcher($wmiScope, $q)
             $shares = @($searcher.Get())
@@ -330,11 +354,14 @@ foreach ($target in $Targets) {
         $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
+            $wmiScope.Options.Timeout = [TimeSpan]::FromSeconds(30)
             if ($effectiveCred) {
                 $wmiScope.Options.Username = $effectiveCred.UserName
                 $wmiScope.Options.Password = $effectiveCred.GetNetworkCredential().Password
             }
-            $wmiScope.Connect()
+            try { $wmiScope.Connect() } catch {
+                throw (New-Object System.Management.ManagementException("WMI probe connection failed for $target"))
+            }
             $wmiReachable = $true
             Write-Log 'INFO' "WMI reachable on $target"
 
@@ -376,8 +403,17 @@ foreach ($target in $Targets) {
         continue
     }
 
-    # Auto-discover collectors (filter by -Plugins if specified)
-    $collectorModules = Get-ChildItem "$PSScriptRoot\Modules\Collectors\*.psm1" | Sort-Object Name
+    # Auto-discover collectors with forensic priority ordering
+    # Processes first (highest IR value), then Network, Users, DLLs, then any others alphabetically
+    $COLLECTOR_PRIORITY = @('Processes','Network','Users','DLLs')
+    $allModules = Get-ChildItem "$PSScriptRoot\Modules\Collectors\*.psm1"
+    $prioritized = @()
+    foreach ($name in $COLLECTOR_PRIORITY) {
+        $match = $allModules | Where-Object { $_.BaseName -eq $name }
+        if ($match) { $prioritized += $match }
+    }
+    $remainder = $allModules | Where-Object { $_.BaseName -notin $COLLECTOR_PRIORITY } | Sort-Object Name
+    $collectorModules = @($prioritized) + @($remainder)
     if ($Plugins -and $Plugins.Count -gt 0) {
         $collectorModules = @($collectorModules | Where-Object { $_.BaseName -in $Plugins })
     }

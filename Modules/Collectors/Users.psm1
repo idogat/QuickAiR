@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.6                    ║
+# ║  Version  : 2.7                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -345,6 +345,10 @@ function script:ComputeFirstLogonConfidence {
         if (-not $a -or -not $b) { return $false }
         return [Math]::Abs(($a - $b).TotalHours) -le 24
     }
+    function _agree1h($a,$b) {
+        if (-not $a -or -not $b) { return $false }
+        return [Math]::Abs(($a - $b).TotalHours) -le 1
+    }
 
     if ($available.Count -eq 0) {
         $confidence = 'N/A'
@@ -376,8 +380,14 @@ function script:ComputeFirstLogonConfidence {
         $pfRkAgree = _agree24 $pfDt $rkDt
         $ntRkAgree = _agree24 $ntDt $rkDt
 
-        if ($pfNtAgree -and $pfRkAgree) {
+        # HIGH requires all three within 1 hour
+        $pfNtTight = _agree1h $pfDt $ntDt
+        $pfRkTight = _agree1h $pfDt $rkDt
+
+        if ($pfNtTight -and $pfRkTight) {
             $confidence = 'HIGH'; $firstUTC = $pfUTC
+        } elseif ($pfNtAgree -and $pfRkAgree) {
+            $confidence = 'MEDIUM'; $firstUTC = $pfUTC
         } elseif ($pfNtAgree -or $pfRkAgree -or $ntRkAgree) {
             $confidence = 'MEDIUM'
             $firstUTC = if ($pfNtAgree -or $pfRkAgree) { $pfUTC } else { $ntUTC }
@@ -579,7 +589,7 @@ function script:Invoke-UsersWMIRemote {
             } catch {
                 # ADSI fallback
                 $r.dc_source = 'ADSI'
-                $root = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password)
+                $root = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password, [System.DirectoryServices.AuthenticationTypes]::Secure)
                 $searcher = New-Object System.DirectoryServices.DirectorySearcher($root)
                 try {
                     $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"

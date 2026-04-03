@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.3                    ║
+# ║  Version   : 3.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -38,7 +38,9 @@ $script:DLL_SB = {
             else { return @($null, "COMPUTE_ERROR: $m") }
         }
     }
-    $PROTECTED_PROCS  = @('lsass','csrss','smss','wininit','System','Idle')
+    # Only skip processes that have no modules (PID 0, PID 4). lsass/csrss/smss/wininit
+    # are attempted — ACCESS_DENIED is handled gracefully and logged.
+    $PROTECTED_PROCS  = @('System','Idle')
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
     # Detect PS version once (runs on target)

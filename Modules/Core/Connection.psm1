@@ -16,7 +16,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -164,11 +164,14 @@ function Get-TargetCapsWMI {
         $scope = $null; $reg = $null
         try {
             $scope = New-Object System.Management.ManagementScope("\\$Target\root\default")
+            $scope.Options.Timeout = [TimeSpan]::FromSeconds($script:OP_TIMEOUT_SEC)
             if ($Cred) {
                 $scope.Options.Username = $Cred.UserName
                 $scope.Options.Password = $Cred.GetNetworkCredential().Password
             }
-            $scope.Connect()
+            try { $scope.Connect() } catch {
+                throw (New-Object System.Management.ManagementException("WMI registry scope connection failed for $Target"))
+            }
             $reg = New-Object System.Management.ManagementClass($scope, [System.Management.ManagementPath]'StdRegProv', $null)
             $HKLM = [uint32]2147483650
             $inP  = $reg.GetMethodParameters('GetStringValue')
@@ -231,11 +234,14 @@ function New-WMISession {
     $stdScope = $null
     try {
         $stdScope = New-Object System.Management.ManagementScope("\\$Target\ROOT\StandardCimv2")
+        $stdScope.Options.Timeout = [TimeSpan]::FromSeconds($script:OP_TIMEOUT_SEC)
         if ($Credential) {
             $stdScope.Options.Username = $Credential.UserName
             $stdScope.Options.Password = $Credential.GetNetworkCredential().Password
         }
-        $stdScope.Connect()
+        try { $stdScope.Connect() } catch {
+            Write-Log 'WARN' "StandardCimv2 probe failed for $Target"
+        }
         $hasStdCimv2 = $true
     } catch {} finally {
         if ($stdScope) { try { $stdScope.Dispose() } catch {} }

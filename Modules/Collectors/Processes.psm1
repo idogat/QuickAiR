@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.2                         ║
+# ║  Version   : 3.3                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -958,7 +958,12 @@ function Invoke-Collector {
                     }
                     try { $entry.CommandLine      = $p.CommandLine } catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; message=$_.Exception.Message } }
                     try { $entry.ExecutablePath   = $p.ExecutablePath } catch {}
-                    try { $entry.CreationDateUTC  = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch {}
+                    try {
+                        $entry.CreationDateUTC = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
+                    } catch {
+                        $entry.CreationDateUTC = $null
+                        $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; field='CreationDateUTC'; message="CreationDate access failed: $($_.Exception.Message)" }
+                    }
                     try { $entry.CreationDateLocal = $null } catch {}
                     try { $entry.WorkingSetSize   = [long]$p.WorkingSetSize } catch {}
                     try { $entry.VirtualSize      = [long]$p.VirtualSize }   catch {}

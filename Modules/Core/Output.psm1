@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -58,7 +58,10 @@ function Write-Log {
 function Get-FileSha256 {
     param([string]$Path)
     try { return (Get-FileHash -Path $Path -Algorithm SHA256 -ErrorAction Stop).Hash }
-    catch { return $null }
+    catch {
+        Write-Log 'WARN' "SHA256 computation failed for '$Path': $($_.Exception.Message)"
+        return $null
+    }
 }
 
 function Write-JsonOutput {

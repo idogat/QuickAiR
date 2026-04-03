@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.4                      ║
+# ║  Version   : 2.5                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -354,11 +354,14 @@ function Invoke-Collector {
                 $scope = $null; $classObj = $null
                 try {
                     $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\root\cimv2")
+                    $scope.Options.Timeout = [TimeSpan]::FromSeconds($OP_TIMEOUT_SEC)
                     if ($Session.Credential) {
                         $scope.Options.Username = $Session.Credential.UserName
                         $scope.Options.Password = $Session.Credential.GetNetworkCredential().Password
                     }
-                    $scope.Connect()
+                    try { $scope.Connect() } catch {
+                        throw (New-Object System.Management.ManagementException("WMI netstat scope connection failed for $($Session.ComputerName)"))
+                    }
                     $tmpName = "quickair_netstat_$([guid]::NewGuid().ToString('N')).txt"
                     $tmpRemote = "C:\Windows\Temp\$tmpName"
                     $cmdLine = "cmd.exe /c netstat -ano > `"$tmpRemote`""
@@ -407,11 +410,14 @@ function Invoke-Collector {
             $scope = $null; $tcpSearcher = $null; $udpSearcher = $null
             try {
                 $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\ROOT\StandardCimv2")
+                $scope.Options.Timeout = [TimeSpan]::FromSeconds($OP_TIMEOUT_SEC)
                 if ($Session.Credential) {
                     $scope.Options.Username = $Session.Credential.UserName
                     $scope.Options.Password = $Session.Credential.GetNetworkCredential().Password
                 }
-                $scope.Connect()
+                try { $scope.Connect() } catch {
+                    throw (New-Object System.Management.ManagementException("WMI StandardCimv2 scope connection failed for $($Session.ComputerName)"))
+                }
 
                 # TCP connections
                 $tcpQuery = New-Object System.Management.ObjectQuery("SELECT * FROM MSFT_NetTCPConnection")
@@ -608,6 +614,16 @@ function Invoke-Collector {
     } catch {
         $errors += @{ artifact = 'network_tcp'; message = $_.Exception.Message }
         Write-Log 'ERROR' "Network collection failed: $($_.Exception.Message)"
+    }
+
+    # Warn about missing CreationTime when source is netstat-based
+    if ($networkSource -match 'netstat') {
+        $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Source '$networkSource': TCP CreationTime unavailable (netstat does not provide connection timestamps). Timeline correlation with processes will be limited." }
+    }
+
+    # Warn if connection collection succeeded but returned zero rows (possible silent failure)
+    if ($networkSource -ne 'unknown' -and $networkSource -notmatch 'unavailable' -and @($conns).Count -eq 0 -and @($udpConns).Count -eq 0) {
+        $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Zero TCP and UDP connections collected from source '$networkSource'. This may indicate a collection failure rather than an empty result." }
     }
 
     # --- DNS cache collection ---
