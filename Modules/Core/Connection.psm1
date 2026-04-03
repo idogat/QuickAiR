@@ -239,10 +239,12 @@ function New-WMISession {
             $stdScope.Options.Username = $Credential.UserName
             $stdScope.Options.Password = $Credential.GetNetworkCredential().Password
         }
-        try { $stdScope.Connect() } catch {
+        try {
+            $stdScope.Connect()
+            $hasStdCimv2 = $true
+        } catch {
             Write-Log 'WARN' "StandardCimv2 probe failed for $Target"
         }
-        $hasStdCimv2 = $true
     } catch {} finally {
         if ($stdScope) { try { $stdScope.Dispose() } catch {} }
     }

@@ -262,7 +262,10 @@ public class RegLwt {
             } catch {
                 # ADSI fallback — PS 2.0 / no RSAT
                 $r.dc_source = 'ADSI'
-                $searcher = New-Object System.DirectoryServices.DirectorySearcher
+                $adRoot   = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
+                $domDN    = $adRoot.Properties["defaultNamingContext"][0]
+                $domEntry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domDN", $null, $null, [System.DirectoryServices.AuthenticationTypes]::Secure)
+                $searcher = New-Object System.DirectoryServices.DirectorySearcher($domEntry)
                 try {
                     $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
                     $searcher.PageSize = 1000

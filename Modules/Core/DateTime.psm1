@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Continue'
 # ConvertTo-UtcIso: Convert WMI DMTF string or [datetime] to UTC ISO 8601 string
 # WMI DMTF format: "20240115143022.000000+060" (offset in minutes east of UTC)
 function ConvertTo-UtcIso {
-    param([object]$Value, [int]$FallbackOffsetMin = 0)
+    param([object]$Value, $FallbackOffsetMin = $null)
     if ($null -eq $Value -or $Value -eq '') { return $null }
 
     # Already a [DateTime]
@@ -58,10 +58,11 @@ function ConvertTo-UtcIso {
         if ($dt.Kind -eq [DateTimeKind]::Utc) {
             return $dt.ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
-        # If offset provided, treat parsed time as target-local and subtract offset
-        if ($FallbackOffsetMin -ne 0) {
-            return $dt.AddMinutes(-$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
+        # If offset explicitly provided (including 0 for UTC targets), apply it
+        if ($null -ne $FallbackOffsetMin) {
+            return $dt.AddMinutes(-[int]$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
+        # No offset info — fall back to analyst-local (last resort)
         return $dt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     } catch { return $null }
 }
