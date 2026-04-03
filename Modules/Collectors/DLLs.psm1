@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.2                    ║
+# ║  Version   : 3.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -150,10 +150,16 @@ public class CatalogChecker
 
     $out = @()
     $skippedProcs = @()
+    $MAX_MODULE_COUNT = 50000
+    $totalModuleCount = 0
     $allProcs = $null
     try { $allProcs = [System.Diagnostics.Process]::GetProcesses() } catch { $allProcs = @() }
 
     foreach ($p in $allProcs) {
+        if ($totalModuleCount -gt $MAX_MODULE_COUNT) {
+            $skippedProcs += New-Object PSObject -Property @{ ProcessId=$null; ProcessName='MODULE_LIMIT_REACHED' }
+            break
+        }
         $pName = $null
         try { $pName = $p.ProcessName } catch {}
         if (-not $pName) { continue }
@@ -195,6 +201,8 @@ public class CatalogChecker
         }
 
         foreach ($m in $mods) {
+            $totalModuleCount++
+            if ($totalModuleCount -gt $MAX_MODULE_COUNT) { break }
             $mPath = $null
             $mName = $null
             try { $mPath = $m.FileName  } catch {}
@@ -365,7 +373,7 @@ function Invoke-Collector {
     try {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
             # DLL collection requires .NET Process.Modules — no WMI equivalent
-            $errors += @{ artifact = 'DLLs'; message = 'DLL/module collection unavailable via WMI remote — requires WinRM session' }
+            $errors += @{ artifact = 'DLLs'; severity = 'warning'; degraded = $true; message = 'DLL/module collection unavailable via WMI remote. This target requires WinRM for DLL enumeration.' }
             Write-Log 'WARN' 'DLL collection skipped: WMI fallback does not support .NET Process.Modules'
             return @{
                 data   = @()

@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.2                    ║
+# ║  Version   : 1.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -154,7 +154,11 @@ function Invoke-Executor {
                 throw "Win32_Process.Create failed: $msg (code=$rc)"
             }
 
-            $launchPID = [int]$outParams["ProcessId"]
+            $rawPID = $outParams["ProcessId"]
+            if ($null -eq $rawPID) {
+                throw "Win32_Process.Create returned success but no ProcessId"
+            }
+            $launchPID = [int]$rawPID
         } catch {
             Add-State "LAUNCH_FAILED" $_.Exception.Message
             $result.Error = $_.Exception.Message

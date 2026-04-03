@@ -46,35 +46,49 @@ if ($Unregister) {
     }
 }
 else {
+    $registeredKeys = @()
+    try {
     # ── quickair:// → QuickAiRLaunch.ps1 ─────────────────────
     $launchScript = Join-Path $PSScriptRoot 'QuickAiRLaunch.ps1'
     $cmd = 'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $launchScript + '" -URI "%1"'
 
     if (-not (Test-Path $ROOT)) {
-        New-Item -Path $ROOT -Force | Out-Null
+        New-Item -Path $ROOT -Force -ErrorAction Stop | Out-Null
     }
-    Set-ItemProperty -Path $ROOT -Name '(Default)'    -Value 'URL:QuickAiR DFIR Launcher'
-    New-ItemProperty -Path $ROOT -Name 'URL Protocol'  -Value '' -PropertyType String -Force | Out-Null
+    $registeredKeys += $ROOT
+    Set-ItemProperty -Path $ROOT -Name '(Default)'    -Value 'URL:QuickAiR DFIR Launcher' -ErrorAction Stop
+    New-ItemProperty -Path $ROOT -Name 'URL Protocol'  -Value '' -PropertyType String -Force -ErrorAction Stop | Out-Null
 
     if (-not (Test-Path $CMD_KEY)) {
-        New-Item -Path $CMD_KEY -Force | Out-Null
+        New-Item -Path $CMD_KEY -Force -ErrorAction Stop | Out-Null
     }
-    Set-ItemProperty -Path $CMD_KEY -Name '(Default)' -Value $cmd
+    $registeredKeys += $CMD_KEY
+    Set-ItemProperty -Path $CMD_KEY -Name '(Default)' -Value $cmd -ErrorAction Stop
 
     # ── quickair-collect:// → QuickAiRCollect.ps1 ────────────
     $collectScript = Join-Path $PSScriptRoot 'QuickAiRCollect.ps1'
     $cmdCollect = 'powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $collectScript + '" -URI "%1"'
 
     if (-not (Test-Path $ROOT_COLLECT)) {
-        New-Item -Path $ROOT_COLLECT -Force | Out-Null
+        New-Item -Path $ROOT_COLLECT -Force -ErrorAction Stop | Out-Null
     }
-    Set-ItemProperty -Path $ROOT_COLLECT -Name '(Default)'    -Value 'URL:QuickAiR DFIR Collector'
-    New-ItemProperty -Path $ROOT_COLLECT -Name 'URL Protocol'  -Value '' -PropertyType String -Force | Out-Null
+    $registeredKeys += $ROOT_COLLECT
+    Set-ItemProperty -Path $ROOT_COLLECT -Name '(Default)'    -Value 'URL:QuickAiR DFIR Collector' -ErrorAction Stop
+    New-ItemProperty -Path $ROOT_COLLECT -Name 'URL Protocol'  -Value '' -PropertyType String -Force -ErrorAction Stop | Out-Null
 
     if (-not (Test-Path $CMD_KEY_COLLECT)) {
-        New-Item -Path $CMD_KEY_COLLECT -Force | Out-Null
+        New-Item -Path $CMD_KEY_COLLECT -Force -ErrorAction Stop | Out-Null
     }
-    Set-ItemProperty -Path $CMD_KEY_COLLECT -Name '(Default)' -Value $cmdCollect
+    $registeredKeys += $CMD_KEY_COLLECT
+    Set-ItemProperty -Path $CMD_KEY_COLLECT -Name '(Default)' -Value $cmdCollect -ErrorAction Stop
+
+    } catch {
+        Write-Error "Protocol registration failed: $($_.Exception.Message). Rolling back..."
+        foreach ($key in $registeredKeys) {
+            Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        exit 1
+    }
 
     # ── Verify both ──────────────────────────────────────────
     $ok = (Test-Path $ROOT) -and (Test-Path $CMD_KEY) -and

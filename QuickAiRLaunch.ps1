@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.8                                          ║
+# ║  Version    : 2.9                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -510,11 +510,24 @@ function Invoke-Schedule {
     $snapshot = @($script:Queue.Jobs)
     [System.Threading.Monitor]::Exit($script:Queue.Lock)
 
+    $JOB_TIMEOUT_MINUTES = 30
     foreach ($j in $snapshot) {
         if ($j.IsDone -and $null -ne $j.PS_) {
             try { $j.PS_.Dispose() } catch { }
             $j.PS_        = $null
             $j.RunHandle_ = $null
+        }
+        # Timeout watchdog: kill jobs stuck longer than $JOB_TIMEOUT_MINUTES
+        if (-not $j.IsDone -and $null -ne $j.StartTime -and $j.StartTime -ne [DateTime]::MinValue) {
+            $elapsed = ([DateTime]::UtcNow - $j.StartTime).TotalMinutes
+            if ($elapsed -gt $JOB_TIMEOUT_MINUTES) {
+                if ($null -ne $j.PS_) {
+                    try { $j.PS_.Stop() } catch {}
+                    try { $j.PS_.Dispose() } catch {}
+                    $j.PS_ = $null; $j.RunHandle_ = $null
+                }
+                Update-JobStatus -Queue $script:Queue -JobId $j.JobId -Status 'TIMEOUT' -Detail "Timed out after $([int]$elapsed) minutes"
+            }
         }
         Update-GridRow $j
     }
@@ -819,10 +832,14 @@ function Build-UI {
 # Parse URI
 $rawJobs = @(Parse-QuickAiRURI $URI)
 
-# Single-instance check via named mutex
+# Single-instance check via named mutex (retry to handle slow startup)
 $mutex    = [System.Threading.Mutex]::new($false, $MUTEX_NAME)
 $acquired = $false
-try { $acquired = $mutex.WaitOne(100) } catch { $acquired = $false }
+for ($mtry = 1; $mtry -le 3; $mtry++) {
+    try { $acquired = $mutex.WaitOne(2000) } catch { $acquired = $false }
+    if ($acquired) { break }
+    Start-Sleep -Milliseconds 500
+}
 
 if (-not $acquired) {
     # Another instance is running — hand off jobs via bridge file and exit

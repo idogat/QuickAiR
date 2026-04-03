@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.0                         ║
+# ║  Version   : 3.1                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -265,11 +265,18 @@ public class IntegrityHelper {
     $out = @()
     $outerErrors = @()
     $sha256Cache = @{}
+    $MAX_PROCESS_COUNT = 5000
+    $processCount = 0
     $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
     $searcher.Options.ReturnImmediately = $false
     $searcher.Options.Rewindable = $false
     $procs = $searcher.Get()
     foreach ($p in $procs) {
+        $processCount++
+        if ($processCount -gt $MAX_PROCESS_COUNT) {
+            $outerErrors += "LIMIT: Process count exceeded $MAX_PROCESS_COUNT - truncated to prevent OOM"
+            break
+        }
         try {
         $pid_ = $null; $ppid = $null; $name_ = $null; $cmdLine = $null; $exePath = $null; $cdate = $null; $ws = [long]0; $vs = [long]0; $sid = $null; $hc = $null
         try { $pid_   = [int]$p.ProcessId }       catch {}
@@ -494,8 +501,15 @@ public class IntegrityHelper {
     $out = @()
     $outerErrors = @()
     $sha256Cache = @{}
+    $MAX_PROCESS_COUNT = 5000
+    $processCount = 0
     $raw = Get-CimInstance Win32_Process -OperationTimeoutSec 60
     foreach ($p in $raw) {
+        $processCount++
+        if ($processCount -gt $MAX_PROCESS_COUNT) {
+            $outerErrors += "LIMIT: Process count exceeded $MAX_PROCESS_COUNT - truncated to prevent OOM"
+            break
+        }
         try {
         $pid_ = $null; $ppid = $null; $name_ = $null
         try { $pid_  = [int]$p.ProcessId }       catch {}

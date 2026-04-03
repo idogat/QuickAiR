@@ -9,7 +9,7 @@
 # ║              Update-JobStatus, Get-QueueSummary            ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.2                                          ║
+# ║  Version   : 1.3                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -222,8 +222,8 @@ function Update-JobStatus {
         return $false
     }
 
-    $curOrder = if ($script:StatusOrder.ContainsKey($j.Status)) { $script:StatusOrder[$j.Status] } else { 0 }
-    $newOrder = if ($script:StatusOrder.ContainsKey($Status))   { $script:StatusOrder[$Status] }   else { 0 }
+    $curOrder = if ($script:StatusOrder.ContainsKey($j.Status)) { $script:StatusOrder[$j.Status] } else { -1 }
+    $newOrder = if ($script:StatusOrder.ContainsKey($Status))   { $script:StatusOrder[$Status] }   else { 100 }
 
     if ($newOrder -lt $curOrder) {
         Write-Warning "Update-JobStatus: invalid backward transition $($j.Status) -> $Status for job $JobId"

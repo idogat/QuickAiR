@@ -16,14 +16,15 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-$script:LogFile  = $null
-$script:IsQuiet  = $false
+$script:LogFile       = $null
+$script:IsQuiet       = $false
+$script:LogWriteFails = 0
 
 function Initialize-Log {
     param([string]$Path, [bool]$Quiet = $false)
@@ -36,7 +37,14 @@ function Write-Log {
     $ts   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     $line = "$ts $Level $Message"
     if ($script:LogFile) {
-        Add-Content -Path $script:LogFile -Value $line -ErrorAction SilentlyContinue
+        try {
+            Add-Content -Path $script:LogFile -Value $line -ErrorAction Stop
+        } catch {
+            $script:LogWriteFails++
+            if ($script:LogWriteFails -eq 1 -and -not $script:IsQuiet) {
+                Write-Host "WARNING: Log file unwritable: $($script:LogFile) - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
     }
     if (-not $script:IsQuiet) {
         switch ($Level) {
@@ -67,18 +75,23 @@ function Write-JsonOutput {
     $ts      = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
     $outFile = Join-Path $HostDir "$Hostname`_$ts.json"
 
-    # Phase 1: serialize with sha256=null, compute hash
-    $json = $Data | ConvertTo-Json -Depth 10 -Compress:$false
+    # Phase 1: serialize with sha256 placeholder, compute hash
+    $sha256Placeholder = '___QUICKAIR_SHA256_PLACEHOLDER___'
+    $Data['manifest']['sha256'] = $sha256Placeholder
+    $json = $Data | ConvertTo-Json -Depth 20 -Compress:$false
     $sha256bytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
         [System.Text.Encoding]::UTF8.GetBytes($json))
     $sha256 = ($sha256bytes | ForEach-Object { $_.ToString('X2') }) -join ''
 
-    # Embed SHA256 — case-sensitive replace to only match manifest's lowercase "sha256",
-    # not collector fields like "SHA256" which would get corrupted
-    $json2 = $json -creplace '"sha256":\s+null', ('"sha256": "' + $sha256 + '"')
-    if ($json2 -eq $json) { $json2 = $json -creplace '"sha256":\s*null', ('"sha256": "' + $sha256 + '"') }
+    # Embed SHA256 — exact string replacement using unique placeholder
+    $json2 = $json.Replace("`"$sha256Placeholder`"", "`"$sha256`"")
 
-    [System.IO.File]::WriteAllText($outFile, $json2, [System.Text.Encoding]::UTF8)
+    try {
+        [System.IO.File]::WriteAllText($outFile, $json2, [System.Text.Encoding]::UTF8)
+    } catch {
+        Write-Log 'ERROR' "Failed to write output file '$outFile': $($_.Exception.Message)"
+        return @{ Path = $outFile; Hash = $sha256; Error = $_.Exception.Message }
+    }
 
     return @{ Path = $outFile; Hash = $sha256 }
 }

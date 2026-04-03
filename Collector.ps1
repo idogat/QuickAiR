@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.9                    ║
+# ║  Version   : 3.0                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -131,8 +131,12 @@ foreach ($target in $Targets) {
 
     # For remote targets, prompt for credentials if none provided
     if (-not $isLocalTarget -and -not $effectiveCred) {
-        Write-Host "Enter credentials for $target (leave blank to attempt current user):" -ForegroundColor Cyan
-        try { $effectiveCred = Get-Credential -Message "Credentials for $target" -ErrorAction Stop } catch { $effectiveCred = $null }
+        if ($Quiet) {
+            Write-Log 'INFO' "Quiet mode: attempting current-user credentials for $target"
+        } else {
+            Write-Host "Enter credentials for $target (leave blank to attempt current user):" -ForegroundColor Cyan
+            try { $effectiveCred = Get-Credential -Message "Credentials for $target" -ErrorAction Stop } catch { $effectiveCred = $null }
+        }
     }
 
     # Ensure target is in WinRM TrustedHosts (required for non-domain WinRM connections)
@@ -229,6 +233,7 @@ foreach ($target in $Targets) {
     $session          = $null
     $winrmReachable   = $null
     $connectionMethod = 'local'
+    try { # session-safety: finally block ensures PSSession cleanup
     if (-not $isLocalTarget) {
         if (-not $usingWmiFallback) {
             # Try WinRM session first
@@ -251,7 +256,7 @@ foreach ($target in $Targets) {
                         Write-Host "  WinRM unavailable - using WMI fallback for $target" -ForegroundColor Yellow
                     }
                     # Re-probe caps via WMI if WinRM probe had succeeded but session failed
-                    if ($caps.HasCIM) {
+                    if ($caps -and $caps.HasCIM) {
                         $caps = Get-TargetCapsWMI -Target $target -Cred $effectiveCred
                     }
                 } catch {
@@ -355,6 +360,15 @@ foreach ($target in $Targets) {
         }
     }
 
+    # Validate caps before running collectors
+    if (-not $caps -or $null -eq $caps.PSVersion) {
+        Write-Log 'ERROR' "Capability probe returned incomplete data for $target. Skipping."
+        if ($ProgressFile) {
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Incomplete capability data`n") } catch {}
+        }
+        continue
+    }
+
     # Auto-discover collectors (filter by -Plugins if specified)
     $collectorModules = Get-ChildItem "$PSScriptRoot\Modules\Collectors\*.psm1" | Sort-Object Name
     if ($Plugins -and $Plugins.Count -gt 0) {
@@ -366,17 +380,31 @@ foreach ($target in $Targets) {
     $networkAdapters = @()
 
     foreach ($c in $collectorModules) {
-        Import-Module $c.FullName -Force
+        try {
+            Import-Module $c.FullName -Force -ErrorAction Stop
+        } catch {
+            $collErr += @{ artifact = $c.BaseName; message = "Module import failed: $($_.Exception.Message)" }
+            Write-Log 'ERROR' "Failed to import collector $($c.BaseName): $($_.Exception.Message)"
+            if ($ProgressFile) {
+                try { [System.IO.File]::AppendAllText($ProgressFile, "FAILED:$($c.BaseName):Import error`n") } catch {}
+            }
+            continue
+        }
         Write-Log 'INFO' "Running collector: $($c.BaseName)"
         if ($ProgressFile) {
             try { [System.IO.File]::AppendAllText($ProgressFile, "COLLECTING:$($c.BaseName)`n") } catch {}
         }
         try {
             $result = Invoke-Collector -Session $session -TargetPSVersion $caps.PSVersion -TargetCapabilities $caps
+            if ($null -eq $result -or $null -eq $result.data) {
+                $collErr += @{ artifact = $c.BaseName; message = 'Plugin returned null or missing data property' }
+                Write-Log 'WARN' "Collector $($c.BaseName) returned invalid result structure"
+                continue
+            }
             $collErr += $result.errors
             $sources[$c.BaseName] = $result.source
             if ($c.BaseName -eq 'Network') {
-                $output['Network'] = @{ tcp = $result.data.tcp; dns = $result.data.dns }
+                $output['Network'] = @{ tcp = $result.data.tcp; udp = $result.data.udp; dns = $result.data.dns; adapters = $result.data.adapters }
                 $networkAdapters   = $result.data.adapters
             } else {
                 $output[$c.BaseName] = $result.data
@@ -394,9 +422,11 @@ foreach ($target in $Targets) {
         }
     }
 
-    # Close shared session (WMI hashtable sessions need no cleanup)
-    if ($session -and $session -is [System.Management.Automation.Runspaces.PSSession]) {
-        Remove-PSSession $session -ErrorAction SilentlyContinue
+    } finally {
+        # Close shared session (WMI hashtable sessions need no cleanup)
+        if ($session -and $session -is [System.Management.Automation.Runspaces.PSSession]) {
+            Remove-PSSession $session -ErrorAction SilentlyContinue
+        }
     }
 
     # Resolve hostname for output

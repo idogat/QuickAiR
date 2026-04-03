@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.4                    ║
+# ║  Version  : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -144,7 +144,10 @@ public class RegLwt {
                         $ntRaw   = $ntItem.CreationTime.ToUniversalTime().ToString('o')
                         $ntAvail = $true
                     }
-                } catch {}
+                } catch {
+                    # NTUSER.DAT commonly locked for active user sessions
+                    Write-Warning "Cannot read NTUSER.DAT for SID $sidStr at '$ntPath': $($_.Exception.Message)"
+                }
 
                 # Registry key LastWrite time (Get-Item; P/Invoke fallback for older .NET)
                 $rkRaw = $null; $rkAvail = $false

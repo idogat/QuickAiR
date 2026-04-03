@@ -9,7 +9,7 @@
 # ║              Send-JobBatch, Read-PendingJobs               ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.0                                          ║
+# ║  Version   : 1.1                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -64,12 +64,19 @@ function Start-BridgeListener {
             $files = @(Get-ChildItem $BridgeDir_ -Filter '*.json' -File -ErrorAction SilentlyContinue |
                            Where-Object { $_.DirectoryName -eq $BridgeDir_ })
             foreach ($f in $files) {
+                $tmpName = $f.FullName + '.processing'
                 try {
-                    $content = [System.IO.File]::ReadAllText($f.FullName)
-                    [System.IO.File]::Delete($f.FullName)
+                    [System.IO.File]::Move($f.FullName, $tmpName)
+                    $content = [System.IO.File]::ReadAllText($tmpName)
+                    [System.IO.File]::Delete($tmpName)
                     [void]$PendingQueue_.Enqueue($content)
                 }
-                catch { }
+                catch {
+                    # Move failed = another reader got it first, or read failed after move
+                    if (Test-Path $tmpName) {
+                        try { [System.IO.File]::Delete($tmpName) } catch {}
+                    }
+                }
             }
         }
     })

@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -131,7 +131,11 @@ function Invoke-Executor {
 
                 # Ensure target is in TrustedHosts for non-domain / HTTP WinRM
                 # Save original so we can restore in finally block (B1 fix)
+                # Use named mutex to prevent race with parallel executor instances
+                $thMutex = $null
                 try {
+                    $thMutex = [System.Threading.Mutex]::new($false, 'QuickAiR_TrustedHosts')
+                    $thMutex.WaitOne(10000) | Out-Null
                     $cur = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
                     if ($cur -ne '*' -and $cur -notmatch [regex]::Escape($ComputerName)) {
                         $originalTrustedHosts = $cur
@@ -139,7 +143,9 @@ function Invoke-Executor {
                         Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
                         $trustedHostsModified = $true
                     }
-                } catch { }
+                } catch { } finally {
+                    if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {} }
+                }
 
                 $session = New-PSSession @sessParams
                 Add-State "CONNECTED" "PSSession established to $ComputerName"
@@ -195,9 +201,16 @@ function Invoke-Executor {
         } else {
             # Remote: chunked base64 transfer (PS 2.0 compat, avoids WinRM envelope size limit)
             try {
-                # NOTE: ReadAllBytes loads the entire binary into analyst-machine memory.
-                # Acceptable for typical DFIR tools (<100 MB). For larger files,
-                # consider streaming with FileStream + fixed-size buffer.
+                # Check file size before loading into memory
+                $fileInfo = New-Object System.IO.FileInfo($LocalBinaryPath)
+                $MAX_BINARY_SIZE = 500MB
+                if ($fileInfo.Length -gt $MAX_BINARY_SIZE) {
+                    $sizeMB = [math]::Round($fileInfo.Length / 1MB, 1)
+                    $limitMB = [math]::Round($MAX_BINARY_SIZE / 1MB, 0)
+                    Add-State "TRANSFER_FAILED" "Binary too large: ${sizeMB}MB exceeds ${limitMB}MB limit"
+                    $result.Error = "Binary exceeds size limit (${sizeMB}MB)"
+                    return [PSCustomObject]$result
+                }
                 $fileBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
                 $dest      = $RemoteDestPath
                 # 96 KB binary chunks → ~128 KB base64, well under WinRM 2.0 500 KB envelope limit
@@ -223,9 +236,12 @@ function Invoke-Executor {
                             [System.IO.File]::WriteAllBytes($destPath, $decoded)
                         } else {
                             $stream = [System.IO.File]::OpenWrite($destPath)
-                            [void]$stream.Seek(0, [System.IO.SeekOrigin]::End)
-                            $stream.Write($decoded, 0, $decoded.Length)
-                            $stream.Close()
+                            try {
+                                [void]$stream.Seek(0, [System.IO.SeekOrigin]::End)
+                                $stream.Write($decoded, 0, $decoded.Length)
+                            } finally {
+                                $stream.Close()
+                            }
                         }
                     } -ArgumentList $b64Chunk, $dest, $isFirstChunk -ErrorAction Stop
 
@@ -401,9 +417,11 @@ function Invoke-Executor {
                 if ($launchResult -is [int] -or $launchResult -is [long]) {
                     $launchPID     = [int]$launchResult
                     $earlyExitCode = $null
-                } else {
+                } elseif ($null -ne $launchResult.PID) {
                     $launchPID     = [int]$launchResult.PID
                     $earlyExitCode = $launchResult.ExitCode
+                } else {
+                    throw "Remote execution returned null PID"
                 }
             } catch {
                 Add-State "LAUNCH_FAILED" $_.Exception.Message
@@ -443,11 +461,16 @@ function Invoke-Executor {
     } finally {
         # B1: Restore TrustedHosts to original value if we modified it
         if ($trustedHostsModified) {
+            $thMutex = $null
             try {
+                $thMutex = [System.Threading.Mutex]::new($false, 'QuickAiR_TrustedHosts')
+                $thMutex.WaitOne(10000) | Out-Null
                 Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
             } catch {
                 # If restore fails (e.g. process killed), TrustedHosts will retain the target.
                 # Analyst should verify TrustedHosts manually after hard kills.
+            } finally {
+                if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {} }
             }
         }
         if ($session) {

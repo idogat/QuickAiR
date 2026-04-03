@@ -364,6 +364,18 @@ function loadJsonFile(file, onDone) {
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
       console.error('Parse error in ' + file.name + ': ' + ex.message);
+      var errDiv = document.getElementById('load-errors');
+      if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'load-errors';
+        errDiv.style.cssText = 'position:fixed;top:10px;right:10px;z-index:9999;max-width:400px;';
+        document.body.appendChild(errDiv);
+      }
+      var toast = document.createElement('div');
+      toast.style.cssText = 'background:#d32f2f;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;';
+      toast.textContent = 'Failed to parse ' + file.name + ': ' + ex.message;
+      errDiv.appendChild(toast);
+      setTimeout(function(){ toast.remove(); }, 15000);
     }
     onDone();
   };

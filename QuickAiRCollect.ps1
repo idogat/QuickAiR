@@ -17,7 +17,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 2.1                                           ║
+# ║  Version    : 2.2                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -185,8 +185,19 @@ function Parse-CollectURI {
 #region ── Target & host row management ─────────────────────────
 function Add-Targets {
     param([array]$rawTargets)
+    # Deduplicate hostnames
+    $existingHosts = @{}
+    [System.Threading.Monitor]::Enter($script:Lock)
+    foreach ($t in $script:HostRows) { $existingHosts[$t.Hostname.ToLower()] = $true }
+    [System.Threading.Monitor]::Exit($script:Lock)
+
     foreach ($raw in $rawTargets) {
         $host_   = ([string]$raw.hostname).Trim()
+        if ($existingHosts.ContainsKey($host_.ToLower())) {
+            Write-Host "Duplicate hostname '$host_' skipped" -ForegroundColor Yellow
+            continue
+        }
+        $existingHosts[$host_.ToLower()] = $true
         $outPath = if ($raw.PSObject.Properties['outputPath'] -and -not [string]::IsNullOrWhiteSpace($raw.outputPath)) {
                        $rawOut = [string]$raw.outputPath
                        if ([System.IO.Path]::IsPathRooted($rawOut)) { $rawOut }
@@ -604,8 +615,13 @@ function Invoke-Schedule {
 
         $pf = $pr.ProgressFile
         if (Test-Path $pf) {
+            $lines = $null
+            for ($readRetry = 0; $readRetry -lt 3; $readRetry++) {
+                try { $lines = [System.IO.File]::ReadAllLines($pf); break }
+                catch [System.IO.IOException] { Start-Sleep -Milliseconds 50 }
+            }
             try {
-                $lines = [System.IO.File]::ReadAllLines($pf)
+                if ($null -eq $lines) { $lines = @() }
                 foreach ($line in $lines) {
                     $line = $line.Trim()
                     if     ($line -eq 'CONNECTING')               { $connecting = $true }

@@ -9,7 +9,7 @@
 # ║  Output    : UTC ISO 8601 string    ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+                   ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -39,11 +39,17 @@ function ConvertTo-UtcIso {
             $off = [int]$Matches[7]
             $local = [datetime]::new($yr, $mo, $dy, $hr, $mi, $sc)
             return $local.AddMinutes(-$off).ToString('yyyy-MM-ddTHH:mm:ssZ')
-        } catch { return $null }
+        } catch {
+            Write-Warning "DMTF parse failed for value '$s': $($_.Exception.Message)"
+            return $null
+        }
     }
 
     # Partial DMTF — looks like DMTF but malformed, don't guess
-    if ($s -match '^\d{14}') { return $null }
+    if ($s -match '^\d{14}') {
+        Write-Warning "Malformed DMTF string (partial match, no offset): '$s'"
+        return $null
+    }
 
     # Generic parse fallback
     try {

@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.4                    ║
+# ║  Version   : 1.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -93,6 +93,9 @@ function Invoke-Executor {
         if ($LocalPath -match '^([A-Za-z]):\\(.*)$') {
             $drive = $Matches[1]
             $rest  = $Matches[2]
+            if ($rest -match '[\[\]`]') {
+                Add-State "WARN" "UNC path contains special characters that may cause SMB issues: $LocalPath"
+            }
             return "\\$Host_\$drive`$\$rest"
         }
         return $null
