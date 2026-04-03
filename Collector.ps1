@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.3                    ║
+# ║  Version   : 3.4                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -103,8 +103,11 @@ try {
 }
 Initialize-Log -Path (Join-Path $OutputPath "collection.log") -Quiet:$Quiet.IsPresent
 
+$analystOS = 'Unknown'
+try { $analystOS = (Get-WmiObject Win32_OperatingSystem).Caption } catch { }
+
 Write-Log 'INFO' "QuickAiR Collector v$COLLECTOR_VERSION starting"
-Write-Log 'INFO' "Analyst: $env:COMPUTERNAME, PS $($PSVersionTable.PSVersion), OS: $((Get-WmiObject Win32_OperatingSystem).Caption)"
+Write-Log 'INFO' "Analyst: $env:COMPUTERNAME, PS $($PSVersionTable.PSVersion), OS: $analystOS"
 Write-Log 'INFO' "OutputPath: $OutputPath"
 
 #region --- Tools Manifest ---
@@ -118,7 +121,6 @@ if (Test-Path 'C:\DFIRLab\tools' -PathType Container) {
 
 #region --- Main Collection Loop ---
 $runStart  = Get-Date
-$analystOS = (Get-WmiObject Win32_OperatingSystem).Caption
 
 Write-Log 'INFO' "Starting collection. Targets: $($Targets.Count)"
 
@@ -129,7 +131,8 @@ foreach ($target in $Targets) {
     Write-Log 'INFO' "Collection start | target=$target"
 
     # Local target check
-    $isLocalTarget = ($target -eq 'localhost' -or $target -eq '127.0.0.1' -or $target -ieq $env:COMPUTERNAME)
+    $shortTarget = ($target -split '\.')[0]
+    $isLocalTarget = ($target -eq 'localhost' -or $target -eq '127.0.0.1' -or $target -eq '::1' -or $shortTarget -ieq $env:COMPUTERNAME)
     $effectiveCred = $Credential
 
     # For remote targets, use current-user credentials if none provided (autonomous mode)

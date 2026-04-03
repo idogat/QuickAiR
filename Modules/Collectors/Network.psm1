@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.6                      ║
+# ║  Version   : 2.7                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -35,7 +35,7 @@ $script:NET_SB_FALLBACK = {
 $script:NET_SB_CIM = {
     $out = @(); $udpOut = @()
     try {
-        $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection
+        $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -OperationTimeoutSec 60
         foreach ($c in $raw) {
             $ct = $null
             if ($c.CreationTime) { $ct = $c.CreationTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
@@ -51,7 +51,7 @@ $script:NET_SB_CIM = {
             }
         }
         try {
-            $rawU = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetUDPEndpoint
+            $rawU = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetUDPEndpoint -OperationTimeoutSec 60
             foreach ($u in $rawU) {
                 $udpOut += New-Object PSObject -Property @{
                     LocalAddress  = $u.LocalAddress
@@ -105,7 +105,7 @@ $script:DNS_PARSE_SB = {
 $script:DNS_SB_CIM = {
     try {
         $out = @()
-        $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache
+        $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache -OperationTimeoutSec 60
         foreach ($d in $raw) {
             $out += New-Object PSObject -Property @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=[int]$d.Type; TTL=[int]$d.TimeToLive }
         }
@@ -373,41 +373,43 @@ function Invoke-Collector {
                     $inParams["CommandLine"] = $cmdLine
                     $outP = $classObj.InvokeMethod("Create", $inParams, $null)
                     if ([int]$outP["ReturnValue"] -eq 0) {
-                        # Poll for file stability instead of fixed sleep
                         $uncPath = "\\$($Session.ComputerName)\C`$\Windows\Temp\$tmpName"
-                        $maxWait = 15; $waited = 0; $fileReady = $false
-                        while ($waited -lt $maxWait) {
-                            Start-Sleep -Seconds 1; $waited++
-                            if (Test-Path $uncPath) {
-                                $sz1 = (Get-Item $uncPath).Length
-                                Start-Sleep -Milliseconds 500
-                                $sz2 = (Get-Item $uncPath).Length
-                                if ($sz2 -eq $sz1 -and $sz2 -gt 0) { $fileReady = $true; break }
+                        try {
+                            # Poll for file stability instead of fixed sleep
+                            $maxWait = 15; $waited = 0; $fileReady = $false
+                            while ($waited -lt $maxWait) {
+                                Start-Sleep -Seconds 1; $waited++
+                                if (Test-Path $uncPath) {
+                                    $sz1 = (Get-Item $uncPath).Length
+                                    Start-Sleep -Milliseconds 500
+                                    $sz2 = (Get-Item $uncPath).Length
+                                    if ($sz2 -eq $sz1 -and $sz2 -gt 0) { $fileReady = $true; break }
+                                }
                             }
-                        }
-                        if ($fileReady) {
-                            $lines = [System.IO.File]::ReadAllLines($uncPath)
-                            $parsed = ConvertFrom-NetstatOutput -Lines $lines
-                            $conns = $parsed.Tcp
-                            $udpConns = $parsed.Udp
-                            $networkSource = 'netstat_wmi_remote'
-                            $udpSource     = 'netstat_wmi_remote'
-                            $netstatFallbackOk = $true
-                        } else {
-                            $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI timed out after ${maxWait}s" }
-                        }
-                        # Clean up temp file: try UNC first, then WMI fallback
-                        $cleanedUp = $false
-                        try { Remove-Item $uncPath -Force -ErrorAction Stop; $cleanedUp = $true } catch {}
-                        if (-not $cleanedUp) {
-                            # UNC unreachable — delete via WMI on target
-                            try {
-                                $delCmd = "cmd.exe /c del /f `"$tmpRemote`""
-                                $delIn = $classObj.GetMethodParameters("Create")
-                                $delIn["CommandLine"] = $delCmd
-                                $classObj.InvokeMethod("Create", $delIn, $null) | Out-Null
-                            } catch {
-                                Write-Log 'WARN' "Failed to clean temp file on target $($Session.ComputerName): $tmpRemote"
+                            if ($fileReady) {
+                                $lines = [System.IO.File]::ReadAllLines($uncPath)
+                                $parsed = ConvertFrom-NetstatOutput -Lines $lines
+                                $conns = $parsed.Tcp
+                                $udpConns = $parsed.Udp
+                                $networkSource = 'netstat_wmi_remote'
+                                $udpSource     = 'netstat_wmi_remote'
+                                $netstatFallbackOk = $true
+                            } else {
+                                $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI timed out after ${maxWait}s (UNC path may be inaccessible if SMB is blocked)" }
+                            }
+                        } finally {
+                            # Always clean up temp file: try UNC first, then WMI fallback
+                            $cleanedUp = $false
+                            try { Remove-Item $uncPath -Force -ErrorAction Stop; $cleanedUp = $true } catch {}
+                            if (-not $cleanedUp) {
+                                try {
+                                    $delCmd = "cmd.exe /c del /f `"$tmpRemote`""
+                                    $delIn = $classObj.GetMethodParameters("Create")
+                                    $delIn["CommandLine"] = $delCmd
+                                    $classObj.InvokeMethod("Create", $delIn, $null) | Out-Null
+                                } catch {
+                                    Write-Log 'WARN' "Failed to clean temp file on target $($Session.ComputerName): $tmpRemote"
+                                }
                             }
                         }
                     }

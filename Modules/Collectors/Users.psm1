@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.8                    ║
+# ║  Version  : 2.9                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -126,7 +126,7 @@ public class RegLwt {
                     if ($lh -ne $null -and $ll -ne $null) {
                         $ft = [Int64]$lh * 4294967296 + [Int64]([uint32]$ll)
                         if ($ft -gt 0) {
-                            $lastUseRaw = [DateTime]::FromFileTimeUtc($ft).ToString('o')
+                            $lastUseRaw = [DateTime]::FromFileTimeUtc($ft).ToString('yyyy-MM-ddTHH:mm:ssZ')
                         }
                     }
                 } catch {}
@@ -137,7 +137,7 @@ public class RegLwt {
                 $pfRaw = $null; $pfAvail = $false
                 try {
                     if ($profilePath -and (Test-Path $profilePath)) {
-                        $pfRaw   = (Get-Item $profilePath -ErrorAction Stop).CreationTime.ToUniversalTime().ToString('o')
+                        $pfRaw   = (Get-Item $profilePath -ErrorAction Stop).CreationTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                         $pfAvail = $true
                     }
                 } catch {}
@@ -148,7 +148,7 @@ public class RegLwt {
                     if ($profilePath) {
                         $ntPath = Join-Path $profilePath "NTUSER.DAT"
                         $ntItem = Get-Item $ntPath -Force -ErrorAction Stop
-                        $ntRaw   = $ntItem.CreationTime.ToUniversalTime().ToString('o')
+                        $ntRaw   = $ntItem.CreationTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                         $ntAvail = $true
                     }
                 } catch {
@@ -162,7 +162,7 @@ public class RegLwt {
                     $rki = Get-Item "HKLM:\$plRoot\$sidStr" -ErrorAction Stop
                     $lwt = $rki.LastWriteTime
                     if ($lwt -ne $null -and $lwt -gt [DateTime]::MinValue) {
-                        $rkRaw   = $lwt.ToUniversalTime().ToString('o')
+                        $rkRaw   = $lwt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                         $rkAvail = $true
                     }
                 } catch {}
@@ -170,7 +170,7 @@ public class RegLwt {
                     try {
                         $ft = [RegLwt]::GetLwt("$plRoot\$sidStr")
                         if ($ft -gt 0) {
-                            $rkRaw   = [DateTime]::FromFileTimeUtc($ft).ToString('o')
+                            $rkRaw   = [DateTime]::FromFileTimeUtc($ft).ToString('yyyy-MM-ddTHH:mm:ssZ')
                             $rkAvail = $true
                         }
                     } catch {}
@@ -249,10 +249,10 @@ public class RegLwt {
                         DisplayName     = [string]$u.Name
                         SID             = if ($u.SID) { $u.SID.Value } else { $null }
                         Enabled         = [bool]$u.Enabled
-                        WhenCreated          = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
-                        LastLogonTimestamp    = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
-                        LastLogon            = $(try { if ($u.lastLogon -and [Int64]$u.lastLogon -gt 0) { [DateTime]::FromFileTimeUtc([Int64]$u.lastLogon).ToString('o') } else { $null } } catch { $null })
-                        PasswordLastSet = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('o')} else { $null }
+                        WhenCreated          = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }       else { $null }
+                        LastLogonTimestamp    = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
+                        LastLogon            = $(try { if ($u.lastLogon -and [Int64]$u.lastLogon -gt 0) { [DateTime]::FromFileTimeUtc([Int64]$u.lastLogon).ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch { $null })
+                        PasswordLastSet = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')} else { $null }
                         LockedOut       = [bool]$u.LockedOut
                         BadLogonCount   = [int]$u.BadLogonCount
                         MemberOf        = @(foreach ($dn in @($u.MemberOf)) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
@@ -285,16 +285,16 @@ public class RegLwt {
                             } catch {}
                             $wc = $null
                             try { $wv = $p["whencreated"]; if ($wv -ne $null -and @($wv).Count -gt 0) {
-                                $wc = ([datetime]@($wv)[0]).ToUniversalTime().ToString('o') } } catch {}
+                                $wc = ([datetime]@($wv)[0]).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $llTs = $null
                             try { $llFt = [Int64]$p["lastlogontimestamp"][0]
-                                if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                                if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $llPerDC = $null
                             try { $llFtPerDC = [Int64]$p["lastlogon"][0]
-                                if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
+                                if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $pls = $null
                             try { $plsFt = [Int64]$p["pwdlastset"][0]
-                                if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
+                                if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $uac = 0
                             try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
                             $locked = $false
@@ -482,6 +482,7 @@ function script:Invoke-UsersWMIRemote {
     # ── Profiles via StdRegProv ──────────────────────────────────────────
     try {
         $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\default")
+        $scope.Options.Timeout = [TimeSpan]::FromSeconds(60)
         if ($Credential) {
             $scope.Options.Username = $Credential.UserName
             $scope.Options.Password = $Credential.GetNetworkCredential().Password
@@ -534,6 +535,10 @@ function script:Invoke-UsersWMIRemote {
         $r.errors += "Profiles(WMI): $($_.Exception.Message)"
     }
 
+    if ($r.profiles_raw.Count -gt 0) {
+        $r.errors += "WMI remote: profile timestamps (LastUse, ProfileFolder, NTUSER.DAT, RegistryKey) unavailable — FirstLogon confidence degraded to N/A for all users"
+    }
+
     # ── Local accounts ───────────────────────────────────────────────────
     try {
         $localUsers = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" @wmiP
@@ -578,10 +583,10 @@ function script:Invoke-UsersWMIRemote {
                         DisplayName       = [string]$u.Name
                         SID               = if ($u.SID) { $u.SID.Value } else { $null }
                         Enabled           = [bool]$u.Enabled
-                        WhenCreated       = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
-                        LastLogonTimestamp = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
-                        LastLogon         = $(try { if ($u.lastLogon -and [Int64]$u.lastLogon -gt 0) { [DateTime]::FromFileTimeUtc([Int64]$u.lastLogon).ToString('o') } else { $null } } catch { $null })
-                        PasswordLastSet   = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('o')} else { $null }
+                        WhenCreated       = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }       else { $null }
+                        LastLogonTimestamp = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null }
+                        LastLogon         = $(try { if ($u.lastLogon -and [Int64]$u.lastLogon -gt 0) { [DateTime]::FromFileTimeUtc([Int64]$u.lastLogon).ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch { $null })
+                        PasswordLastSet   = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')} else { $null }
                         LockedOut         = [bool]$u.LockedOut
                         BadLogonCount     = [int]$u.BadLogonCount
                         MemberOf          = @(foreach ($dn in @($u.MemberOf)) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
@@ -616,16 +621,16 @@ function script:Invoke-UsersWMIRemote {
                             } catch {}
                             $wc = $null
                             try { $wv = $p["whencreated"]; if ($wv -ne $null -and @($wv).Count -gt 0) {
-                                $wc = ([datetime]@($wv)[0]).ToUniversalTime().ToString('o') } } catch {}
+                                $wc = ([datetime]@($wv)[0]).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $llTs = $null
                             try { $llFt = [Int64]$p["lastlogontimestamp"][0]
-                                if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                                if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $llPerDC = $null
                             try { $llFtPerDC = [Int64]$p["lastlogon"][0]
-                                if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
+                                if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $pls = $null
                             try { $plsFt = [Int64]$p["pwdlastset"][0]
-                                if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
+                                if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('yyyy-MM-ddTHH:mm:ssZ') } } catch {}
                             $uac = 0
                             try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
                             $locked = $false

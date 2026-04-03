@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.4                         ║
+# ║  Version   : 3.5                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -270,6 +270,7 @@ public class IntegrityHelper {
     $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
     $searcher.Options.ReturnImmediately = $false
     $searcher.Options.Rewindable = $false
+    $searcher.Options.Timeout = [TimeSpan]::FromSeconds(60)
     $procs = $searcher.Get()
     foreach ($p in $procs) {
         $processCount++
@@ -1073,6 +1074,7 @@ function Invoke-Collector {
                 $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")
                 $searcher.Options.ReturnImmediately = $false
                 $searcher.Options.Rewindable = $false
+                $searcher.Options.Timeout = [TimeSpan]::FromSeconds(60)
                 $raw2 = $searcher.Get()
                 foreach ($p in $raw2) {
                     try {

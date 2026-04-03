@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.5                    ║
+# ║  Version   : 3.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -253,7 +253,7 @@ public class CatalogChecker
                             $sigSubject  = $sigD3.SignerCertificate.Subject
                             $sigIssuer   = $sigD3.SignerCertificate.Issuer
                             $sigThumb    = $sigD3.SignerCertificate.Thumbprint
-                            $sigNotAfter = $sigD3.SignerCertificate.NotAfter.ToUniversalTime().ToString('o')
+                            $sigNotAfter = $sigD3.SignerCertificate.NotAfter.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                         }
                         if ($sigD3.TimeStamperCertificate) {
                             $sigTimestamper = $sigD3.TimeStamperCertificate.Subject

@@ -16,7 +16,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -79,14 +79,17 @@ function Get-TargetCaps {
         Error                 = $null
     }
 
-    $isLocal = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or $Target -ieq $env:COMPUTERNAME)
+    $shortTarget = ($Target -split '\.')[0]
+    $isLocal = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or $Target -eq '::1' -or $shortTarget -ieq $env:COMPUTERNAME)
 
     try {
         if ($isLocal) {
             $c.PSVersion = $PSVersionTable.PSVersion.Major
             $os = Get-WmiObject Win32_OperatingSystem
             $c.OSVersion = $os.Version; $c.OSBuild = $os.BuildNumber; $c.OSCaption = $os.Caption
-            $tz = Get-WmiObject Win32_TimeZone; $c.TimezoneOffsetMinutes = $tz.Bias
+            $tz = Get-WmiObject Win32_TimeZone
+            if ($tz) { $c.TimezoneOffsetMinutes = $tz.Bias }
+            else { $c.TimezoneOffsetMinutes = 0; Write-Log 'WARN' "Win32_TimeZone returned null for local — defaulting TimezoneOffsetMinutes to 0 (UTC)" }
             $inst = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'InstallationType' -ErrorAction SilentlyContinue
             $c.IsServerCore = ($inst -and $inst.InstallationType -eq 'Server Core')
 
@@ -105,16 +108,17 @@ function Get-TargetCaps {
                     $v   = $PSVersionTable.PSVersion.Major
                     $os  = Get-WmiObject Win32_OperatingSystem
                     $tz  = Get-WmiObject Win32_TimeZone
+                    $tzBias = if ($tz) { $tz.Bias } else { 0 }
                     $hCim = $v -ge 3
                     $hNet = $false; $hDns = $false
                     if ($hCim) {
-                        try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -ErrorAction Stop | Select-Object -First 1 | Out-Null; $hNet = $true } catch {}
-                        try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache  -ErrorAction Stop | Select-Object -First 1 | Out-Null; $hDns = $true } catch {}
+                        try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -OperationTimeoutSec 10 -ErrorAction Stop | Select-Object -First 1 | Out-Null; $hNet = $true } catch {}
+                        try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache  -OperationTimeoutSec 10 -ErrorAction Stop | Select-Object -First 1 | Out-Null; $hDns = $true } catch {}
                     }
                     $inst = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'InstallationType' -ErrorAction SilentlyContinue
                     New-Object PSObject -Property @{
                         PSVersion=$v; OSVersion=$os.Version; OSBuild=$os.BuildNumber; OSCaption=$os.Caption
-                        TZBias=$tz.Bias; HasCIM=$hCim; HasNetTCPIP=$hNet; HasDNSClient=$hDns
+                        TZBias=$tzBias; TZNull=($null -eq $tz); HasCIM=$hCim; HasNetTCPIP=$hNet; HasDNSClient=$hDns
                         IsServerCore=($inst -and $inst.InstallationType -eq 'Server Core')
                     }
                 }
@@ -123,6 +127,9 @@ function Get-TargetCaps {
                 $c.OSBuild               = $r.OSBuild
                 $c.OSCaption             = $r.OSCaption
                 $c.TimezoneOffsetMinutes = $r.TZBias
+                if ($r.PSObject.Properties['TZNull'] -and $r.TZNull) {
+                    Write-Log 'WARN' "Win32_TimeZone returned null on remote $Target — defaulting TimezoneOffsetMinutes to 0 (UTC)"
+                }
                 $c.HasCIM                = $r.HasCIM
                 $c.HasNetTCPIP           = $r.HasNetTCPIP
                 $c.HasDNSClient          = $r.HasDNSClient
@@ -158,7 +165,12 @@ function Get-TargetCapsWMI {
         $c.OSCaption = $os.Caption
 
         $tz = Get-WmiObject Win32_TimeZone @wmiP
-        $c.TimezoneOffsetMinutes = $tz.Bias
+        if ($tz) {
+            $c.TimezoneOffsetMinutes = $tz.Bias
+        } else {
+            $c.TimezoneOffsetMinutes = 0
+            Write-Log 'WARN' "Win32_TimeZone returned null for $Target — defaulting TimezoneOffsetMinutes to 0 (UTC). Timestamps may be inaccurate if target is not UTC."
+        }
 
         # PS version via remote registry (StdRegProv)
         $scope = $null; $reg = $null

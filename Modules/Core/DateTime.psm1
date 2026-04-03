@@ -9,7 +9,7 @@
 # ║  Output    : UTC ISO 8601 string    ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -30,6 +30,12 @@ function ConvertTo-UtcIso {
         if ($Value.Kind -eq [DateTimeKind]::Unspecified -and $null -ne $FallbackOffsetMin) {
             return $Value.AddMinutes(-[int]$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified) {
+            # No offset available — assume UTC rather than silently using analyst-local timezone
+            Write-Warning "ConvertTo-UtcIso: DateTime Kind=Unspecified with no FallbackOffsetMin — treating as UTC"
+            return $Value.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        }
+        # Kind=Local — analyst-local ToUniversalTime() is correct
         return $Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
 
@@ -66,8 +72,9 @@ function ConvertTo-UtcIso {
         if ($null -ne $FallbackOffsetMin) {
             return $dt.AddMinutes(-[int]$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
-        # No offset info — fall back to analyst-local (last resort)
-        return $dt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+        # No offset info — assume UTC rather than silently using analyst-local timezone
+        Write-Warning "ConvertTo-UtcIso: parsed datetime with no FallbackOffsetMin — treating as UTC"
+        return $dt.ToString('yyyy-MM-ddTHH:mm:ssZ')
     } catch { return $null }
 }
 
