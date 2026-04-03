@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -135,8 +135,11 @@ function Invoke-Executor {
                 $thMutex = $null
                 try {
                     $thMutex = [System.Threading.Mutex]::new($false, 'QuickAiR_TrustedHosts')
-                    $thMutex.WaitOne(10000) | Out-Null
-                    $cur = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
+                    $gotMutex = $thMutex.WaitOne(10000)
+                    if (-not $gotMutex) {
+                        Add-State "WARNING" "TrustedHosts mutex timeout - skipping TH modification"
+                    }
+                    $cur = if ($gotMutex) { (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value } else { '*' }
                     if ($cur -ne '*' -and $cur -notmatch [regex]::Escape($ComputerName)) {
                         $originalTrustedHosts = $cur
                         $newList = if ($cur) { "$cur,$ComputerName" } else { $ComputerName }

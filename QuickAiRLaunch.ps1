@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 2.9                                          ║
+# ║  Version    : 3.0                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -457,6 +457,7 @@ function Add-GridRow {
 
 function Update-GridRow {
     param([object]$job)
+    if ($null -eq $script:Grid -or $script:Grid.IsDisposed) { return }
     $elapsed = if ($job.IsDone -and $job.EndTime -ne [DateTime]::MinValue -and $job.StartTime -ne [DateTime]::MinValue) {
         [int]($job.EndTime - $job.StartTime).TotalSeconds
     } elseif ($job.StartTime -ne [DateTime]::MinValue) {
@@ -768,7 +769,13 @@ function Build-UI {
         try { Invoke-Schedule }
         catch {
             $msg = "$(([DateTime]::UtcNow.ToString('o'))) REFRESH: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
-            [System.IO.File]::AppendAllText('C:\DFIRLab\launcher_error.log', $msg)
+            try {
+                $logPath = 'C:\DFIRLab\launcher_error.log'
+                if ((Test-Path $logPath) -and (Get-Item $logPath).Length -gt 5MB) {
+                    Move-Item $logPath "${logPath}.bak" -Force -ErrorAction SilentlyContinue
+                }
+                [System.IO.File]::AppendAllText($logPath, $msg)
+            } catch {}
         }
     })
     $script:RefreshTimer.Start()
@@ -782,7 +789,13 @@ function Build-UI {
         }
         catch {
             $msg = "$(([DateTime]::UtcNow.ToString('o'))) BRIDGE: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
-            [System.IO.File]::AppendAllText('C:\DFIRLab\launcher_error.log', $msg)
+            try {
+                $logPath = 'C:\DFIRLab\launcher_error.log'
+                if ((Test-Path $logPath) -and (Get-Item $logPath).Length -gt 5MB) {
+                    Move-Item $logPath "${logPath}.bak" -Force -ErrorAction SilentlyContinue
+                }
+                [System.IO.File]::AppendAllText($logPath, $msg)
+            } catch {}
         }
     })
     $script:BridgeTimer.Start()
@@ -819,6 +832,9 @@ function Build-UI {
                 try { $j.PS_.Stop() } catch { }
             }
         }
+
+        # 4. Clear credential cache
+        if ($script:CredCache) { $script:CredCache.Clear() }
 
         # Cancel stays $false — form closes after this handler returns
     })

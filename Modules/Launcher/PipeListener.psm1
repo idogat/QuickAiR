@@ -9,7 +9,7 @@
 # ║              Send-JobBatch, Read-PendingJobs               ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.1                                          ║
+# ║  Version   : 1.2                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -107,7 +107,19 @@ function Stop-BridgeListener {
     if ($null -eq $Listener) { return }
     try { $Listener.StopFlag.Value = $true } catch { }
     try { $Listener.PowerShell.Stop() }      catch { }
-    try { $Listener.Runspace.Close() }       catch { }
+    # Runspace.Close() can hang if script is stuck; use async close with timeout
+    try {
+        $closeDelegate = [System.Action]{ $Listener.Runspace.Close() }
+        $closeResult = $closeDelegate.BeginInvoke($null, $null)
+        if (-not $closeResult.AsyncWaitHandle.WaitOne(3000)) {
+            # Timed out — force dispose instead
+            try { $Listener.Runspace.Dispose() } catch { }
+        } else {
+            $closeDelegate.EndInvoke($closeResult)
+        }
+    } catch {
+        try { $Listener.Runspace.Dispose() } catch { }
+    }
     try { $Listener.PowerShell.Dispose() }   catch { }
 }
 
@@ -155,7 +167,7 @@ function Read-PendingJobs {
                 foreach ($j in @($rawJobs)) { $result.Add($j) }
             }
         }
-        catch { }
+        catch { Write-Warning "QuickAiR: Failed to parse bridge JSON: $($_.Exception.Message)" }
     }
     return @($result)
 }

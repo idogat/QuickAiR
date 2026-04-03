@@ -28,11 +28,13 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.5                    ║
+# ║  Version  : 2.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
+$script:_regLwtAttempted = $false
+$script:_regLwtAvailable = $false
 
 # ── PS 2.0-compatible scriptblock — runs ON the target ──────────────────────
 $script:USERS_SB = {
@@ -71,7 +73,9 @@ $script:USERS_SB = {
 
     # ── Registry LastWrite P/Invoke helper (works on all .NET versions) ─────
     $_rkHelper = $false
-    try { Add-Type -TypeDefinition @'
+    if (-not $script:_regLwtAttempted) {
+        $script:_regLwtAttempted = $true
+        try { Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public class RegLwt {
@@ -94,8 +98,11 @@ public class RegLwt {
         return res!=0 ? 0 : ((long)ft.hi<<32)|(uint)ft.lo;
     }
 }
-'@ -ErrorAction Stop } catch {}
-    try { [void][RegLwt]; $_rkHelper = $true } catch {}
+'@ -ErrorAction Stop
+            $script:_regLwtAvailable = $true
+        } catch {}
+    }
+    try { if ($script:_regLwtAvailable) { [void][RegLwt]; $_rkHelper = $true } } catch {}
 
     # ── COLLECT 1: User profiles ─────────────────────────────────────────────
     try {
@@ -256,55 +263,59 @@ public class RegLwt {
                 # ADSI fallback — PS 2.0 / no RSAT
                 $r.dc_source = 'ADSI'
                 $searcher = New-Object System.DirectoryServices.DirectorySearcher
-                $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
-                $searcher.PageSize = 1000
-                $searcher.PropertiesToLoad.AddRange(@(
-                    "samaccountname","displayname","objectsid","whencreated",
-                    "lastlogontimestamp","lastlogon","pwdlastset","useraccountcontrol",
-                    "badpwdcount","lockouttime","memberof"
-                ))
-                $results = $searcher.FindAll()
-                foreach ($entry in $results) {
-                    $p = $entry.Properties
-                    $sidVal = $null
+                try {
+                    $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
+                    $searcher.PageSize = 1000
+                    $searcher.PropertiesToLoad.AddRange(@(
+                        "samaccountname","displayname","objectsid","whencreated",
+                        "lastlogontimestamp","lastlogon","pwdlastset","useraccountcontrol",
+                        "badpwdcount","lockouttime","memberof"
+                    ))
+                    $results = $searcher.FindAll()
                     try {
-                        $sidVal = (New-Object System.Security.Principal.SecurityIdentifier(
-                            [byte[]]$p["objectsid"][0], 0)).Value
-                    } catch {}
-                    $wc = $null
-                    try { if ($p["whencreated"].Count -gt 0) {
-                        $wc = ([datetime]$p["whencreated"][0]).ToUniversalTime().ToString('o') } } catch {}
-                    $llTs = $null
-                    try { $llFt = [Int64]$p["lastlogontimestamp"][0]
-                        if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
-                    $llPerDC = $null
-                    try { $llFtPerDC = [Int64]$p["lastlogon"][0]
-                        if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
-                    $pls = $null
-                    try { $plsFt = [Int64]$p["pwdlastset"][0]
-                        if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
-                    $uac = 0
-                    try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
-                    $locked = $false
-                    try { $locked = ([Int64]$p["lockouttime"][0]) -gt 0 } catch {}
-                    $bpc = 0
-                    try { $bpc = [int]$p["badpwdcount"][0] } catch {}
-                    $r.dc_domain_raw += @{
-                        SamAccountName    = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
-                        DisplayName       = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
-                        SID               = $sidVal
-                        Enabled           = -not [bool]($uac -band 2)
-                        WhenCreated       = $wc
-                        LastLogonTimestamp = $llTs
-                        LastLogon         = $llPerDC
-                        PasswordLastSet   = $pls
-                        LockedOut       = $locked
-                        BadLogonCount   = $bpc
-                        MemberOf        = @(foreach ($dn in @($p["memberof"])) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
-                        Source          = 'ADSI'
-                    }
-                }
-                try { $results.Dispose() } catch {}
+                        foreach ($entry in $results) {
+                            $p = $entry.Properties
+                            $sidVal = $null
+                            try {
+                                $sidVal = (New-Object System.Security.Principal.SecurityIdentifier(
+                                    [byte[]]$p["objectsid"][0], 0)).Value
+                            } catch {}
+                            $wc = $null
+                            try { $wv = $p["whencreated"]; if ($wv -ne $null -and @($wv).Count -gt 0) {
+                                $wc = ([datetime]@($wv)[0]).ToUniversalTime().ToString('o') } } catch {}
+                            $llTs = $null
+                            try { $llFt = [Int64]$p["lastlogontimestamp"][0]
+                                if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                            $llPerDC = $null
+                            try { $llFtPerDC = [Int64]$p["lastlogon"][0]
+                                if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
+                            $pls = $null
+                            try { $plsFt = [Int64]$p["pwdlastset"][0]
+                                if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
+                            $uac = 0
+                            try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
+                            $locked = $false
+                            try { $locked = ([Int64]$p["lockouttime"][0]) -gt 0 } catch {}
+                            $bpc = 0
+                            try { $bpc = [int]$p["badpwdcount"][0] } catch {}
+                            $samVal = $p["samaccountname"]; $dnVal = $p["displayname"]
+                            $r.dc_domain_raw += @{
+                                SamAccountName    = if ($samVal -ne $null -and @($samVal).Count -gt 0) { [string]@($samVal)[0] } else { $null }
+                                DisplayName       = if ($dnVal -ne $null -and @($dnVal).Count -gt 0)   { [string]@($dnVal)[0] }  else { $null }
+                                SID               = $sidVal
+                                Enabled           = -not [bool]($uac -band 2)
+                                WhenCreated       = $wc
+                                LastLogonTimestamp = $llTs
+                                LastLogon         = $llPerDC
+                                PasswordLastSet   = $pls
+                                LockedOut       = $locked
+                                BadLogonCount   = $bpc
+                                MemberOf        = @(foreach ($dn in @($p["memberof"])) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
+                                Source          = 'ADSI'
+                            }
+                        }
+                    } finally { try { $results.Dispose() } catch {} }
+                } finally { try { $searcher.Dispose() } catch {} }
             }
         } catch { $r.errors += "DomainAccounts: $($_.Exception.Message)" }
     }
@@ -570,55 +581,59 @@ function script:Invoke-UsersWMIRemote {
                 $r.dc_source = 'ADSI'
                 $root = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password)
                 $searcher = New-Object System.DirectoryServices.DirectorySearcher($root)
-                $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
-                $searcher.PageSize = 1000
-                $searcher.PropertiesToLoad.AddRange(@(
-                    "samaccountname","displayname","objectsid","whencreated",
-                    "lastlogontimestamp","lastlogon","pwdlastset","useraccountcontrol",
-                    "badpwdcount","lockouttime","memberof"
-                ))
-                $results = $searcher.FindAll()
-                foreach ($entry in $results) {
-                    $p = $entry.Properties
-                    $sidVal = $null
+                try {
+                    $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
+                    $searcher.PageSize = 1000
+                    $searcher.PropertiesToLoad.AddRange(@(
+                        "samaccountname","displayname","objectsid","whencreated",
+                        "lastlogontimestamp","lastlogon","pwdlastset","useraccountcontrol",
+                        "badpwdcount","lockouttime","memberof"
+                    ))
+                    $results = $searcher.FindAll()
                     try {
-                        $sidVal = (New-Object System.Security.Principal.SecurityIdentifier(
-                            [byte[]]$p["objectsid"][0], 0)).Value
-                    } catch {}
-                    $wc = $null
-                    try { if ($p["whencreated"].Count -gt 0) {
-                        $wc = ([datetime]$p["whencreated"][0]).ToUniversalTime().ToString('o') } } catch {}
-                    $llTs = $null
-                    try { $llFt = [Int64]$p["lastlogontimestamp"][0]
-                        if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
-                    $llPerDC = $null
-                    try { $llFtPerDC = [Int64]$p["lastlogon"][0]
-                        if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
-                    $pls = $null
-                    try { $plsFt = [Int64]$p["pwdlastset"][0]
-                        if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
-                    $uac = 0
-                    try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
-                    $locked = $false
-                    try { $locked = ([Int64]$p["lockouttime"][0]) -gt 0 } catch {}
-                    $bpc = 0
-                    try { $bpc = [int]$p["badpwdcount"][0] } catch {}
-                    $r.dc_domain_raw += @{
-                        SamAccountName    = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
-                        DisplayName       = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
-                        SID               = $sidVal
-                        Enabled           = -not [bool]($uac -band 2)
-                        WhenCreated       = $wc
-                        LastLogonTimestamp = $llTs
-                        LastLogon         = $llPerDC
-                        PasswordLastSet   = $pls
-                        LockedOut         = $locked
-                        BadLogonCount     = $bpc
-                        MemberOf          = @(foreach ($dn in @($p["memberof"])) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
-                        Source            = 'ADSI'
-                    }
-                }
-                try { $results.Dispose() } catch {}
+                        foreach ($entry in $results) {
+                            $p = $entry.Properties
+                            $sidVal = $null
+                            try {
+                                $sidVal = (New-Object System.Security.Principal.SecurityIdentifier(
+                                    [byte[]]$p["objectsid"][0], 0)).Value
+                            } catch {}
+                            $wc = $null
+                            try { $wv = $p["whencreated"]; if ($wv -ne $null -and @($wv).Count -gt 0) {
+                                $wc = ([datetime]@($wv)[0]).ToUniversalTime().ToString('o') } } catch {}
+                            $llTs = $null
+                            try { $llFt = [Int64]$p["lastlogontimestamp"][0]
+                                if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                            $llPerDC = $null
+                            try { $llFtPerDC = [Int64]$p["lastlogon"][0]
+                                if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
+                            $pls = $null
+                            try { $plsFt = [Int64]$p["pwdlastset"][0]
+                                if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
+                            $uac = 0
+                            try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
+                            $locked = $false
+                            try { $locked = ([Int64]$p["lockouttime"][0]) -gt 0 } catch {}
+                            $bpc = 0
+                            try { $bpc = [int]$p["badpwdcount"][0] } catch {}
+                            $samVal = $p["samaccountname"]; $dnVal = $p["displayname"]
+                            $r.dc_domain_raw += @{
+                                SamAccountName    = if ($samVal -ne $null -and @($samVal).Count -gt 0) { [string]@($samVal)[0] } else { $null }
+                                DisplayName       = if ($dnVal -ne $null -and @($dnVal).Count -gt 0)   { [string]@($dnVal)[0] }  else { $null }
+                                SID               = $sidVal
+                                Enabled           = -not [bool]($uac -band 2)
+                                WhenCreated       = $wc
+                                LastLogonTimestamp = $llTs
+                                LastLogon         = $llPerDC
+                                PasswordLastSet   = $pls
+                                LockedOut         = $locked
+                                BadLogonCount     = $bpc
+                                MemberOf          = @(foreach ($dn in @($p["memberof"])) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
+                                Source            = 'ADSI'
+                            }
+                        }
+                    } finally { try { $results.Dispose() } catch {} }
+                } finally { try { $searcher.Dispose() } catch {} }
             }
         } catch { $r.errors += "DomainAccounts: $($_.Exception.Message)" }
     }

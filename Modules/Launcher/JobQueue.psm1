@@ -9,7 +9,7 @@
 # ║              Update-JobStatus, Get-QueueSummary            ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.3                                          ║
+# ║  Version   : 1.4                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -53,6 +53,9 @@ function Invoke-JobValidation {
     foreach ($c in $script:FORBIDDEN) {
         if ($raw.binary     -and ([string]$raw.binary).Contains($c))     { $errs += "Binary path contains forbidden char: $c" }
         if ($raw.remoteDest -and ([string]$raw.remoteDest).Contains($c)) { $errs += "RemoteDest contains forbidden char: $c" }
+    }
+    if ($raw.binary -and ([string]$raw.binary).StartsWith('\\')) {
+        $errs += "Binary path must not be a UNC path"
     }
     if (-not $raw.binary) { $errs += 'binary path is required' }
     $ac = 0
@@ -180,19 +183,20 @@ function Get-NextJob {
         [Parameter(Mandatory=$true)] $Queue
     )
     [System.Threading.Monitor]::Enter($Queue.Lock)
-    $snapshot = @($Queue.Jobs)
-    [System.Threading.Monitor]::Exit($Queue.Lock)
+    try {
+        $running = 0
+        foreach ($j in $Queue.Jobs) {
+            if (-not $j.IsDone -and $j.Status -ne 'Queued') { $running++ }
+        }
+        if ($running -ge $Queue.MaxConcurrent) { return $null }
 
-    $running = 0
-    foreach ($j in $snapshot) {
-        if (-not $j.IsDone -and $j.Status -ne 'Queued') { $running++ }
+        foreach ($j in $Queue.Jobs) {
+            if (-not $j.IsDone -and $j.Status -eq 'Queued') { return $j }
+        }
+        return $null
+    } finally {
+        [System.Threading.Monitor]::Exit($Queue.Lock)
     }
-    if ($running -ge $Queue.MaxConcurrent) { return $null }
-
-    foreach ($j in $snapshot) {
-        if (-not $j.IsDone -and $j.Status -eq 'Queued') { return $j }
-    }
-    return $null
 }
 
 function Update-JobStatus {

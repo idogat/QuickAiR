@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.5                    ║
+# ║  Version   : 1.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -104,6 +104,7 @@ function Invoke-Executor {
     # Enumerate admin shares on target via WMI; find one matching the drive letter
     function Find-AdminShare {
         param([string]$Host_, [System.Management.Automation.PSCredential]$Cred, [string]$DriveLetter)
+        $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$Host_\root\cimv2")
             if ($Cred) {
@@ -126,6 +127,9 @@ function Invoke-Executor {
             return @{ Name = $null; Path = $null; AllShares = $allNames }
         } catch {
             return @{ Name = $null; Path = $null; AllShares = @(); Error = $_.Exception.Message }
+        } finally {
+            if ($searcher) { try { $searcher.Dispose() } catch {} }
+            if ($wmiScope) { try { $wmiScope.Dispose() } catch {} }
         }
     }
 
@@ -276,15 +280,16 @@ function Invoke-Executor {
         $commandLine = if ($Arguments) { "`"$RemoteDestPath`" $Arguments" } else { "`"$RemoteDestPath`"" }
 
         $launchPID = $null
+        $launchScope = $null; $classObj = $null
         try {
-            $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
+            $launchScope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
             if ($Credential) {
-                $scope.Options.Username = $Credential.UserName
-                $scope.Options.Password = $Credential.GetNetworkCredential().Password
+                $launchScope.Options.Username = $Credential.UserName
+                $launchScope.Options.Password = $Credential.GetNetworkCredential().Password
             }
-            $scope.Connect()
+            $launchScope.Connect()
 
-            $classObj = New-Object System.Management.ManagementClass($scope, "Win32_Process", $null)
+            $classObj = New-Object System.Management.ManagementClass($launchScope, "Win32_Process", $null)
             $inParams  = $classObj.GetMethodParameters("Create")
             $inParams["CommandLine"] = $commandLine
 
@@ -306,6 +311,9 @@ function Invoke-Executor {
             $result.Error = $_.Exception.Message
             $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
             return [PSCustomObject]$result
+        } finally {
+            if ($classObj)    { try { $classObj.Dispose() }    catch {} }
+            if ($launchScope) { try { $launchScope.Dispose() } catch {} }
         }
 
         $result.PID = $launchPID

@@ -16,7 +16,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -161,6 +161,7 @@ function Get-TargetCapsWMI {
         $c.TimezoneOffsetMinutes = $tz.Bias
 
         # PS version via remote registry (StdRegProv)
+        $scope = $null; $reg = $null
         try {
             $scope = New-Object System.Management.ManagementScope("\\$Target\root\default")
             if ($Cred) {
@@ -194,6 +195,9 @@ function Get-TargetCapsWMI {
             if     ($build -ge 10240) { $c.PSVersion = 5 }
             elseif ($build -ge 9200)  { $c.PSVersion = 3 }
             else                      { $c.PSVersion = 2 }
+        } finally {
+            if ($reg)   { try { $reg.Dispose() }   catch {} }
+            if ($scope) { try { $scope.Dispose() } catch {} }
         }
 
         if ($c.PSVersion -eq 0) {
@@ -224,15 +228,18 @@ function New-WMISession {
 
     # Probe ROOT\StandardCimv2 availability (needed for TCP/UDP collection)
     $hasStdCimv2 = $false
+    $stdScope = $null
     try {
-        $scope = New-Object System.Management.ManagementScope("\\$Target\ROOT\StandardCimv2")
+        $stdScope = New-Object System.Management.ManagementScope("\\$Target\ROOT\StandardCimv2")
         if ($Credential) {
-            $scope.Options.Username = $Credential.UserName
-            $scope.Options.Password = $Credential.GetNetworkCredential().Password
+            $stdScope.Options.Username = $Credential.UserName
+            $stdScope.Options.Password = $Credential.GetNetworkCredential().Password
         }
-        $scope.Connect()
+        $stdScope.Connect()
         $hasStdCimv2 = $true
-    } catch {}
+    } catch {} finally {
+        if ($stdScope) { try { $stdScope.Dispose() } catch {} }
+    }
 
     return @{
         ComputerName    = $Target

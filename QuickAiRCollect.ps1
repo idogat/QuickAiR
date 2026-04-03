@@ -17,7 +17,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 2.2                                           ║
+# ║  Version    : 2.3                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -1054,7 +1054,7 @@ $rawTargets = @(Parse-CollectURI $URI)
 # Single-instance check via named mutex
 $mutex    = [System.Threading.Mutex]::new($false, $MUTEX_NAME)
 $acquired = $false
-try { $acquired = $mutex.WaitOne(100) } catch { $acquired = $false }
+try { $acquired = $mutex.WaitOne(3000) } catch { $acquired = $false }
 
 if (-not $acquired) {
     # Another instance is running — hand off targets via bridge file and exit
@@ -1102,7 +1102,11 @@ finally {
             try { $pr.PS_.Dispose() } catch { }
             $pr.PS_ = $null
         }
+        if ($pr.ProgressFile) {
+            Remove-Item $pr.ProgressFile -Force -ErrorAction SilentlyContinue
+        }
     }
+    if ($script:CredCache) { $script:CredCache.Clear() }
     try { $mutex.ReleaseMutex() } catch { }
     $mutex.Dispose()
 }

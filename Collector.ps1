@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.0                    ║
+# ║  Version   : 3.1                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -95,9 +95,7 @@ Import-Module "$PSScriptRoot\Modules\Core\Output.psm1"     -Force
 #endregion
 
 #region --- Setup Output & Log ---
-if (-not (Test-Path $OutputPath)) {
-    New-Item -ItemType Directory -Path $OutputPath -Force | Out-Null
-}
+New-Item -ItemType Directory -Path $OutputPath -Force -ErrorAction SilentlyContinue | Out-Null
 Initialize-Log -Path (Join-Path $OutputPath "collection.log") -Quiet:$Quiet.IsPresent
 
 Write-Log 'INFO' "QuickAiR Collector v$COLLECTOR_VERSION starting"
@@ -185,7 +183,7 @@ foreach ($target in $Targets) {
             $connected = $true
             Write-Log 'INFO' "Capability probe OK | PS=$($caps.PSVersion) | CIM=$($caps.HasCIM) | NetCIM=$($caps.HasNetTCPIP) | DnsCIM=$($caps.HasDNSClient)"
             if ($ProgressFile) {
-                try { [System.IO.File]::AppendAllText($ProgressFile, "PROBE:PS=$($caps.PSVersion)|CIM=$($caps.HasCIM)|NetCIM=$($caps.HasNetTCPIP)|DnsCIM=$($caps.HasDNSClient)`n") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "PROBE:PS=$($caps.PSVersion)|CIM=$($caps.HasCIM)|NetCIM=$($caps.HasNetTCPIP)|DnsCIM=$($caps.HasDNSClient)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
             }
             break
         } catch {
@@ -206,7 +204,7 @@ foreach ($target in $Targets) {
             $usingWmiFallback = $true
             Write-Log 'INFO' "WMI capability probe OK | PS=$($caps.PSVersion) | Method=WMI"
             if ($ProgressFile) {
-                try { [System.IO.File]::AppendAllText($ProgressFile, "PROBE:PS=$($caps.PSVersion)|CIM=False|NetCIM=False|DnsCIM=False|Method=WMI`n") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "PROBE:PS=$($caps.PSVersion)|CIM=False|NetCIM=False|DnsCIM=False|Method=WMI`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
             }
         } catch {
             $lastProbeError = $_.Exception.Message
@@ -224,7 +222,7 @@ foreach ($target in $Targets) {
         }
         Write-Log 'ERROR' "All probe attempts failed for $target. Skipping."
         if ($ProgressFile) {
-            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failMsg`n") } catch {}
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failMsg`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
         }
         continue
     }
@@ -263,7 +261,7 @@ foreach ($target in $Targets) {
                     Write-Log 'ERROR' "Both WinRM and WMI failed for $target. Skipping."
                     if ($ProgressFile) {
                         $reason = Format-ConnectionError $sessErr
-                        try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch {}
+                        try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
                     }
                     continue
                 }
@@ -281,7 +279,7 @@ foreach ($target in $Targets) {
             } catch {
                 Write-Log 'ERROR' "WMI session creation failed for $target. Skipping."
                 if ($ProgressFile) {
-                    try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:WMI session failed`n") } catch {}
+                    try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:WMI session failed`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
                 }
                 continue
             }
@@ -300,6 +298,7 @@ foreach ($target in $Targets) {
         # WMI already confirmed reachable by session creation
         $wmiReachable = $true
         # SMB probe via existing WMI scope
+        $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
             if ($effectiveCred) {
@@ -322,9 +321,13 @@ foreach ($target in $Targets) {
         } catch {
             $smbReachable = $false
             Write-Log 'WARN' "SMB share enumeration failed on ${target}: $($_.Exception.Message)"
+        } finally {
+            if ($searcher)  { try { $searcher.Dispose() }  catch {} }
+            if ($wmiScope)  { try { $wmiScope.Dispose() }  catch {} }
         }
     } else {
         # WinRM session — run standard WMI + SMB probes
+        $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
             if ($effectiveCred) {
@@ -352,11 +355,15 @@ foreach ($target in $Targets) {
             } catch {
                 $smbReachable = $false
                 Write-Log 'WARN' "SMB share enumeration failed on ${target}: $($_.Exception.Message)"
+            } finally {
+                if ($searcher) { try { $searcher.Dispose() } catch {} }
             }
         } catch {
             $wmiReachable = $false
             $smbReachable = $false
             Write-Log 'WARN' "WMI unreachable on ${target}: $($_.Exception.Message)"
+        } finally {
+            if ($wmiScope) { try { $wmiScope.Dispose() } catch {} }
         }
     }
 
@@ -364,7 +371,7 @@ foreach ($target in $Targets) {
     if (-not $caps -or $null -eq $caps.PSVersion) {
         Write-Log 'ERROR' "Capability probe returned incomplete data for $target. Skipping."
         if ($ProgressFile) {
-            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Incomplete capability data`n") } catch {}
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:Incomplete capability data`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
         }
         continue
     }
@@ -386,13 +393,13 @@ foreach ($target in $Targets) {
             $collErr += @{ artifact = $c.BaseName; message = "Module import failed: $($_.Exception.Message)" }
             Write-Log 'ERROR' "Failed to import collector $($c.BaseName): $($_.Exception.Message)"
             if ($ProgressFile) {
-                try { [System.IO.File]::AppendAllText($ProgressFile, "FAILED:$($c.BaseName):Import error`n") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "FAILED:$($c.BaseName):Import error`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
             }
             continue
         }
         Write-Log 'INFO' "Running collector: $($c.BaseName)"
         if ($ProgressFile) {
-            try { [System.IO.File]::AppendAllText($ProgressFile, "COLLECTING:$($c.BaseName)`n") } catch {}
+            try { [System.IO.File]::AppendAllText($ProgressFile, "COLLECTING:$($c.BaseName)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
         }
         try {
             $result = Invoke-Collector -Session $session -TargetPSVersion $caps.PSVersion -TargetCapabilities $caps
@@ -401,8 +408,10 @@ foreach ($target in $Targets) {
                 Write-Log 'WARN' "Collector $($c.BaseName) returned invalid result structure"
                 continue
             }
-            $collErr += $result.errors
-            $sources[$c.BaseName] = $result.source
+            if ($result.PSObject.Properties['errors'] -and $result.errors) {
+                $collErr += $result.errors
+            }
+            $sources[$c.BaseName] = if ($result.PSObject.Properties['source']) { $result.source } else { @{} }
             if ($c.BaseName -eq 'Network') {
                 $output['Network'] = @{ tcp = $result.data.tcp; udp = $result.data.udp; dns = $result.data.dns; adapters = $result.data.adapters }
                 $networkAdapters   = $result.data.adapters
@@ -411,13 +420,13 @@ foreach ($target in $Targets) {
             }
             Write-Log 'INFO' "Collector $($c.BaseName) complete"
             if ($ProgressFile) {
-                try { [System.IO.File]::AppendAllText($ProgressFile, "DONE:$($c.BaseName)`n") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "DONE:$($c.BaseName)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
             }
         } catch {
             $collErr += @{ artifact = $c.BaseName; message = $_.Exception.Message }
             Write-Log 'WARN' "Collector $($c.BaseName) failed: $($_.Exception.Message)"
             if ($ProgressFile) {
-                try { [System.IO.File]::AppendAllText($ProgressFile, "FAILED:$($c.BaseName):$($_.Exception.Message)`n") } catch {}
+                try { [System.IO.File]::AppendAllText($ProgressFile, "FAILED:$($c.BaseName):$($_.Exception.Message)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
             }
         }
     }
@@ -473,7 +482,7 @@ foreach ($target in $Targets) {
     $written = Write-JsonOutput -Data $jsonOutput -HostDir (Join-Path $OutputPath $outHost) -Hostname $outHost
     Write-Log 'INFO' "Output: $($written.Path) | SHA256: $($written.Hash)"
     if ($ProgressFile) {
-        try { [System.IO.File]::AppendAllText($ProgressFile, "OUTPUT:$($written.Path)`n") } catch {}
+        try { [System.IO.File]::AppendAllText($ProgressFile, "OUTPUT:$($written.Path)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
     }
 
     $procCount  = @($output['Processes']).Count

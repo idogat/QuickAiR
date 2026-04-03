@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.3                      ║
+# ║  Version   : 2.4                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -279,7 +279,13 @@ function Add-DnsEnrichment {
 
     $dnsMap = @{}
     foreach ($d in $DnsCache) {
-        if ($d.Data -and -not $dnsMap.ContainsKey($d.Data)) { $dnsMap[$d.Data] = $d.Entry }
+        if ($d.Data) {
+            if ($dnsMap.ContainsKey($d.Data)) {
+                if ($dnsMap[$d.Data] -notlike "*$($d.Entry)*") {
+                    $dnsMap[$d.Data] += ", $($d.Entry)"
+                }
+            } else { $dnsMap[$d.Data] = $d.Entry }
+        }
     }
 
     $out = @()
@@ -345,6 +351,7 @@ function Invoke-Collector {
             if ($Session.HasStandardCimv2 -eq $false) {
                 # Pre-2012 OS: netstat-over-WMI fallback
                 $netstatFallbackOk = $false
+                $scope = $null; $classObj = $null
                 try {
                     $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\root\cimv2")
                     if ($Session.Credential) {
@@ -360,9 +367,19 @@ function Invoke-Collector {
                     $inParams["CommandLine"] = $cmdLine
                     $outP = $classObj.InvokeMethod("Create", $inParams, $null)
                     if ([int]$outP["ReturnValue"] -eq 0) {
-                        Start-Sleep -Seconds 3
+                        # Poll for file stability instead of fixed sleep
                         $uncPath = "\\$($Session.ComputerName)\C`$\Windows\Temp\$tmpName"
-                        if (Test-Path $uncPath) {
+                        $maxWait = 15; $waited = 0; $fileReady = $false
+                        while ($waited -lt $maxWait) {
+                            Start-Sleep -Seconds 1; $waited++
+                            if (Test-Path $uncPath) {
+                                $sz1 = (Get-Item $uncPath).Length
+                                Start-Sleep -Milliseconds 500
+                                $sz2 = (Get-Item $uncPath).Length
+                                if ($sz2 -eq $sz1 -and $sz2 -gt 0) { $fileReady = $true; break }
+                            }
+                        }
+                        if ($fileReady) {
                             $lines = [System.IO.File]::ReadAllLines($uncPath)
                             $parsed = ConvertFrom-NetstatOutput -Lines $lines
                             $conns = $parsed.Tcp
@@ -370,11 +387,16 @@ function Invoke-Collector {
                             $networkSource = 'netstat_wmi_remote'
                             $udpSource     = 'netstat_wmi_remote'
                             $netstatFallbackOk = $true
-                            Remove-Item $uncPath -Force -ErrorAction SilentlyContinue
+                        } else {
+                            $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI timed out after ${maxWait}s" }
                         }
+                        Remove-Item $uncPath -Force -ErrorAction SilentlyContinue
                     }
                 } catch {
                     $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI fallback failed: $($_.Exception.Message)" }
+                } finally {
+                    if ($classObj) { try { $classObj.Dispose() } catch {} }
+                    if ($scope)    { try { $scope.Dispose() }    catch {} }
                 }
                 if (-not $netstatFallbackOk) {
                     $networkSource = 'wmi_remote_unavailable'
@@ -382,6 +404,7 @@ function Invoke-Collector {
                     $errors += @{ artifact = 'network_tcp'; message = "WMI fallback on pre-2012 OS: TCP/UDP collection unavailable (netstat fallback also failed)." }
                 }
             } else {
+            $scope = $null; $tcpSearcher = $null; $udpSearcher = $null
             try {
                 $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\ROOT\StandardCimv2")
                 if ($Session.Credential) {
@@ -453,6 +476,10 @@ function Invoke-Collector {
                 $networkSource = 'wmi_remote_unavailable'
                 $udpSource     = 'wmi_remote_unavailable'
                 $errors += @{ artifact = 'network_tcp'; message = "WMI fallback on pre-2012 OS: TCP/UDP collection unavailable. MSFT_NetTCPConnection requires Windows 8/Server 2012+. Use netstat on target manually." }
+            } finally {
+                if ($udpSearcher) { try { $udpSearcher.Dispose() } catch {} }
+                if ($tcpSearcher) { try { $tcpSearcher.Dispose() } catch {} }
+                if ($scope)       { try { $scope.Dispose() }       catch {} }
             }
             } # end HasStandardCimv2 else
         } elseif ($Session -ne $null) {
@@ -698,6 +725,9 @@ function Invoke-Collector {
     $pidMap = @{}
     try {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            if (-not $Session.ComputerName) {
+                throw "WMI session has no ComputerName - cannot query remote processes"
+            }
             $wmiProcP = @{ Class = 'Win32_Process'; ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
             if ($Session.Credential) { $wmiProcP.Credential = $Session.Credential }
             $wmiProcs = Get-WmiObject @wmiProcP
@@ -721,15 +751,15 @@ function Invoke-Collector {
 
     # --- Row limits to prevent OOM ---
     $MAX_TCP_ROWS = 10000; $MAX_UDP_ROWS = 5000; $MAX_DNS_ROWS = 10000
-    if ($conns.Count -gt $MAX_TCP_ROWS) {
+    if ($conns -and $conns.Count -gt $MAX_TCP_ROWS) {
         $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "TCP count ($($conns.Count)) exceeded limit $MAX_TCP_ROWS - truncated" }
         $conns = @($conns[0..($MAX_TCP_ROWS - 1)])
     }
-    if ($udpConns.Count -gt $MAX_UDP_ROWS) {
+    if ($udpConns -and $udpConns.Count -gt $MAX_UDP_ROWS) {
         $errors += @{ artifact = 'network_udp'; severity = 'warning'; message = "UDP count ($($udpConns.Count)) exceeded limit $MAX_UDP_ROWS - truncated" }
         $udpConns = @($udpConns[0..($MAX_UDP_ROWS - 1)])
     }
-    if ($dnsEntries.Count -gt $MAX_DNS_ROWS) {
+    if ($dnsEntries -and $dnsEntries.Count -gt $MAX_DNS_ROWS) {
         $errors += @{ artifact = 'network_dns'; severity = 'warning'; message = "DNS count ($($dnsEntries.Count)) exceeded limit $MAX_DNS_ROWS - truncated" }
         $dnsEntries = @($dnsEntries[0..($MAX_DNS_ROWS - 1)])
     }

@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.1                         ║
+# ║  Version   : 3.2                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -349,7 +349,7 @@ public class IntegrityHelper {
         foreach ($dp in $dnProcs) {
             if (-not $wmiPids.ContainsKey([int]$dp.Id)) {
                 $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
-                try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                try { if ($dp.Id -gt 4) { $exeFn = $dp.MainModule.FileName } }                         catch {}
                 try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
@@ -570,7 +570,7 @@ public class IntegrityHelper {
         foreach ($dp in $dnProcs) {
             if (-not $cimPids.ContainsKey([int]$dp.Id)) {
                 $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
-                try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                try { if ($dp.Id -gt 4) { $exeFn = $dp.MainModule.FileName } }                         catch {}
                 try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                 try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                 try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
@@ -659,10 +659,12 @@ function _getSigPS3($path) {
 # Returns @(levelString, errorString). levelString is one of:
 #   Untrusted, Low, Medium, MediumPlus, High, System, ProtectedProcess, or the raw RID
 $script:_integrityTypeAdded = $false
+$script:_integrityTypeAvailable = $false
 function _getIntegrityLevel($pid_) {
     if ($null -eq $pid_ -or $pid_ -eq 0) { return @($null, 'PID_ZERO_OR_NULL') }
-    try {
-        if (-not $script:_integrityTypeAdded) {
+    if (-not $script:_integrityTypeAdded) {
+        $script:_integrityTypeAdded = $true  # Mark attempted so we don't retry on failure
+        try {
             Add-Type -Language CSharp -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -701,8 +703,13 @@ public class IntegrityHelper {
     }
 }
 '@ -ErrorAction Stop
-            $script:_integrityTypeAdded = $true
+            $script:_integrityTypeAvailable = $true
+        } catch {
+            return @($null, 'PINVOKE_COMPILE_FAILED')
         }
+    }
+    if (-not $script:_integrityTypeAvailable) { return @($null, 'PINVOKE_UNAVAILABLE') }
+    try {
         $rid = [IntegrityHelper]::GetIntegrityRidByPid($pid_)
         if ($rid -lt 0) { return @($null, "TOKEN_ERROR_$rid") }
         $label = switch ($rid) {
@@ -738,6 +745,9 @@ function Invoke-Collector {
     try {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
             # WMI remote path: query from analyst machine
+            if (-not $Session.ComputerName) {
+                throw "WMI session has no ComputerName - cannot query remote processes"
+            }
             $wmiP = @{ Class = 'Win32_Process'; ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
             if ($Session.Credential) { $wmiP.Credential = $Session.Credential }
             $wmiProcs = Get-WmiObject @wmiP
@@ -991,7 +1001,7 @@ function Invoke-Collector {
                     foreach ($dp in $dnProcs) {
                         if (-not $collectedPIDs.ContainsKey([int]$dp.Id)) {
                             $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
-                            try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                            try { if ($dp.Id -gt 4) { $exeFn = $dp.MainModule.FileName } }                         catch {}
                             try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                             try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                             try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
@@ -1125,7 +1135,7 @@ function Invoke-Collector {
                     foreach ($dp in $dnProcs) {
                         if (-not $collectedPIDs.ContainsKey([int]$dp.Id)) {
                             $exeFn = $null; $startT = $null; $ws2 = [long]0; $vs2 = [long]0; $sid2 = $null; $hc2 = $null
-                            try { $exeFn  = $dp.MainModule.FileName }                                          catch {}
+                            try { if ($dp.Id -gt 4) { $exeFn = $dp.MainModule.FileName } }                         catch {}
                             try { $startT = $dp.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } catch {}
                             try { $ws2    = [long]$dp.WorkingSet64 }                                           catch {}
                             try { $vs2    = [long]$dp.VirtualMemorySize64 }                                    catch {}
