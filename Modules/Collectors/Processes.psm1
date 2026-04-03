@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.3                         ║
+# ║  Version   : 3.4                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -162,7 +162,7 @@ public class CatalogChecker
         $result = $null
         if ($hasEmbedded) {
             $result = New-Object PSObject -Property @{
-                IsSigned=$true; IsValid=$null; Status='Valid'
+                IsSigned=$true; IsValid=$null; Status='EmbeddedCertPresent'
                 SignerSubject=$sigSubj; SignerCompany=$cnW; Issuer=$sigIss
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
                 IsOSBinary=$null; SignatureType='Embedded'; CatalogFile=$null
@@ -298,7 +298,9 @@ public class IntegrityHelper {
                 $d = $ownerInfo['Domain']; $u = $ownerInfo['User']
                 $owner = if ($d) { "$d\$u" } else { $u }
             }
-        } catch {}
+        } catch {
+            $outerErrors += "GetOwner failed for PID $pid_: $($_.Exception.Message)"
+        }
 
         # SHA256 with cache
         $sha256Val = $null; $sha256Err = $null
@@ -543,7 +545,9 @@ public class IntegrityHelper {
                 $d = $ownerResult.Domain; $u = $ownerResult.User
                 $entry.Owner = if ($d) { "$d\$u" } else { $u }
             }
-        } catch {}
+        } catch {
+            $outerErrors += "GetOwner failed for PID $pid_: $($_.Exception.Message)"
+        }
 
         # SHA256 with cache
         if ($entry.ExecutablePath -and $sha256Cache.ContainsKey($entry.ExecutablePath)) {
@@ -632,7 +636,7 @@ function _getSigPS3($path) {
         }
         $isOSBin = $null; try { $isOSBin = $sig.IsOSBinary } catch {}
         $sigType = $null; try { $sigType = $sig.SignatureType.ToString() } catch {}
-        return [PSCustomObject]@{
+        return New-Object PSObject -Property @{
             IsSigned      = ($sig.Status -ne 'NotSigned')
             IsValid       = ($sig.Status -eq 'Valid')
             Status        = $sig.Status.ToString()
@@ -646,7 +650,7 @@ function _getSigPS3($path) {
             SignatureType = $sigType
         }
     } catch {
-        return [PSCustomObject]@{
+        return New-Object PSObject -Property @{
             IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
             SignerSubject=$null; SignerCompany=$null; Issuer=$null
             Thumbprint=$null; NotAfter=$null; TimeStamper=$null
@@ -784,7 +788,9 @@ function Invoke-Collector {
                             $d = $ownerInfo['Domain']; $u = $ownerInfo['User']
                             $owner = if ($d) { "$d\$u" } else { $u }
                         }
-                    } catch {}
+                    } catch {
+                        $errors += @{ artifact='process_owner'; ProcessId=$pid_; message="GetOwner failed: $($_.Exception.Message)" }
+                    }
 
                     $procs += @{
                         ProcessId           = $pid_
@@ -888,7 +894,9 @@ function Invoke-Collector {
                             SignatureType = $(if ($s_.PSObject.Properties['SignatureType']) { $s_.SignatureType } else { $null })
                             CatalogFile   = $(if ($s_.PSObject.Properties['CatalogFile'])   { $s_.CatalogFile }   else { $null })
                         }
-                    } catch {}
+                    } catch {
+                        $errors += @{ artifact='signature_deser'; ProcessId=$pid_; message="Signature deserialization failed: $($_.Exception.Message)" }
+                    }
                 }
                 # Enforce SHA256 XOR contract: hash or error, never both
                 $sha256Out = $(if ($p.PSObject.Properties['SHA256'])      { $p.SHA256 }      else { $null })
@@ -977,7 +985,9 @@ function Invoke-Collector {
                             $d = $ownerResult.Domain; $u = $ownerResult.User
                             $entry.Owner = if ($d) { "$d\$u" } else { $u }
                         }
-                    } catch {}
+                    } catch {
+                        $errors += @{ artifact='process_owner'; ProcessId=$pid_; Name=$name_; message="GetOwner failed: $($_.Exception.Message)" }
+                    }
 
                     # SHA256 with cache
                     if ($entry.ExecutablePath -and $sha256Cache.ContainsKey($entry.ExecutablePath)) {

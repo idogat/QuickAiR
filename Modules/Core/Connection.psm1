@@ -16,7 +16,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -96,7 +96,7 @@ function Get-TargetCaps {
                 try { Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_DNSClientCache  -OperationTimeoutSec $script:OP_TIMEOUT_SEC -ErrorAction Stop | Select-Object -First 1 | Out-Null; $c.HasDNSClient = $true } catch {}
             }
         } else {
-            $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+            $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OpenTimeout 30000 -OperationTimeout 60000
             $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop'; Port = 5985 }
             if ($Cred) { $spArgs.Credential = $Cred }
             $sess = New-PSSession @spArgs
@@ -225,9 +225,19 @@ function New-WMISession {
         [string]$Target,
         [System.Management.Automation.PSCredential]$Credential
     )
-    $wmiP = @{ Class = 'Win32_ComputerSystem'; ComputerName = $Target; ErrorAction = 'Stop' }
-    if ($Credential) { $wmiP.Credential = $Credential }
-    Get-WmiObject @wmiP | Out-Null
+    # Connectivity probe with timeout via ManagementScope
+    $probeScope = $null
+    try {
+        $probeScope = New-Object System.Management.ManagementScope("\\$Target\root\cimv2")
+        $probeScope.Options.Timeout = [TimeSpan]::FromSeconds($script:OP_TIMEOUT_SEC)
+        if ($Credential) {
+            $probeScope.Options.Username = $Credential.UserName
+            $probeScope.Options.Password = $Credential.GetNetworkCredential().Password
+        }
+        $probeScope.Connect()
+    } finally {
+        if ($probeScope) { try { $probeScope.Dispose() } catch {} }
+    }
 
     # Probe ROOT\StandardCimv2 availability (needed for TCP/UDP collection)
     $hasStdCimv2 = $false
@@ -262,7 +272,7 @@ function New-RemoteSession {
         [string]$Target,
         [System.Management.Automation.PSCredential]$Credential
     )
-    $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+    $so = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck -OpenTimeout 30000 -OperationTimeout 60000
     $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop'; Port = 5985 }
     if ($Credential) { $spArgs.Credential = $Credential }
     $sess = New-PSSession @spArgs

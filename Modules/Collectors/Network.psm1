@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.5                      ║
+# ║  Version   : 2.6                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -59,8 +59,11 @@ $script:NET_SB_CIM = {
                     OwningProcess = [int]$u.OwningProcess
                 }
             }
-        } catch {}
-        New-Object PSObject -Property @{ Source = 'cim'; Connections = $out; UdpEndpoints = $udpOut }
+        } catch {
+            $udpOut = @()  # ensure empty on failure
+        }
+        $udpErr = if ($udpOut.Count -eq 0 -and $raw.Count -gt 0) { 'UDP collection failed or returned zero endpoints' } else { $null }
+        New-Object PSObject -Property @{ Source = 'cim'; Connections = $out; UdpEndpoints = $udpOut; UdpError = $udpErr }
     } catch {
         $lines = & netstat -ano 2>&1
         New-Object PSObject -Property @{ Source = 'netstat_fallback'; Lines = $lines }
@@ -393,7 +396,20 @@ function Invoke-Collector {
                         } else {
                             $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI timed out after ${maxWait}s" }
                         }
-                        Remove-Item $uncPath -Force -ErrorAction SilentlyContinue
+                        # Clean up temp file: try UNC first, then WMI fallback
+                        $cleanedUp = $false
+                        try { Remove-Item $uncPath -Force -ErrorAction Stop; $cleanedUp = $true } catch {}
+                        if (-not $cleanedUp) {
+                            # UNC unreachable — delete via WMI on target
+                            try {
+                                $delCmd = "cmd.exe /c del /f `"$tmpRemote`""
+                                $delIn = $classObj.GetMethodParameters("Create")
+                                $delIn["CommandLine"] = $delCmd
+                                $classObj.InvokeMethod("Create", $delIn, $null) | Out-Null
+                            } catch {
+                                Write-Log 'WARN' "Failed to clean temp file on target $($Session.ComputerName): $tmpRemote"
+                            }
+                        }
                     }
                 } catch {
                     $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI fallback failed: $($_.Exception.Message)" }

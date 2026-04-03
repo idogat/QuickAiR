@@ -9,7 +9,7 @@
 # ║  Output    : UTC ISO 8601 string    ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -25,6 +25,10 @@ function ConvertTo-UtcIso {
     if ($Value -is [datetime]) {
         if ($Value.Kind -eq [DateTimeKind]::Utc) {
             return $Value.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        }
+        # Kind=Unspecified: apply target timezone offset if provided, not analyst-local
+        if ($Value.Kind -eq [DateTimeKind]::Unspecified -and $null -ne $FallbackOffsetMin) {
+            return $Value.AddMinutes(-[int]$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
         return $Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     }

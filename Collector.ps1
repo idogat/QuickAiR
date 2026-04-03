@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.2                    ║
+# ║  Version   : 3.3                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -132,26 +132,24 @@ foreach ($target in $Targets) {
     $isLocalTarget = ($target -eq 'localhost' -or $target -eq '127.0.0.1' -or $target -ieq $env:COMPUTERNAME)
     $effectiveCred = $Credential
 
-    # For remote targets, prompt for credentials if none provided
+    # For remote targets, use current-user credentials if none provided (autonomous mode)
     if (-not $isLocalTarget -and -not $effectiveCred) {
-        if ($Quiet) {
-            Write-Log 'INFO' "Quiet mode: attempting current-user credentials for $target"
-        } else {
-            Write-Host "Enter credentials for $target (leave blank to attempt current user):" -ForegroundColor Cyan
-            try { $effectiveCred = Get-Credential -Message "Credentials for $target" -ErrorAction Stop } catch { $effectiveCred = $null }
-        }
+        Write-Log 'INFO' "No credentials supplied for $target — using current-user context"
     }
 
     # Ensure target is in WinRM TrustedHosts (required for non-domain WinRM connections)
+    $originalTrustedHosts = $null
     if (-not $isLocalTarget) {
         try {
-            $current = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
-            if ($current -ne '*' -and $current -notmatch [regex]::Escape($target)) {
-                $newList = if ($current) { "$current,$target" } else { $target }
+            $originalTrustedHosts = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
+            if ($originalTrustedHosts -ne '*' -and $originalTrustedHosts -notmatch [regex]::Escape($target)) {
+                $newList = if ($originalTrustedHosts) { "$originalTrustedHosts,$target" } else { $target }
                 Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
                 Write-Log 'INFO' "Added $target to WinRM TrustedHosts"
+            } else {
+                $originalTrustedHosts = $null  # no change made, no restore needed
             }
-        } catch { Write-Log 'WARN' "Could not update TrustedHosts: $($_.Exception.Message)" }
+        } catch { Write-Log 'WARN' "Could not update TrustedHosts: $($_.Exception.Message)"; $originalTrustedHosts = $null }
     }
 
     # Shorten verbose WinRM errors to short actionable messages
@@ -283,7 +281,7 @@ foreach ($target in $Targets) {
                 $usingWmiFallback = $false
                 $winrmRetried     = $true
                 # Re-probe caps via WinRM for accurate capability data
-                $caps = Get-TargetCaps -Target $target -Cred $effectiveCred
+                try { $caps = Get-TargetCaps -Target $target -Cred $effectiveCred } catch { Write-Log 'WARN' "WinRM caps re-probe failed, keeping WMI caps" }
                 Write-Log 'INFO' "WinRM session succeeded on retry for $target (avoiding WMI degradation)"
             } catch {
                 Write-Log 'INFO' "WinRM session retry failed for $target, proceeding with WMI"
@@ -445,7 +443,13 @@ foreach ($target in $Targets) {
                 continue
             }
             if ($result.PSObject.Properties['errors'] -and $result.errors) {
-                $collErr += $result.errors
+                foreach ($e in $result.errors) {
+                    if ($e -is [string]) {
+                        $collErr += @{ artifact = $c.BaseName; message = $e }
+                    } else {
+                        $collErr += $e
+                    }
+                }
             }
             $sources[$c.BaseName] = if ($result.PSObject.Properties['source']) { $result.source } else { @{} }
             if ($c.BaseName -eq 'Network') {
@@ -472,6 +476,14 @@ foreach ($target in $Targets) {
         if ($session -and $session -is [System.Management.Automation.Runspaces.PSSession]) {
             Remove-PSSession $session -ErrorAction SilentlyContinue
         }
+    }
+
+    # Restore TrustedHosts if we modified it
+    if ($null -ne $originalTrustedHosts) {
+        try {
+            Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
+            Write-Log 'INFO' "Restored WinRM TrustedHosts"
+        } catch { Write-Log 'WARN' "Could not restore TrustedHosts: $($_.Exception.Message)" }
     }
 
     # Resolve hostname for output
@@ -521,9 +533,9 @@ foreach ($target in $Targets) {
         try { [System.IO.File]::AppendAllText($ProgressFile, "OUTPUT:$($written.Path)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
     }
 
-    $procCount  = @($output['Processes']).Count
-    $connCount  = @($output['Network'].tcp).Count
-    $dnsCount   = @($output['Network'].dns).Count
+    $procCount  = if ($output.Contains('Processes') -and $output['Processes']) { @($output['Processes']).Count } else { 0 }
+    $connCount  = if ($output.Contains('Network') -and $output['Network'] -and $output['Network'].tcp) { @($output['Network'].tcp).Count } else { 0 }
+    $dnsCount   = if ($output.Contains('Network') -and $output['Network'] -and $output['Network'].dns) { @($output['Network'].dns).Count } else { 0 }
     $elapsed    = [int]((Get-Date) - $tStart).TotalSeconds
     Write-Log 'INFO' "Target complete | elapsed=${elapsed}s | processes=$procCount | connections=$connCount | dns=$dnsCount | errors=$($collErr.Count)"
 

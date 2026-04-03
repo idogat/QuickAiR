@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.5                    ║
+# ║  Version   : 2.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -78,19 +78,23 @@ function Write-JsonOutput {
     $ts      = (Get-Date).ToUniversalTime().ToString('yyyyMMddHHmmss')
     $outFile = Join-Path $HostDir "$Hostname`_$ts.json"
 
-    # Phase 1: serialize with sha256 placeholder, compute hash
-    $sha256Placeholder = '___QUICKAIR_SHA256_PLACEHOLDER___'
-    $Data['manifest']['sha256'] = $sha256Placeholder
-    $json = $Data | ConvertTo-Json -Depth 20 -Compress:$false
-    $sha256bytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-        [System.Text.Encoding]::UTF8.GetBytes($json))
-    $sha256 = ($sha256bytes | ForEach-Object { $_.ToString('X2') }) -join ''
+    # Phase 1: serialize without sha256, compute hash of that content
+    $Data['manifest']['sha256'] = $null
+    $jsonForHash = $Data | ConvertTo-Json -Depth 20 -Compress:$false
+    $sha = $null
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $sha256bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($jsonForHash))
+        $sha256 = ($sha256bytes | ForEach-Object { $_.ToString('X2') }) -join ''
+    } finally { if ($sha) { $sha.Dispose() } }
 
-    # Embed SHA256 — exact string replacement using unique placeholder
-    $json2 = $json.Replace("`"$sha256Placeholder`"", "`"$sha256`"")
+    # Phase 2: embed computed hash and re-serialize
+    $Data['manifest']['sha256'] = $sha256
+    $json2 = $Data | ConvertTo-Json -Depth 20 -Compress:$false
 
     try {
-        [System.IO.File]::WriteAllText($outFile, $json2, [System.Text.Encoding]::UTF8)
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($outFile, $json2, $utf8NoBom)
     } catch {
         Write-Log 'ERROR' "Failed to write output file '$outFile': $($_.Exception.Message)"
         return @{ Path = $outFile; Hash = $sha256; Error = $_.Exception.Message }
@@ -153,14 +157,17 @@ function Build-Manifest {
 
 function Get-QuickAiRSha256 {
     param([string]$Path)
+    $sha = $null
     try {
         $bytes = [System.IO.File]::ReadAllBytes($Path)
         $sha = [Security.Cryptography.SHA256]::Create()
         $hash = $sha.ComputeHash($bytes)
-        $sha.Dispose()
-        return ([BitConverter]::ToString($hash) -replace '-','').ToLower()
+        return ([BitConverter]::ToString($hash) -replace '-','').ToUpper()
     } catch {
+        Write-Log 'WARN' "QuickAiR SHA256 failed for '$Path': $($_.Exception.Message)"
         return $null
+    } finally {
+        if ($sha) { $sha.Dispose() }
     }
 }
 
@@ -177,7 +184,7 @@ function Get-QuickAiRSignature {
                     Subject    = $subj
                     Issuer     = $sig.SignerCertificate.Issuer
                     Thumbprint = $sig.SignerCertificate.Thumbprint
-                    NotAfter   = $sig.SignerCertificate.NotAfter.ToString('o')
+                    NotAfter   = $sig.SignerCertificate.NotAfter.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                     CN         = $cn
                 }
             }
@@ -237,7 +244,7 @@ function Get-SidMetadata {
 
 function Get-BinaryType {
     param([string]$Path)
-    $empty = [PSCustomObject]@{
+    $empty = New-Object PSObject -Property @{
         IsSFX            = $false
         SFXType          = $null
         DetectionMethod  = $null
@@ -386,7 +393,7 @@ function Get-BinaryType {
         }
 
         if ($sfxType) {
-            return [PSCustomObject]@{
+            return New-Object PSObject -Property @{
                 IsSFX           = $true
                 SFXType         = $sfxType
                 DetectionMethod = $sfxMethod

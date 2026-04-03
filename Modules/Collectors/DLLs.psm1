@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.4                    ║
+# ║  Version   : 3.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -233,7 +233,10 @@ public class CatalogChecker
             $sigD = $null
             if ($mPath) {
                 if ($psMajor -ge 3) {
-                    # PS 3+ — Get-AuthenticodeSignature
+                    # PS 3+ — Get-AuthenticodeSignature (with cache)
+                    if ($sigCache.ContainsKey($mPath)) {
+                        $sigD = $sigCache[$mPath]
+                    } else {
                     try {
                         $sigD3 = Get-AuthenticodeSignature -FilePath $mPath -ErrorAction Stop
                         $cnD3 = $null
@@ -276,6 +279,8 @@ public class CatalogChecker
                             IsOSBinary=$null; SignatureType=$null
                         }
                     }
+                    $sigCache[$mPath] = $sigD
+                    }
                 } else {
                     # PS 2.0 — Catalog DB + CreateFromSignedFile for cert details
                     if ($sigCache.ContainsKey($mPath)) {
@@ -296,7 +301,7 @@ public class CatalogChecker
                         } catch {}
                         if ($hasEmbedded) {
                             $sigD = New-Object PSObject -Property @{
-                                IsSigned=$true; IsValid=$null; Status='Valid'
+                                IsSigned=$true; IsValid=$null; Status='EmbeddedCertPresent'
                                 SignerSubject=$sigSubj; SignerCompany=$cnW; Issuer=$sigIss
                                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
                                 IsOSBinary=$null; SignatureType='Embedded'; CatalogFile=$null
@@ -416,7 +421,9 @@ function Invoke-Collector {
                         SignatureType = $entry.Signature.SignatureType
                         CatalogFile   = $entry.Signature.CatalogFile
                     }
-                } catch {}
+                } catch {
+                    $errors += @{ artifact='dll_signature_deser'; ProcessId=$entry.ProcessId; ModulePath=$entry.ModulePath; message="Signature deserialization failed: $($_.Exception.Message)" }
+                }
             }
             $dlls += @{
                 ProcessId     = $entry.ProcessId

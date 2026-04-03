@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.7                    ║
+# ║  Version  : 2.8                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -73,8 +73,10 @@ $script:USERS_SB = {
 
     # ── Registry LastWrite P/Invoke helper (works on all .NET versions) ─────
     $_rkHelper = $false
-    if (-not $script:_regLwtAttempted) {
-        $script:_regLwtAttempted = $true
+    $_regLwtAttempted = $false
+    $_regLwtAvailable = $false
+    if (-not $_regLwtAttempted) {
+        $_regLwtAttempted = $true
         try { Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -99,10 +101,10 @@ public class RegLwt {
     }
 }
 '@ -ErrorAction Stop
-            $script:_regLwtAvailable = $true
+            $_regLwtAvailable = $true
         } catch {}
     }
-    try { if ($script:_regLwtAvailable) { [void][RegLwt]; $_rkHelper = $true } } catch {}
+    try { if ($_regLwtAvailable) { [void][RegLwt]; $_rkHelper = $true } } catch {}
 
     # ── COLLECT 1: User profiles ─────────────────────────────────────────────
     try {
@@ -502,7 +504,6 @@ function script:Invoke-UsersWMIRemote {
         }
 
         foreach ($sidStr in $subKeys) {
-            if ($sidStr -notmatch '^S-1-5-21-') { continue }
             # Read ProfileImagePath
             $inP = $reg.GetMethodParameters('GetStringValue')
             $inP['hDefKey']     = $HKLM
@@ -569,9 +570,9 @@ function script:Invoke-UsersWMIRemote {
         try {
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
-                $adUsers = Get-ADUser -Server $ComputerName -Credential $Credential -Filter * -Properties `
-                    Created,LastLogonDate,lastLogon,PasswordLastSet,
-                    Enabled,BadLogonCount,LockedOut,MemberOf
+                $adArgs = @{ Server = $ComputerName; Filter = '*'; Properties = @('Created','LastLogonDate','lastLogon','PasswordLastSet','Enabled','BadLogonCount','LockedOut','MemberOf') }
+                if ($Credential) { $adArgs.Credential = $Credential }
+                $adUsers = Get-ADUser @adArgs
                 $r.dc_source = 'Get-ADUser'
                 foreach ($u in $adUsers) {
                     $r.dc_domain_raw += @{
@@ -592,7 +593,11 @@ function script:Invoke-UsersWMIRemote {
             } catch {
                 # ADSI fallback
                 $r.dc_source = 'ADSI'
-                $root = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password, [System.DirectoryServices.AuthenticationTypes]::Secure)
+                $root = if ($Credential) {
+                    New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password, [System.DirectoryServices.AuthenticationTypes]::Secure)
+                } else {
+                    New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName")
+                }
                 $searcher = New-Object System.DirectoryServices.DirectorySearcher($root)
                 try {
                     $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
@@ -817,7 +822,7 @@ function Invoke-Collector {
     }
 
     $isWmiRemote = ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI')
-    $base = if ($isWmiRemote) { 'wmi_remote' } else { 'WMI' }
+    $base = if ($isWmiRemote) { 'wmi_remote' } else { 'registry+wmi' }
     $src = if ($raw.dc_source) { "$base+$($raw.dc_source)" } else { $base }
 
     return @{
