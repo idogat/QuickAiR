@@ -666,8 +666,12 @@ function Invoke-Schedule {
         elseif ($probeInfo) {
             $pr.Status   = 'Setting Up'
             $pr.Progress = [string]([char]0x2014)
-            # Format: PS=5.1|CIM=True|NetCIM=True|DnsCIM=True → readable
-            $pr.Detail = "Capability probe OK | $($probeInfo -replace '\|', ' | ')"
+            # Format: PS=5.1|CIM=True|NetCIM=True|DnsCIM=True|Method=WMI → readable
+            if ($probeInfo -match 'Method=WMI') {
+                $pr.Detail = "WinRM failed " + [char]0x2014 + " WMI fallback | $($probeInfo -replace '\|', ' | ')"
+            } else {
+                $pr.Detail = "Capability probe OK | $($probeInfo -replace '\|', ' | ')"
+            }
         }
         elseif ($connecting) {
             $pr.Status   = 'Setting Up'

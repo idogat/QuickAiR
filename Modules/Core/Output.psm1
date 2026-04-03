@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -95,7 +95,10 @@ function Build-Manifest {
         $WinRMReachable = $null,
         $WmiReachable = $null,
         $SmbReachable = $null,
-        $SmbShareName = $null
+        $SmbShareName = $null,
+        $ConnectionMethod = $null,
+        $WmiFallbackUsed = $false,
+        $DegradedArtifacts = @()
     )
 
     $manifest = [ordered]@{
@@ -123,6 +126,9 @@ function Build-Manifest {
     $manifest['wmi_reachable']     = $WmiReachable
     $manifest['smb_reachable']     = $SmbReachable
     $manifest['smb_share_name']    = $SmbShareName
+    $manifest['connection_method']  = $ConnectionMethod
+    $manifest['wmi_fallback_used']  = $WmiFallbackUsed
+    $manifest['degraded_artifacts'] = $DegradedArtifacts
     $manifest['sha256']            = $null
     $manifest['collection_errors'] = $CollectionErrors
 

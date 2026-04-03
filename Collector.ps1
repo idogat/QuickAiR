@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.8                    ║
+# ║  Version   : 2.9                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -168,10 +168,12 @@ foreach ($target in $Targets) {
         return $short
     }
 
-    # Capability probe with retry
-    $caps      = $null
-    $connected = $false
-    $lastProbeError = ''
+    # Capability probe with retry (WinRM first, then WMI fallback)
+    $caps              = $null
+    $connected         = $false
+    $usingWmiFallback  = $false
+    $winrmProbeError   = ''
+    $lastProbeError    = ''
     for ($attempt = 1; $attempt -le $MAX_RETRY; $attempt++) {
         try {
             $caps = Get-TargetCaps -Target $target -Cred $effectiveCred
@@ -189,31 +191,95 @@ foreach ($target in $Targets) {
         }
     }
 
+    # WMI fallback probe if WinRM failed
+    if (-not $connected -and -not $isLocalTarget) {
+        $winrmProbeError = $lastProbeError
+        Write-Log 'WARN' "WinRM probe failed for $target. Attempting WMI fallback..."
+        try {
+            $caps = Get-TargetCapsWMI -Target $target -Cred $effectiveCred
+            if ($caps.Error) { throw $caps.Error }
+            $connected        = $true
+            $usingWmiFallback = $true
+            Write-Log 'INFO' "WMI capability probe OK | PS=$($caps.PSVersion) | Method=WMI"
+            if ($ProgressFile) {
+                try { [System.IO.File]::AppendAllText($ProgressFile, "PROBE:PS=$($caps.PSVersion)|CIM=False|NetCIM=False|DnsCIM=False|Method=WMI`n") } catch {}
+            }
+        } catch {
+            $lastProbeError = $_.Exception.Message
+            Write-Log 'WARN' "WMI probe also failed: $lastProbeError"
+        }
+    }
+
     if (-not $connected) {
-        Write-Log 'ERROR' "All $MAX_RETRY probe attempts failed for target. Skipping."
+        $failMsg = if ($winrmProbeError -and $lastProbeError -ne $winrmProbeError) {
+            "WinRM: $(Format-ConnectionError $winrmProbeError) | WMI: $(Format-ConnectionError $lastProbeError)"
+        } elseif ($lastProbeError) {
+            Format-ConnectionError $lastProbeError
+        } else {
+            'Connection failed: host unreachable or WinRM not configured.'
+        }
+        Write-Log 'ERROR' "All probe attempts failed for $target. Skipping."
         if ($ProgressFile) {
-            $failDetail = if ($lastProbeError) { Format-ConnectionError $lastProbeError } else { 'Connection failed: host unreachable or WinRM not configured.' }
-            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failDetail`n") } catch {}
+            try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failMsg`n") } catch {}
         }
         continue
     }
 
     # Create shared session (remote) or use $null (local)
-    $session        = $null
-    $winrmReachable = $null
+    $session          = $null
+    $winrmReachable   = $null
+    $connectionMethod = 'local'
     if (-not $isLocalTarget) {
-        try {
-            $session        = New-RemoteSession -Target $target -Credential $effectiveCred
-            $winrmReachable = $true
-            Write-Log 'INFO' "Remote session created for $target"
-        } catch {
-            $sessErr = $_.Exception.Message
-            Write-Log 'ERROR' "Failed to create remote session: $sessErr. Skipping."
-            if ($ProgressFile) {
-                $reason = Format-ConnectionError $sessErr
-                try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch {}
+        if (-not $usingWmiFallback) {
+            # Try WinRM session first
+            try {
+                $session          = New-RemoteSession -Target $target -Credential $effectiveCred
+                $winrmReachable   = $true
+                $connectionMethod = 'WinRM'
+                Write-Log 'INFO' "Connected to $target via WinRM"
+            } catch {
+                $sessErr        = $_.Exception.Message
+                $winrmReachable = $false
+                Write-Log 'WARN' "WinRM session failed for ${target}: $(Format-ConnectionError $sessErr)"
+                # Fall back to WMI session
+                try {
+                    $session           = New-WMISession -Target $target -Credential $effectiveCred
+                    $connectionMethod  = 'WMI'
+                    $usingWmiFallback  = $true
+                    Write-Log 'INFO' "Connected to $target via WMI (fallback)"
+                    if (-not $Quiet) {
+                        Write-Host "  WinRM unavailable - using WMI fallback for $target" -ForegroundColor Yellow
+                    }
+                    # Re-probe caps via WMI if WinRM probe had succeeded but session failed
+                    if ($caps.HasCIM) {
+                        $caps = Get-TargetCapsWMI -Target $target -Cred $effectiveCred
+                    }
+                } catch {
+                    Write-Log 'ERROR' "Both WinRM and WMI failed for $target. Skipping."
+                    if ($ProgressFile) {
+                        $reason = Format-ConnectionError $sessErr
+                        try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$reason`n") } catch {}
+                    }
+                    continue
+                }
             }
-            continue
+        } else {
+            # WMI fallback already determined from probe
+            $winrmReachable = $false
+            try {
+                $session          = New-WMISession -Target $target -Credential $effectiveCred
+                $connectionMethod = 'WMI'
+                Write-Log 'INFO' "Connected to $target via WMI (WinRM unavailable)"
+                if (-not $Quiet) {
+                    Write-Host "  WinRM unavailable - using WMI fallback for $target" -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Log 'ERROR' "WMI session creation failed for $target. Skipping."
+                if ($ProgressFile) {
+                    try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:WMI session failed`n") } catch {}
+                }
+                continue
+            }
         }
     }
 
@@ -225,8 +291,35 @@ foreach ($target in $Targets) {
         $smbReachable = $true
         $wmiReachable = $true
         $smbShareName = 'C$'
+    } elseif ($connectionMethod -eq 'WMI') {
+        # WMI already confirmed reachable by session creation
+        $wmiReachable = $true
+        # SMB probe via existing WMI scope
+        try {
+            $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
+            if ($effectiveCred) {
+                $wmiScope.Options.Username = $effectiveCred.UserName
+                $wmiScope.Options.Password = $effectiveCred.GetNetworkCredential().Password
+            }
+            $wmiScope.Connect()
+            $q = New-Object System.Management.ObjectQuery("SELECT Name, Path FROM Win32_Share WHERE Type = 2147483648")
+            $searcher = New-Object System.Management.ManagementObjectSearcher($wmiScope, $q)
+            $shares = @($searcher.Get())
+            $shareNames = @()
+            foreach ($s in $shares) { $shareNames += [string]$s['Name'] }
+            if ($shareNames.Count -gt 0) {
+                $smbReachable = $true
+                $smbShareName = if ($shareNames -contains 'C$') { 'C$' } else { $shareNames[0] }
+            } else {
+                $smbReachable = $false
+            }
+            Write-Log 'INFO' "SMB admin shares on ${target}: $($shareNames -join ', ')"
+        } catch {
+            $smbReachable = $false
+            Write-Log 'WARN' "SMB share enumeration failed on ${target}: $($_.Exception.Message)"
+        }
     } else {
-        # WMI probe: connect to root\cimv2 (same pattern as WMI.psm1)
+        # WinRM session — run standard WMI + SMB probes
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
             if ($effectiveCred) {
@@ -301,8 +394,10 @@ foreach ($target in $Targets) {
         }
     }
 
-    # Close shared session
-    if ($session) { Remove-PSSession $session -ErrorAction SilentlyContinue }
+    # Close shared session (WMI hashtable sessions need no cleanup)
+    if ($session -and $session -is [System.Management.Automation.Runspaces.PSSession]) {
+        Remove-PSSession $session -ErrorAction SilentlyContinue
+    }
 
     # Resolve hostname for output
     $outHost = Resolve-TargetHostname -Target $target
@@ -332,7 +427,10 @@ foreach ($target in $Targets) {
         -WinRMReachable   $winrmReachable `
         -WmiReachable     $wmiReachable `
         -SmbReachable     $smbReachable `
-        -SmbShareName     $smbShareName
+        -SmbShareName     $smbShareName `
+        -ConnectionMethod  $connectionMethod `
+        -WmiFallbackUsed   $usingWmiFallback `
+        -DegradedArtifacts $(if ($usingWmiFallback) { @('DLLs','DNS_cache','process_hashes','process_signatures','integrity_levels','dotnet_crosscheck','user_firstlogon_timestamps') } else { @() })
 
     # Build full output: manifest first, then each collector's data
     $jsonOutput = [ordered]@{}

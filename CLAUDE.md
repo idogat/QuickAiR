@@ -26,7 +26,7 @@ Report:
   build_report.ps1       — concatenates stages into Report.html
 Tests:
   TestSuite.ps1          — test runner (auto-discovers Tests\)
-  Tests\                 — T01–T09 per-module test files
+  Tests\                 — T01–T14 per-module test files
 Runtime only:
   C:\DFIRLab\QuickAiRBridge\         — launch job handoff (not in repo)
   C:\DFIRLab\QuickAiRBridge\collect\ — collect job handoff (not in repo)
@@ -37,13 +37,14 @@ Runtime only:
 - Launcher: see JobQueue.psm1 and PipeListener.psm1 headers for exports and state machine
 - New collector plugin = new .psm1 + matching Tests\T<n>_<name>.ps1
 - Plugin failure: caught by orchestrator, logged to manifest.collection_errors, never aborts run
+- WMI fallback: WinRM fails → WMI session (hashtable). Plugins check session.Method to route.
 
 ## Test Lab Targets (dev/test only)
- localhost — always available, no credentials needed 
-192.168.1.106 — server 2022 Creds: administrator / Aa123456
- 192.168.1.100 —  domain DC Creds: server2012\administrator / Aa123456
- 192.168.1.108 — , Server 2008 R2, PS 2.0 administrator / Aa123456
-192.168.1.104 - windows 10 user:1\pass:1
+  localhost — always available, no credentials needed
+  192.168.1.107 — Windows 10, WinRM disabled (WMI fallback target) Creds: 1 / 1
+  192.168.1.104 — Windows 10 Creds: administrator / Aa123456
+  192.168.1.100 — domain DC Creds: server2012\administrator / Aa123456
+  192.168.1.106 — Server 2022 Creds: administrator / Aa123456
 
 ## Production
 All behavior detected at runtime — never hardcode targets, credentials, or OS assumptions.

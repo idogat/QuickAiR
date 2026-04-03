@@ -1,20 +1,22 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════╗
 # ║  QuickAiR — Connection.psm1          ║
-# ║  WinRM sessions, capability probe,  ║
-# ║  hostname resolution, auth utils    ║
+# ║  WinRM sessions, WMI fallback,     ║
+# ║  capability probe, hostname res.   ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : Test-PrivateIP         ║
 # ║              Resolve-TargetHostname ║
 # ║              ConvertFrom-TcpStateInt║
 # ║              Get-TargetCaps         ║
+# ║              Get-TargetCapsWMI     ║
 # ║              New-RemoteSession      ║
+# ║              New-WMISession         ║
 # ║  Inputs    : -Target -Cred          ║
 # ║  Output    : caps hashtable;        ║
-# ║              PSSession              ║
+# ║              PSSession | hashtable  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -132,6 +134,114 @@ function Get-TargetCaps {
     return $c
 }
 
+function Get-TargetCapsWMI {
+    param([string]$Target, [System.Management.Automation.PSCredential]$Cred)
+
+    $c = @{
+        PSVersion             = 0
+        OSVersion             = ''; OSBuild = ''; OSCaption = ''
+        HasCIM                = $false
+        HasNetTCPIP           = $false
+        HasDNSClient          = $false
+        IsServerCore          = $false
+        TimezoneOffsetMinutes = 0
+        Error                 = $null
+    }
+
+    try {
+        $wmiP = @{ ComputerName = $Target; ErrorAction = 'Stop' }
+        if ($Cred) { $wmiP.Credential = $Cred }
+
+        $os = Get-WmiObject Win32_OperatingSystem @wmiP
+        $c.OSVersion = $os.Version
+        $c.OSBuild   = $os.BuildNumber
+        $c.OSCaption = $os.Caption
+
+        $tz = Get-WmiObject Win32_TimeZone @wmiP
+        $c.TimezoneOffsetMinutes = $tz.Bias
+
+        # PS version via remote registry (StdRegProv)
+        try {
+            $scope = New-Object System.Management.ManagementScope("\\$Target\root\default")
+            if ($Cred) {
+                $scope.Options.Username = $Cred.UserName
+                $scope.Options.Password = $Cred.GetNetworkCredential().Password
+            }
+            $scope.Connect()
+            $reg = New-Object System.Management.ManagementClass($scope, [System.Management.ManagementPath]'StdRegProv', $null)
+            $HKLM = [uint32]2147483650
+            $inP  = $reg.GetMethodParameters('GetStringValue')
+            $inP['hDefKey']     = $HKLM
+            $inP['sSubKeyName'] = 'SOFTWARE\Microsoft\PowerShell\3\PowerShellEngine'
+            $inP['sValueName']  = 'PowerShellVersion'
+            $out = $reg.InvokeMethod('GetStringValue', $inP, $null)
+            if ($out['ReturnValue'] -eq 0 -and $out['sValue']) {
+                $verParts = $out['sValue'] -split '\.'
+                $c.PSVersion = [int]$verParts[0]
+            }
+            # IsServerCore
+            $inP2 = $reg.GetMethodParameters('GetStringValue')
+            $inP2['hDefKey']     = $HKLM
+            $inP2['sSubKeyName'] = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+            $inP2['sValueName']  = 'InstallationType'
+            $out2 = $reg.InvokeMethod('GetStringValue', $inP2, $null)
+            if ($out2['ReturnValue'] -eq 0 -and $out2['sValue'] -eq 'Server Core') {
+                $c.IsServerCore = $true
+            }
+        } catch {
+            # Registry unavailable — infer PS version from OS build
+            $build = [int]$c.OSBuild
+            if     ($build -ge 10240) { $c.PSVersion = 5 }
+            elseif ($build -ge 9200)  { $c.PSVersion = 3 }
+            else                      { $c.PSVersion = 2 }
+        }
+
+        if ($c.PSVersion -eq 0) {
+            $build = [int]$c.OSBuild
+            if     ($build -ge 10240) { $c.PSVersion = 5 }
+            elseif ($build -ge 9200)  { $c.PSVersion = 3 }
+            else                      { $c.PSVersion = 2 }
+        }
+
+        # CIM not available without WinRM
+        $c.HasCIM      = $false
+        $c.HasNetTCPIP = $false
+        $c.HasDNSClient = $false
+
+    } catch { $c.Error = $_.Exception.Message }
+
+    return $c
+}
+
+function New-WMISession {
+    param(
+        [string]$Target,
+        [System.Management.Automation.PSCredential]$Credential
+    )
+    $wmiP = @{ Class = 'Win32_ComputerSystem'; ComputerName = $Target; ErrorAction = 'Stop' }
+    if ($Credential) { $wmiP.Credential = $Credential }
+    Get-WmiObject @wmiP | Out-Null
+
+    # Probe ROOT\StandardCimv2 availability (needed for TCP/UDP collection)
+    $hasStdCimv2 = $false
+    try {
+        $scope = New-Object System.Management.ManagementScope("\\$Target\ROOT\StandardCimv2")
+        if ($Credential) {
+            $scope.Options.Username = $Credential.UserName
+            $scope.Options.Password = $Credential.GetNetworkCredential().Password
+        }
+        $scope.Connect()
+        $hasStdCimv2 = $true
+    } catch {}
+
+    return @{
+        ComputerName    = $Target
+        Credential      = $Credential
+        Method          = 'WMI'
+        HasStandardCimv2 = $hasStdCimv2
+    }
+}
+
 function New-RemoteSession {
     param(
         [string]$Target,
@@ -141,7 +251,8 @@ function New-RemoteSession {
     $spArgs = @{ ComputerName = $Target; SessionOption = $so; ErrorAction = 'Stop'; Port = 5985 }
     if ($Credential) { $spArgs.Credential = $Credential }
     $sess = New-PSSession @spArgs
+    $sess | Add-Member -NotePropertyName Method -NotePropertyValue 'WinRM'
     return $sess
 }
 
-Export-ModuleMember -Function Test-PrivateIP, Resolve-TargetHostname, ConvertFrom-TcpStateInt, Get-TargetCaps, New-RemoteSession
+Export-ModuleMember -Function Test-PrivateIP, Resolve-TargetHostname, ConvertFrom-TcpStateInt, Get-TargetCaps, Get-TargetCapsWMI, New-RemoteSession, New-WMISession

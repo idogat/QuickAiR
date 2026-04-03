@@ -1,8 +1,8 @@
 #Requires -Version 5.1
 # ╔══════════════════════════════════════════╗
 # ║  QuickAiR — Processes.psm1               ║
-# ║  Process list via CIM (PS3+) or WMI     ║
-# ║  (PS2). Includes .NET fallback.         ║
+# ║  Process list via CIM (PS3+), WMI       ║
+# ║  (PS2), or WMI remote. .NET fallback.  ║
 # ╠══════════════════════════════════════════╣
 # ║  Exports   : Invoke-Collector            ║
 # ║  Helpers   : _sha256, _getSigPS3,       ║
@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 2.9                         ║
+# ║  Version   : 3.0                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -722,8 +722,89 @@ function Invoke-Collector {
     $sourceStr    = 'unknown'
 
     try {
-        if ($Session -ne $null) {
-            # Remote path
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            # WMI remote path: query from analyst machine
+            $wmiP = @{ Class = 'Win32_Process'; ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
+            if ($Session.Credential) { $wmiP.Credential = $Session.Credential }
+            $wmiProcs = Get-WmiObject @wmiP
+            $sourceStr = 'wmi_remote'
+
+            foreach ($wp in $wmiProcs) {
+                try {
+                    $pid_ = $null; $ppid = $null; $name_ = $null; $cmdLine = $null; $exePath = $null
+                    $ws = [long]0; $vs = [long]0; $sid = $null; $hc = $null
+                    try { $pid_    = [int]$wp.ProcessId }       catch {}
+                    try { $ppid    = [int]$wp.ParentProcessId } catch {}
+                    try { $name_   = $wp.Name }                 catch {}
+                    try { $cmdLine = $wp.CommandLine }           catch {}
+                    try { $exePath = $wp.ExecutablePath }        catch {}
+                    try { $ws      = [long]$wp.WorkingSetSize }  catch {}
+                    try { $vs      = [long]$wp.VirtualSize }     catch {}
+                    try { $sid     = [int]$wp.SessionId }        catch {}
+                    try { $hc      = [int]$wp.HandleCount }      catch {}
+                    if ($pid_ -eq $null) { continue }
+
+                    # CreationDate — WMI datetime format
+                    $utcVal = $null
+                    try {
+                        if ($wp.CreationDate) {
+                            $utcVal = [System.Management.ManagementDateTimeConverter]::ToDateTime($wp.CreationDate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                        }
+                    } catch {}
+
+                    # Owner via GetOwner() — WMI ManagementObject method
+                    $owner = $null
+                    try {
+                        $ownerInfo = $wp.InvokeMethod('GetOwner', $null)
+                        if ($ownerInfo -and $ownerInfo['ReturnValue'] -eq 0) {
+                            $d = $ownerInfo['Domain']; $u = $ownerInfo['User']
+                            $owner = if ($d) { "$d\$u" } else { $u }
+                        }
+                    } catch {}
+
+                    $procs += @{
+                        ProcessId           = $pid_
+                        ParentProcessId     = $ppid
+                        Name                = $name_
+                        CommandLine         = $cmdLine
+                        ExecutablePath      = $exePath
+                        CreationDateUTC     = $utcVal
+                        CreationDateLocal   = $null
+                        WorkingSetSize      = $ws
+                        VirtualSize         = $vs
+                        SessionId           = $sid
+                        HandleCount         = $hc
+                        Owner               = $owner
+                        IntegrityLevel      = $null
+                        IntegrityLevelError = 'WMI_REMOTE_UNSUPPORTED'
+                        SHA256              = $null
+                        SHA256Error         = 'WMI_REMOTE_UNSUPPORTED'
+                        Signature           = @{
+                            IsSigned      = $null
+                            IsValid       = $null
+                            Status        = 'WMI_REMOTE_UNSUPPORTED'
+                            SignerSubject = $null
+                            SignerCompany = $null
+                            Issuer        = $null
+                            Thumbprint    = $null
+                            NotAfter      = $null
+                            TimeStamper   = $null
+                            IsOSBinary    = $null
+                            SignatureType = $null
+                            CatalogFile   = $null
+                        }
+                        source              = 'wmi_remote'
+                    }
+                } catch {
+                    $errors += @{ artifact = 'process_loop'; message = $_.Exception.Message }
+                    continue
+                }
+            }
+            $errors += @{ artifact = 'processes'; severity = 'warning'; message = 'WMI fallback: SHA256, signatures, integrity levels unavailable' }
+            $errors += @{ artifact = 'dotnet_crosscheck'; severity = 'warning'; message = 'DKOM_CHECK_UNAVAILABLE: .NET cross-check skipped on WMI remote — DKOM-hidden processes will not be detected' }
+
+        } elseif ($Session -ne $null) {
+            # Remote path (WinRM)
             $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_CIM } else { $script:PROC_SB_WMI }
             $r   = Invoke-Command -Session $Session -ScriptBlock $sb
             $raw = $r.Procs

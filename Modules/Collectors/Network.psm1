@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.1                      ║
+# ║  Version   : 2.2                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -340,8 +340,88 @@ function Invoke-Collector {
 
     # --- Network TCP + UDP collection ---
     try {
-        if ($Session -ne $null) {
-            # Remote
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            # WMI remote: try MSFT_NetTCPConnection if StandardCimv2 is available
+            if ($Session.HasStandardCimv2 -eq $false) {
+                $networkSource = 'wmi_remote_unavailable'
+                $udpSource     = 'wmi_remote_unavailable'
+                $errors += @{ artifact = 'network_tcp'; message = "WMI fallback on pre-2012 OS: TCP/UDP collection unavailable. MSFT_NetTCPConnection requires Windows 8/Server 2012+. Use netstat on target manually." }
+            } else {
+            try {
+                $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\ROOT\StandardCimv2")
+                if ($Session.Credential) {
+                    $scope.Options.Username = $Session.Credential.UserName
+                    $scope.Options.Password = $Session.Credential.GetNetworkCredential().Password
+                }
+                $scope.Connect()
+
+                # TCP connections
+                $tcpQuery = New-Object System.Management.ObjectQuery("SELECT * FROM MSFT_NetTCPConnection")
+                $tcpSearcher = New-Object System.Management.ManagementObjectSearcher($scope, $tcpQuery)
+                $tcpResults = $tcpSearcher.Get()
+                $networkSource = 'wmi_remote_cimv2'
+                foreach ($c in $tcpResults) {
+                    $la = [string]$c['LocalAddress']; $ra = [string]$c['RemoteAddress']
+                    $stateStr = ConvertFrom-TcpStateInt ([int]$c['State'])
+                    $ct = $null
+                    try {
+                        if ($c['CreationTime']) {
+                            $ct = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$c['CreationTime']).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                        }
+                    } catch {}
+                    $conns += @{
+                        Protocol       = 'TCP'
+                        LocalAddress   = $la
+                        LocalPort      = [int]$c['LocalPort']
+                        RemoteAddress  = $ra
+                        RemotePort     = [int]$c['RemotePort']
+                        OwningProcess  = [int]$c['OwningProcess']
+                        State          = $stateStr
+                        InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
+                        CreationTime   = $ct
+                        IsListener     = ($stateStr -eq 'LISTEN')
+                        ReverseDns     = $null
+                        DnsMatch       = $null
+                        IsPrivateIP    = Test-PrivateIP $ra
+                    }
+                }
+
+                # UDP endpoints
+                try {
+                    $udpQuery = New-Object System.Management.ObjectQuery("SELECT * FROM MSFT_NetUDPEndpoint")
+                    $udpSearcher = New-Object System.Management.ManagementObjectSearcher($scope, $udpQuery)
+                    $udpResults = $udpSearcher.Get()
+                    $udpSource = 'wmi_remote_cimv2'
+                    foreach ($u in $udpResults) {
+                        $la = [string]$u['LocalAddress']
+                        $udpConns += @{
+                            Protocol       = 'UDP'
+                            LocalAddress   = $la
+                            LocalPort      = [int]$u['LocalPort']
+                            RemoteAddress  = $null
+                            RemotePort     = $null
+                            State          = 'LISTENING'
+                            OwningProcess  = [int]$u['OwningProcess']
+                            InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
+                            CreationTime   = $null
+                            IsListener     = $true
+                            ReverseDns     = $null
+                            DnsMatch       = $null
+                            IsPrivateIP    = $false
+                        }
+                    }
+                } catch {
+                    $udpSource = 'wmi_remote_unavailable'
+                    $errors += @{ artifact = 'network_udp'; message = "UDP unavailable via WMI remote: $($_.Exception.Message)" }
+                }
+            } catch {
+                $networkSource = 'wmi_remote_unavailable'
+                $udpSource     = 'wmi_remote_unavailable'
+                $errors += @{ artifact = 'network_tcp'; message = "WMI fallback on pre-2012 OS: TCP/UDP collection unavailable. MSFT_NetTCPConnection requires Windows 8/Server 2012+. Use netstat on target manually." }
+            }
+            } # end HasStandardCimv2 else
+        } elseif ($Session -ne $null) {
+            # Remote (WinRM)
             if ($TargetCapabilities.HasNetTCPIP) { $sb = $script:NET_SB_CIM }
             elseif ($TargetPSVersion -ge 3)      { $sb = $script:NET_SB_FALLBACK }
             else                                 { $sb = $script:NET_SB_LEGACY }
@@ -470,8 +550,12 @@ function Invoke-Collector {
 
     # --- DNS cache collection ---
     try {
-        if ($Session -ne $null) {
-            # Remote
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            # WMI remote: no WMI equivalent for DNS client cache
+            $dnsSource = 'wmi_remote_unavailable'
+            $errors += @{ artifact = 'dns_cache'; severity = 'warning'; message = 'DNS cache collection unavailable via WMI remote' }
+        } elseif ($Session -ne $null) {
+            # Remote (WinRM)
             if ($TargetCapabilities.HasDNSClient) { $sb = $script:DNS_SB_CIM }
             elseif ($TargetPSVersion -ge 3) {
                 $sb = { $lines = & ipconfig /displaydns 2>&1; New-Object PSObject -Property @{ Source='ipconfig_fallback'; Lines=$lines } }
@@ -517,10 +601,44 @@ function Invoke-Collector {
 
     # --- Adapter enumeration ---
     try {
-        $sb = if ($TargetPSVersion -ge 3) { $script:ADAPTER_SB_CIM } else { $script:ADAPTER_SB_WMI }
-        if ($Session -ne $null) {
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            # WMI remote: adapter collection works well
+            $wmiP = @{ ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
+            if ($Session.Credential) { $wmiP.Credential = $Session.Credential }
+            $ncidMap = @{}
+            try {
+                $netAdapters = Get-WmiObject Win32_NetworkAdapter @wmiP
+                foreach ($a in $netAdapters) {
+                    if ($a.InterfaceIndex -ne $null -and $a.NetConnectionID) {
+                        $ncidMap[[int]$a.InterfaceIndex] = $a.NetConnectionID
+                    }
+                }
+            } catch {}
+            $cfgs = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled=true" @wmiP
+            $raw = @()
+            foreach ($cfg in $cfgs) {
+                $ips = @()
+                if ($cfg.IPAddress) { foreach ($ip in $cfg.IPAddress) { if ($ip) { $ips += $ip } } }
+                $gw  = $null
+                if ($cfg.DefaultIPGateway) { $gw = @($cfg.DefaultIPGateway)[0] }
+                $dns = @()
+                if ($cfg.DNSServerSearchOrder) { foreach ($d in $cfg.DNSServerSearchOrder) { if ($d) { $dns += $d } } }
+                $alias = if ($ncidMap.ContainsKey([int]$cfg.InterfaceIndex)) { $ncidMap[[int]$cfg.InterfaceIndex] } else { $cfg.Description }
+                $raw += New-Object PSObject -Property @{
+                    AdapterName    = $cfg.Description
+                    InterfaceAlias = $alias
+                    IPAddresses    = $ips
+                    MACAddress     = $cfg.MACAddress
+                    DefaultGateway = $gw
+                    DNSServers     = $dns
+                    DHCPEnabled    = [bool]$cfg.DHCPEnabled
+                }
+            }
+        } elseif ($Session -ne $null) {
+            $sb = if ($TargetPSVersion -ge 3) { $script:ADAPTER_SB_CIM } else { $script:ADAPTER_SB_WMI }
             $raw = Invoke-Command -Session $Session -ScriptBlock $sb
         } else {
+            $sb = if ($TargetPSVersion -ge 3) { $script:ADAPTER_SB_CIM } else { $script:ADAPTER_SB_WMI }
             $raw = & $sb
         }
         foreach ($a in @($raw)) {
@@ -544,10 +662,16 @@ function Invoke-Collector {
     # --- Process name resolution (F-04) ---
     $pidMap = @{}
     try {
-        $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
-        if ($Session -ne $null) {
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            $wmiProcP = @{ Class = 'Win32_Process'; ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
+            if ($Session.Credential) { $wmiProcP.Credential = $Session.Credential }
+            $wmiProcs = Get-WmiObject @wmiProcP
+            foreach ($p in $wmiProcs) { $pidMap[[int]$p.ProcessId] = $p.Name }
+        } elseif ($Session -ne $null) {
+            $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
             $pidMap = Invoke-Command -Session $Session -ScriptBlock $sb
         } else {
+            $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
             $pidMap = & $sb
         }
         if (-not $pidMap) { $pidMap = @{} }

@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.1                    ║
+# ║  Version   : 3.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -363,7 +363,16 @@ function Invoke-Collector {
     $skippedProcs = @()
 
     try {
-        if ($Session -ne $null) {
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            # DLL collection requires .NET Process.Modules — no WMI equivalent
+            $errors += @{ artifact = 'DLLs'; message = 'DLL/module collection unavailable via WMI remote — requires WinRM session' }
+            Write-Log 'WARN' 'DLL collection skipped: WMI fallback does not support .NET Process.Modules'
+            return @{
+                data   = @()
+                source = 'wmi_unsupported'
+                errors = $errors
+            }
+        } elseif ($Session -ne $null) {
             $raw = Invoke-Command -Session $Session -ScriptBlock $sb
         } else {
             $raw = & $sb

@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════╗
 # ║  QuickAiR — Users.psm1               ║
-# ║  User account collection            ║
+# ║  User account collection + WMI     ║
 # ╠══════════════════════════════════════╣
 # ║  Exports  : Invoke-Collector        ║
 # ║  Output   : @{ data=@{             ║
@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.3                    ║
+# ║  Version  : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -416,6 +416,213 @@ function script:GetSidMetadata($sidStr) {
 }
 
 # ── Invoke-Collector ─────────────────────────────────────────────────────────
+function script:Invoke-UsersWMIRemote {
+    param([string]$ComputerName, [System.Management.Automation.PSCredential]$Credential)
+
+    $wmiP = @{ ComputerName = $ComputerName; ErrorAction = 'Stop' }
+    if ($Credential) { $wmiP.Credential = $Credential }
+
+    $r = @{
+        is_dc              = $false
+        domain_name        = ''
+        machine_name       = ''
+        machine_sid        = $null
+        profiles_raw       = @()
+        local_accounts_raw = @()
+        dc_domain_raw      = @()
+        dc_source          = $null
+        group_memberships  = @()
+        errors             = @()
+    }
+
+    # ── System info ──────────────────────────────────────────────────────
+    try {
+        $cs = Get-WmiObject Win32_ComputerSystem @wmiP
+        $r.is_dc       = ($cs.DomainRole -eq 4 -or $cs.DomainRole -eq 5)
+        $r.domain_name = [string]$cs.Domain
+        $r.machine_name= [string]$cs.Name
+    } catch { $r.errors += "SysInfo: $($_.Exception.Message)" }
+
+    # ── Machine SID prefix ───────────────────────────────────────────────
+    try {
+        $lu = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" @wmiP | Select-Object -First 1
+        if ($lu -and $lu.SID) {
+            $p = $lu.SID.Split('-')
+            $r.machine_sid = ($p[0..($p.Length - 2)]) -join '-'
+        }
+    } catch { $r.errors += "MachineSID: $($_.Exception.Message)" }
+
+    # ── Profiles via StdRegProv ──────────────────────────────────────────
+    try {
+        $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\default")
+        if ($Credential) {
+            $scope.Options.Username = $Credential.UserName
+            $scope.Options.Password = $Credential.GetNetworkCredential().Password
+        }
+        $scope.Connect()
+        $reg  = New-Object System.Management.ManagementClass($scope, [System.Management.ManagementPath]'StdRegProv', $null)
+        $HKLM = [uint32]2147483650
+        $plRoot = 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
+
+        # Enumerate profile SID subkeys
+        $enumIn = $reg.GetMethodParameters('EnumKey')
+        $enumIn['hDefKey']     = $HKLM
+        $enumIn['sSubKeyName'] = $plRoot
+        $enumOut = $reg.InvokeMethod('EnumKey', $enumIn, $null)
+        $subKeys = @()
+        if ($enumOut['ReturnValue'] -eq 0 -and $enumOut['sNames']) {
+            $subKeys = @($enumOut['sNames'])
+        }
+
+        foreach ($sidStr in $subKeys) {
+            if ($sidStr -notmatch '^S-1-5-21-') { continue }
+            # Read ProfileImagePath
+            $inP = $reg.GetMethodParameters('GetStringValue')
+            $inP['hDefKey']     = $HKLM
+            $inP['sSubKeyName'] = "$plRoot\$sidStr"
+            $inP['sValueName']  = 'ProfileImagePath'
+            $outP = $reg.InvokeMethod('GetStringValue', $inP, $null)
+            $profilePath = if ($outP['ReturnValue'] -eq 0) { [string]$outP['sValue'] } else { $null }
+            $username = if ($profilePath) { Split-Path $profilePath -Leaf } else { $null }
+
+            # Read State (DWORD)
+            $inS = $reg.GetMethodParameters('GetDWORDValue')
+            $inS['hDefKey']     = $HKLM
+            $inS['sSubKeyName'] = "$plRoot\$sidStr"
+            $inS['sValueName']  = 'State'
+            $outS = $reg.InvokeMethod('GetDWORDValue', $inS, $null)
+            $state = if ($outS['ReturnValue'] -eq 0) { $outS['uValue'] } else { $null }
+
+            $r.profiles_raw += @{
+                SID         = $sidStr
+                Username    = $username
+                ProfilePath = $profilePath
+                State       = $state
+                LastUseRaw  = $null
+                PFRaw = $null; PFAvail = $false
+                NTRaw = $null; NTAvail = $false
+                RKRaw = $null; RKAvail = $false
+            }
+        }
+    } catch {
+        $r.errors += "Profiles(WMI): $($_.Exception.Message)"
+    }
+
+    # ── Local accounts ───────────────────────────────────────────────────
+    try {
+        $localUsers = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" @wmiP
+        foreach ($u in $localUsers) {
+            $r.local_accounts_raw += @{
+                Name     = [string]$u.Name
+                SID      = [string]$u.SID
+                Disabled = [bool]$u.Disabled
+            }
+        }
+    } catch { $r.errors += "LocalAccounts: $($_.Exception.Message)" }
+
+    # ── Group memberships ────────────────────────────────────────────────
+    try {
+        $groupUsers = Get-WmiObject Win32_GroupUser @wmiP
+        foreach ($gu in $groupUsers) {
+            $gName = $null; $mName = $null
+            try {
+                if ($gu.GroupComponent -match 'Name="([^"]+)"') { $gName = $Matches[1] }
+                if ($gu.PartComponent  -match 'Name="([^"]+)"') { $mName = $Matches[1] }
+            } catch {}
+            if ($gName -and $mName) {
+                $r.group_memberships += @{ GroupName = $gName; MemberName = $mName }
+            }
+        }
+    } catch {
+        $r.errors += "GroupMemberships(WMI): $($_.Exception.Message)"
+    }
+
+    # ── DC domain accounts ───────────────────────────────────────────────
+    if ($r.is_dc) {
+        try {
+            try {
+                Import-Module ActiveDirectory -ErrorAction Stop
+                $adUsers = Get-ADUser -Server $ComputerName -Credential $Credential -Filter * -Properties `
+                    Created,LastLogonDate,lastLogon,PasswordLastSet,
+                    Enabled,BadLogonCount,LockedOut,MemberOf
+                $r.dc_source = 'Get-ADUser'
+                foreach ($u in $adUsers) {
+                    $r.dc_domain_raw += @{
+                        SamAccountName    = [string]$u.SamAccountName
+                        DisplayName       = [string]$u.Name
+                        SID               = if ($u.SID) { $u.SID.Value } else { $null }
+                        Enabled           = [bool]$u.Enabled
+                        WhenCreated       = if ($u.Created)       { $u.Created.ToUniversalTime().ToString('o') }       else { $null }
+                        LastLogonTimestamp = if ($u.LastLogonDate)  { $u.LastLogonDate.ToUniversalTime().ToString('o') } else { $null }
+                        LastLogon         = $(try { if ($u.lastLogon -and [Int64]$u.lastLogon -gt 0) { [DateTime]::FromFileTimeUtc([Int64]$u.lastLogon).ToString('o') } else { $null } } catch { $null })
+                        PasswordLastSet   = if ($u.PasswordLastSet){ $u.PasswordLastSet.ToUniversalTime().ToString('o')} else { $null }
+                        LockedOut         = [bool]$u.LockedOut
+                        BadLogonCount     = [int]$u.BadLogonCount
+                        MemberOf          = @(foreach ($dn in @($u.MemberOf)) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
+                        Source            = 'Get-ADUser'
+                    }
+                }
+            } catch {
+                # ADSI fallback
+                $r.dc_source = 'ADSI'
+                $root = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password)
+                $searcher = New-Object System.DirectoryServices.DirectorySearcher($root)
+                $searcher.Filter   = "(&(objectClass=user)(objectCategory=person))"
+                $searcher.PageSize = 1000
+                $searcher.PropertiesToLoad.AddRange(@(
+                    "samaccountname","displayname","objectsid","whencreated",
+                    "lastlogontimestamp","lastlogon","pwdlastset","useraccountcontrol",
+                    "badpwdcount","lockouttime","memberof"
+                ))
+                $results = $searcher.FindAll()
+                foreach ($entry in $results) {
+                    $p = $entry.Properties
+                    $sidVal = $null
+                    try {
+                        $sidVal = (New-Object System.Security.Principal.SecurityIdentifier(
+                            [byte[]]$p["objectsid"][0], 0)).Value
+                    } catch {}
+                    $wc = $null
+                    try { if ($p["whencreated"].Count -gt 0) {
+                        $wc = ([datetime]$p["whencreated"][0]).ToUniversalTime().ToString('o') } } catch {}
+                    $llTs = $null
+                    try { $llFt = [Int64]$p["lastlogontimestamp"][0]
+                        if ($llFt -gt 0) { $llTs = [DateTime]::FromFileTimeUtc($llFt).ToString('o') } } catch {}
+                    $llPerDC = $null
+                    try { $llFtPerDC = [Int64]$p["lastlogon"][0]
+                        if ($llFtPerDC -gt 0) { $llPerDC = [DateTime]::FromFileTimeUtc($llFtPerDC).ToString('o') } } catch {}
+                    $pls = $null
+                    try { $plsFt = [Int64]$p["pwdlastset"][0]
+                        if ($plsFt -gt 0) { $pls = [DateTime]::FromFileTimeUtc($plsFt).ToString('o') } } catch {}
+                    $uac = 0
+                    try { $uac = [int]$p["useraccountcontrol"][0] } catch {}
+                    $locked = $false
+                    try { $locked = ([Int64]$p["lockouttime"][0]) -gt 0 } catch {}
+                    $bpc = 0
+                    try { $bpc = [int]$p["badpwdcount"][0] } catch {}
+                    $r.dc_domain_raw += @{
+                        SamAccountName    = if ($p["samaccountname"].Count -gt 0) { [string]$p["samaccountname"][0] } else { $null }
+                        DisplayName       = if ($p["displayname"].Count -gt 0)    { [string]$p["displayname"][0] }    else { $null }
+                        SID               = $sidVal
+                        Enabled           = -not [bool]($uac -band 2)
+                        WhenCreated       = $wc
+                        LastLogonTimestamp = $llTs
+                        LastLogon         = $llPerDC
+                        PasswordLastSet   = $pls
+                        LockedOut         = $locked
+                        BadLogonCount     = $bpc
+                        MemberOf          = @(foreach ($dn in @($p["memberof"])) { if ($dn -match '^CN=([^,]+)') { $Matches[1] } })
+                        Source            = 'ADSI'
+                    }
+                }
+                try { $results.Dispose() } catch {}
+            }
+        } catch { $r.errors += "DomainAccounts: $($_.Exception.Message)" }
+    }
+
+    return $r
+}
+
 function Invoke-Collector {
     param($Session, $TargetPSVersion, $TargetCapabilities)
 
@@ -423,7 +630,9 @@ function Invoke-Collector {
     $raw    = $null
 
     try {
-        if ($Session) {
+        if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
+            $raw = script:Invoke-UsersWMIRemote -ComputerName $Session.ComputerName -Credential $Session.Credential
+        } elseif ($Session) {
             $raw = Invoke-Command -Session $Session -ScriptBlock $script:USERS_SB
         } else {
             $raw = & $script:USERS_SB
@@ -576,7 +785,9 @@ function Invoke-Collector {
         }
     }
 
-    $src = if ($raw.dc_source) { "WMI+$($raw.dc_source)" } else { 'WMI' }
+    $isWmiRemote = ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI')
+    $base = if ($isWmiRemote) { 'wmi_remote' } else { 'WMI' }
+    $src = if ($raw.dc_source) { "$base+$($raw.dc_source)" } else { $base }
 
     return @{
         data = @{
