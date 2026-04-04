@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — Collector.ps1            ║
+# ║  QuickAiR -- Collector.ps1            ║
 # ║  Thin orchestrator. Auto-discovers  ║
 # ║  and runs Collectors\*.psm1 plugins ║
 # ╠══════════════════════════════════════╣
@@ -83,7 +83,7 @@ if (-not (Test-Path "$_regRoot\shell\open\command") -or
             Set-ItemProperty  -Path $cmdKey     -Name '(Default)'    -Value $cmd
         }
     } catch {
-        # Non-fatal — protocols may already work or analyst can register manually
+        # Non-fatal -- protocols may already work or analyst can register manually
     }
 }
 #endregion
@@ -137,7 +137,7 @@ foreach ($target in $Targets) {
 
     # For remote targets, use current-user credentials if none provided (autonomous mode)
     if (-not $isLocalTarget -and -not $effectiveCred) {
-        Write-Log 'INFO' "No credentials supplied for $target — using current-user context"
+        Write-Log 'INFO' "No credentials supplied for $target -- using current-user context"
     }
 
     # Ensure target is in WinRM TrustedHosts (required for non-domain WinRM connections)
@@ -273,7 +273,7 @@ foreach ($target in $Targets) {
                 }
             }
         } else {
-            # WMI probe succeeded but WinRM probe failed — retry WinRM session once
+            # WMI probe succeeded but WinRM probe failed -- retry WinRM session once
             # (transient WinRM failures should not permanently degrade collection)
             $winrmReachable = $false
             $winrmRetried   = $false
@@ -351,7 +351,7 @@ foreach ($target in $Targets) {
             if ($wmiScope)  { try { $wmiScope.Dispose() }  catch {} }
         }
     } else {
-        # WinRM session — run standard WMI + SMB probes
+        # WinRM session -- run standard WMI + SMB probes
         $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$target\root\cimv2")
@@ -445,7 +445,7 @@ foreach ($target in $Targets) {
                 Write-Log 'WARN' "Collector $($c.BaseName) returned invalid result structure"
                 continue
             }
-            if ($result.PSObject.Properties['errors'] -and $result.errors) {
+            if (($result -is [hashtable] -and $result.ContainsKey('errors') -and $result.errors) -or ($result.PSObject.Properties['errors'] -and $result.errors)) {
                 foreach ($e in $result.errors) {
                     if ($e -is [string]) {
                         $collErr += @{ artifact = $c.BaseName; message = $e }
@@ -454,7 +454,7 @@ foreach ($target in $Targets) {
                     }
                 }
             }
-            $sources[$c.BaseName] = if ($result.PSObject.Properties['source']) { $result.source } else { @{} }
+            $sources[$c.BaseName] = if ($result -is [hashtable] -and $result.ContainsKey('source')) { $result.source } elseif ($result.PSObject.Properties['source']) { $result.source } else { @{} }
             if ($c.BaseName -eq 'Network') {
                 $output['Network'] = @{ tcp = $result.data.tcp; udp = $result.data.udp; dns = $result.data.dns; adapters = $result.data.adapters }
                 $networkAdapters   = $result.data.adapters

@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  QuickAiR — T06_DLLs.ps1                                     ║
+# ║  QuickAiR -- T06_DLLs.ps1                                     ║
 # ║  T13 DLL collection completeness                            ║
 # ║  T14 DLL field validation                                   ║
 # ║  T15 Private path detection (positive cases)                ║
@@ -120,7 +120,7 @@ if (-not $data.DLLs) {
             $t14Violations += "PID=$($e.ProcessId) ModuleName=$($e.ModuleName) has null IsPrivatePath"
         }
 
-        # FileHash check for non-system paths (WARN not FAIL if null — file read may fail)
+        # FileHash check for non-system paths (WARN not FAIL if null -- file read may fail)
         if ($e.ModulePath -ne $null) {
             $isSystem = ($e.ModulePath -like 'C:\Windows\System32\*' -or $e.ModulePath -like 'C:\Windows\SysWOW64\*')
             if (-not $isSystem -and $e.FileHash -eq $null) {
@@ -373,7 +373,7 @@ if (-not $data.DLLs) {
             $t81Violations += "reason='$reasonVal' entry missing ProcessName (ProcessId=$($e.ProcessId))"
         }
         # ModuleName and ModulePath should be null on error entries (not mandatory but document if not null)
-        # No failure for non-null ModuleName/ModulePath — module may partially populate them
+        # No failure for non-null ModuleName/ModulePath -- module may partially populate them
 
         if ($t81Violations.Count -ge 25) { break }
     }

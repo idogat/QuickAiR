@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================
 #   QuickAiR -- T13_CollectIntegration.ps1
 #   T92 Localhost all-plugins collection
@@ -39,7 +39,7 @@ $collectorPs1 = Join-Path $repoDir 'Collector.ps1'
 $launcherDir  = Join-Path $repoDir 'Modules\Launcher'
 $pipeListMod  = Join-Path $launcherDir 'PipeListener.psm1'
 
-# Admin check — integration tests require admin
+# Admin check -- integration tests require admin
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 $isAdmin   = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -86,7 +86,7 @@ function Test-JsonSections {
 }
 
 # ---------------------------------------------------------------
-# T92 — Localhost all-plugins collection (T-C7)
+# T92 -- Localhost all-plugins collection (T-C7)
 # Run Collector.ps1 -Targets @('localhost') -Quiet
 # Verify: JSON exists, valid, all sections populated
 # ---------------------------------------------------------------
@@ -132,7 +132,7 @@ if (-not $isAdmin) {
 }
 
 # ---------------------------------------------------------------
-# T93 — Remote target .106 collection (T-C8)
+# T93 -- Remote target .106 collection (T-C8)
 # Uses 192.168.1.106 (Server 2022) instead of .250 (not in lab)
 # Skip if unreachable
 # ---------------------------------------------------------------
@@ -181,7 +181,7 @@ if (-not $isAdmin) {
 }
 
 # ---------------------------------------------------------------
-# T94 — Multiple targets collection (T-C9)
+# T94 -- Multiple targets collection (T-C9)
 # localhost + .106 + .100
 # Verify: separate JSON per target
 # ---------------------------------------------------------------
@@ -240,7 +240,7 @@ if (-not $isAdmin) {
 }
 
 # ---------------------------------------------------------------
-# T95 — Bridge file injection / second batch (T-C10)
+# T95 -- Bridge file injection / second batch (T-C10)
 # Tests PipeListener mid-flight injection mechanism:
 # Send batch 1, wait, read; send batch 2, wait, read.
 # ---------------------------------------------------------------
@@ -302,7 +302,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T96 — Output JSON loads in Report.html contract (T-C11)
+# T96 -- Output JSON loads in Report.html contract (T-C11)
 # Validates that collection output matches what Report.html expects:
 # Processes array, Network.tcp, Network.dns, manifest fields
 # ---------------------------------------------------------------

@@ -53,7 +53,7 @@ function Add-R {
 }
 
 # ---------------------------------------------------------------
-# Load JSON — prefer the supplied JsonPath, fall back to the
+# Load JSON -- prefer the supplied JsonPath, fall back to the
 # known WMI-fallback fixture in the repo.
 # ---------------------------------------------------------------
 $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -66,30 +66,30 @@ if ([string]::IsNullOrEmpty($resolvedPath) -or -not (Test-Path $resolvedPath)) {
 }
 
 if (-not (Test-Path $resolvedPath)) {
-    Add-R "T97"  $true  "WMI fallback JSON not found — all WMI fallback tests skipped (path: $resolvedPath)" @() $true
-    Add-R "T98"  $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T99"  $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T100" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T101" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T102" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T103" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T104" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T105" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T106" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T107" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T108" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T109" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T110" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T111" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T112" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T113" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T114" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T115" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T116" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T117" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T118" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T119" $true  "WMI fallback JSON not found — skipped" @() $true
-    Add-R "T120" $true  "WMI fallback JSON not found — skipped" @() $true
+    Add-R "T97"  $true  "WMI fallback JSON not found -- all WMI fallback tests skipped (path: $resolvedPath)" @() $true
+    Add-R "T98"  $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T99"  $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T100" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T101" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T102" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T103" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T104" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T105" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T106" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T107" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T108" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T109" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T110" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T111" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T112" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T113" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T114" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T115" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T116" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T117" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T118" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T119" $true  "WMI fallback JSON not found -- skipped" @() $true
+    Add-R "T120" $true  "WMI fallback JSON not found -- skipped" @() $true
     return @{ Passed=$script:passResults; Failed=$script:failResults; Info=$script:infoResults }
 }
 
@@ -98,7 +98,7 @@ $data    = $jsonRaw | ConvertFrom-Json
 
 # Guard: if manifest is absent the JSON is completely invalid
 if ($null -eq $data -or $null -eq $data.manifest) {
-    Add-R "T97" $false "manifest object missing — JSON may be corrupt or wrong file" @("Path: $resolvedPath")
+    Add-R "T97" $false "manifest object missing -- JSON may be corrupt or wrong file" @("Path: $resolvedPath")
     return @{ Passed=$script:passResults; Failed=$script:failResults; Info=$script:infoResults }
 }
 
@@ -108,35 +108,35 @@ $mf = $data.manifest
 $isWmiFallback = ($mf.connection_method -eq 'WMI') -and ($mf.wmi_fallback_used -eq $true)
 if (-not $isWmiFallback) {
     $note = "connection_method=$($mf.connection_method) wmi_fallback_used=$($mf.wmi_fallback_used)"
-    Add-R "T97"  $true "Not a WMI-fallback JSON ($note) — all WMI fallback tests skipped" @() $true
-    Add-R "T98"  $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T99"  $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T100" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T101" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T102" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T103" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T104" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T105" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T106" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T107" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T108" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T109" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T110" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T111" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T112" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T113" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T114" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T115" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T116" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T117" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T118" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T119" $true "Not a WMI-fallback JSON — skipped" @() $true
-    Add-R "T120" $true "Not a WMI-fallback JSON — skipped" @() $true
+    Add-R "T97"  $true "Not a WMI-fallback JSON ($note) -- all WMI fallback tests skipped" @() $true
+    Add-R "T98"  $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T99"  $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T100" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T101" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T102" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T103" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T104" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T105" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T106" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T107" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T108" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T109" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T110" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T111" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T112" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T113" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T114" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T115" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T116" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T117" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T118" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T119" $true "Not a WMI-fallback JSON -- skipped" @() $true
+    Add-R "T120" $true "Not a WMI-fallback JSON -- skipped" @() $true
     return @{ Passed=$script:passResults; Failed=$script:failResults; Info=$script:infoResults }
 }
 
 # ---------------------------------------------------------------
-# T97 — Manifest: connection_method=WMI and wmi_fallback_used=true
+# T97 -- Manifest: connection_method=WMI and wmi_fallback_used=true
 # ---------------------------------------------------------------
 $t97d = @()
 if ($mf.connection_method -ne 'WMI') {
@@ -148,12 +148,12 @@ if ($mf.wmi_fallback_used -ne $true) {
 if ($null -eq $mf.PSObject.Properties['winrm_reachable']) {
     $t97d += "manifest.winrm_reachable field missing"
 } elseif ($mf.winrm_reachable -ne $false) {
-    $t97d += "winrm_reachable=$($mf.winrm_reachable) — WMI fallback implies WinRM was not available"
+    $t97d += "winrm_reachable=$($mf.winrm_reachable) -- WMI fallback implies WinRM was not available"
 }
 if ($null -eq $mf.PSObject.Properties['wmi_reachable']) {
     $t97d += "manifest.wmi_reachable field missing"
 } elseif ($mf.wmi_reachable -ne $true) {
-    $t97d += "wmi_reachable=$($mf.wmi_reachable) — WMI fallback requires wmi_reachable=true"
+    $t97d += "wmi_reachable=$($mf.wmi_reachable) -- WMI fallback requires wmi_reachable=true"
 }
 if ($t97d.Count -eq 0) {
     Add-R "T97" $true "Manifest: connection_method=WMI, wmi_fallback_used=true, winrm_reachable=false, wmi_reachable=true"
@@ -162,7 +162,7 @@ if ($t97d.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# T98 — Manifest: degraded_artifacts list completeness
+# T98 -- Manifest: degraded_artifacts list completeness
 # ---------------------------------------------------------------
 $expectedDegraded = @('DLLs','DNS_cache','process_hashes','process_signatures','integrity_levels','dotnet_crosscheck','user_firstlogon_timestamps')
 $actualDegraded   = @()
@@ -185,7 +185,7 @@ if ($t98d.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# T99 — Manifest: source fields correct for WMI fallback
+# T99 -- Manifest: source fields correct for WMI fallback
 # ---------------------------------------------------------------
 $t99d = @()
 
@@ -229,7 +229,7 @@ if ($t99d.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# T100 — Manifest: network_adapters present and non-empty
+# T100 -- Manifest: network_adapters present and non-empty
 # Adapters are in manifest.network_adapters for WMI collections.
 # ---------------------------------------------------------------
 $t100d = @()
@@ -238,7 +238,7 @@ if ($null -eq $mf.PSObject.Properties['network_adapters'] -or $null -eq $mf.netw
 } else {
     $adapters = @($mf.network_adapters)
     if ($adapters.Count -eq 0) {
-        $t100d += "manifest.network_adapters is empty — expected at least one adapter"
+        $t100d += "manifest.network_adapters is empty -- expected at least one adapter"
     } else {
         # Each adapter should have basic fields
         $reqAdapterFields = @('IPAddresses','MACAddress','InterfaceAlias')
@@ -263,7 +263,7 @@ if ($t100d.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# T101 — collection_errors: required artifact entries present
+# T101 -- collection_errors: required artifact entries present
 # Expected artifact values: DLLs, dns_cache, processes, dotnet_crosscheck
 # ---------------------------------------------------------------
 $errors = @()
@@ -288,7 +288,7 @@ if ($t101d.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# T102 — collection_errors: all entries have artifact and message
+# T102 -- collection_errors: all entries have artifact and message
 # ---------------------------------------------------------------
 $t102d = @()
 foreach ($err in $errors) {
@@ -307,20 +307,20 @@ if ($t102d.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# Processes section — gate on presence
+# Processes section -- gate on presence
 # ---------------------------------------------------------------
 if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Processes) {
-    Add-R "T103" $true "Processes key absent in JSON — WMI Processes tests skipped" @() $true
-    Add-R "T104" $true "Processes key absent — skipped" @() $true
-    Add-R "T105" $true "Processes key absent — skipped" @() $true
-    Add-R "T106" $true "Processes key absent — skipped" @() $true
-    Add-R "T107" $true "Processes key absent — skipped" @() $true
-    Add-R "T108" $true "Processes key absent — skipped" @() $true
-    Add-R "T109" $true "Processes key absent — skipped" @() $true
+    Add-R "T103" $true "Processes key absent in JSON -- WMI Processes tests skipped" @() $true
+    Add-R "T104" $true "Processes key absent -- skipped" @() $true
+    Add-R "T105" $true "Processes key absent -- skipped" @() $true
+    Add-R "T106" $true "Processes key absent -- skipped" @() $true
+    Add-R "T107" $true "Processes key absent -- skipped" @() $true
+    Add-R "T108" $true "Processes key absent -- skipped" @() $true
+    Add-R "T109" $true "Processes key absent -- skipped" @() $true
 } else {
     $procs = @($data.Processes)
 
-    # T103 — source='wmi_remote' on all records
+    # T103 -- source='wmi_remote' on all records
     $t103d = @()
     foreach ($p in $procs) {
         if ($p.source -ne 'wmi_remote') {
@@ -333,7 +333,7 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
         Add-R "T103" $false "Processes source: $($t103d.Count) records with wrong source" ($t103d | Select-Object -First 25)
     }
 
-    # T104 — SHA256Error='WMI_REMOTE_UNSUPPORTED' on all records
+    # T104 -- SHA256Error='WMI_REMOTE_UNSUPPORTED' on all records
     $t104d = @()
     foreach ($p in $procs) {
         if ($p.SHA256Error -ne 'WMI_REMOTE_UNSUPPORTED') {
@@ -346,7 +346,7 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
         Add-R "T104" $false "Processes SHA256Error: $($t104d.Count) records with wrong value" ($t104d | Select-Object -First 25)
     }
 
-    # T105 — IntegrityLevelError='WMI_REMOTE_UNSUPPORTED' on all records
+    # T105 -- IntegrityLevelError='WMI_REMOTE_UNSUPPORTED' on all records
     $t105d = @()
     foreach ($p in $procs) {
         if ($p.IntegrityLevelError -ne 'WMI_REMOTE_UNSUPPORTED') {
@@ -359,7 +359,7 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
         Add-R "T105" $false "Processes IntegrityLevelError: $($t105d.Count) records with wrong value" ($t105d | Select-Object -First 25)
     }
 
-    # T106 — Signature.Status='WMI_REMOTE_UNSUPPORTED' on all records
+    # T106 -- Signature.Status='WMI_REMOTE_UNSUPPORTED' on all records
     $t106d = @()
     foreach ($p in $procs) {
         if ($null -eq $p.PSObject.Properties['Signature'] -or $null -eq $p.Signature) {
@@ -374,7 +374,7 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
         Add-R "T106" $false "Processes Signature.Status: $($t106d.Count) records with wrong value" ($t106d | Select-Object -First 25)
     }
 
-    # T107 — SHA256 and IntegrityLevel are null (hashes/IL not collected via WMI)
+    # T107 -- SHA256 and IntegrityLevel are null (hashes/IL not collected via WMI)
     $t107d = @()
     foreach ($p in $procs) {
         if ($null -ne $p.SHA256) {
@@ -390,7 +390,7 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
         Add-R "T107" $false "Processes SHA256/IntegrityLevel: $($t107d.Count) records with unexpected non-null values" ($t107d | Select-Object -First 25)
     }
 
-    # T108 — Required fields present on all records
+    # T108 -- Required fields present on all records
     $t108d = @()
     $reqProcFields = @('ProcessId','Name','ParentProcessId','CreationDateUTC','source','SHA256Error','IntegrityLevelError','Signature')
     foreach ($p in $procs) {
@@ -406,11 +406,11 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
         Add-R "T108" $false "Processes required fields: $($t108d.Count) violations" ($t108d | Select-Object -First 25)
     }
 
-    # T109 — Process count > 0
+    # T109 -- Process count > 0
     if ($procs.Count -gt 0) {
         Add-R "T109" $true "Processes count: $($procs.Count) records collected via WMI (count > 0)"
     } else {
-        Add-R "T109" $false "Processes count is 0 — WMI process enumeration produced no records"
+        Add-R "T109" $false "Processes count is 0 -- WMI process enumeration produced no records"
     }
 }
 
@@ -418,22 +418,22 @@ if ($null -eq $data.PSObject.Properties['Processes'] -or $null -eq $data.Process
 # DLLs section
 # ---------------------------------------------------------------
 if ($null -eq $data.PSObject.Properties['DLLs']) {
-    Add-R "T110" $false "DLLs key absent from JSON — expected empty array for WMI fallback"
-    Add-R "T111" $true  "DLLs key absent — T111 skipped" @() $true
+    Add-R "T110" $false "DLLs key absent from JSON -- expected empty array for WMI fallback"
+    Add-R "T111" $true  "DLLs key absent -- T111 skipped" @() $true
 } else {
-    # T110 — DLLs is an empty array (not null)
+    # T110 -- DLLs is an empty array (not null)
     $dlls = @($data.DLLs)
     if ($null -eq $data.DLLs) {
-        Add-R "T110" $false "DLLs is null — expected empty array [] for WMI fallback"
+        Add-R "T110" $false "DLLs is null -- expected empty array [] for WMI fallback"
     } elseif ($dlls.Count -gt 0) {
-        Add-R "T110" $false "DLLs has $($dlls.Count) records — expected empty array for WMI fallback (DLL collection requires WinRM)"
+        Add-R "T110" $false "DLLs has $($dlls.Count) records -- expected empty array for WMI fallback (DLL collection requires WinRM)"
     } else {
         Add-R "T110" $true  "DLLs: empty array [] as expected for WMI fallback (DLL collection requires WinRM)"
     }
 
-    # T111 — DLLs_source='wmi_unsupported'
+    # T111 -- DLLs_source='wmi_unsupported'
     if ($null -eq $mf.PSObject.Properties['DLLs_source']) {
-        Add-R "T111" $false "manifest.DLLs_source field missing — expected 'wmi_unsupported'"
+        Add-R "T111" $false "manifest.DLLs_source field missing -- expected 'wmi_unsupported'"
     } elseif ($mf.DLLs_source -ne 'wmi_unsupported') {
         Add-R "T111" $false "manifest.DLLs_source='$($mf.DLLs_source)' expected 'wmi_unsupported'" @("Actual: $($mf.DLLs_source)")
     } else {
@@ -445,55 +445,55 @@ if ($null -eq $data.PSObject.Properties['DLLs']) {
 # Network section
 # ---------------------------------------------------------------
 if ($null -eq $data.PSObject.Properties['Network'] -or $null -eq $data.Network) {
-    Add-R "T112" $true "Network key absent in JSON — Network tests skipped" @() $true
-    Add-R "T113" $true "Network key absent — skipped" @() $true
-    Add-R "T114" $true "Network key absent — skipped" @() $true
-    Add-R "T115" $true "Network key absent — skipped" @() $true
+    Add-R "T112" $true "Network key absent in JSON -- Network tests skipped" @() $true
+    Add-R "T113" $true "Network key absent -- skipped" @() $true
+    Add-R "T114" $true "Network key absent -- skipped" @() $true
+    Add-R "T115" $true "Network key absent -- skipped" @() $true
 } else {
     $net = $data.Network
 
-    # T112 — tcp sub-key present (Win8+/2012+ WMI code path may populate it)
+    # T112 -- tcp sub-key present (Win8+/2012+ WMI code path may populate it)
     # On WMI fallback, tcp may or may not be present depending on OS version.
     # We verify: if tcp is present it is an array (not null). Missing is also acceptable.
     if ($null -eq $net.PSObject.Properties['tcp']) {
         Add-R "T112" $true "Network.tcp sub-key absent (acceptable on pre-Win8/2012 targets via WMI)" @() $true
     } elseif ($null -eq $net.tcp) {
-        Add-R "T112" $false "Network.tcp is null — expected either an array or absent for WMI fallback"
+        Add-R "T112" $false "Network.tcp is null -- expected either an array or absent for WMI fallback"
     } else {
         $tcpCount = @($net.tcp).Count
         Add-R "T112" $true "Network.tcp present with $tcpCount records (WMI network collection succeeded)"
     }
 
-    # T113 — dns is empty array (DNS cache unavailable via WMI remote)
+    # T113 -- dns is empty array (DNS cache unavailable via WMI remote)
     if ($null -eq $net.PSObject.Properties['dns']) {
-        Add-R "T113" $false "Network.dns sub-key absent — expected empty array [] for WMI fallback"
+        Add-R "T113" $false "Network.dns sub-key absent -- expected empty array [] for WMI fallback"
     } elseif ($null -eq $net.dns) {
-        Add-R "T113" $false "Network.dns is null — expected empty array [] for WMI fallback"
+        Add-R "T113" $false "Network.dns is null -- expected empty array [] for WMI fallback"
     } else {
         $dnsRecords = @($net.dns)
         if ($dnsRecords.Count -gt 0) {
-            Add-R "T113" $false "Network.dns has $($dnsRecords.Count) records — expected empty array (DNS cache unavailable via WMI remote)"
+            Add-R "T113" $false "Network.dns has $($dnsRecords.Count) records -- expected empty array (DNS cache unavailable via WMI remote)"
         } else {
             Add-R "T113" $true  "Network.dns is empty array [] as expected (DNS cache unavailable via WMI remote)"
         }
     }
 
-    # T114 — Network_source.dns='wmi_remote_unavailable'
+    # T114 -- Network_source.dns='wmi_remote_unavailable'
     if ($null -eq $mf.PSObject.Properties['Network_source'] -or $null -eq $mf.Network_source) {
-        Add-R "T114" $false "manifest.Network_source object missing — cannot verify dns source"
+        Add-R "T114" $false "manifest.Network_source object missing -- cannot verify dns source"
     } elseif ($null -eq $mf.Network_source.PSObject.Properties['dns']) {
-        Add-R "T114" $false "manifest.Network_source.dns field missing — expected 'wmi_remote_unavailable'"
+        Add-R "T114" $false "manifest.Network_source.dns field missing -- expected 'wmi_remote_unavailable'"
     } elseif ($mf.Network_source.dns -ne 'wmi_remote_unavailable') {
         Add-R "T114" $false "manifest.Network_source.dns='$($mf.Network_source.dns)' expected 'wmi_remote_unavailable'" @("Actual: $($mf.Network_source.dns)")
     } else {
         Add-R "T114" $true  "manifest.Network_source.dns='wmi_remote_unavailable' (correct)"
     }
 
-    # T115 — tcp records have required fields (only if tcp is present and non-empty)
+    # T115 -- tcp records have required fields (only if tcp is present and non-empty)
     if ($null -ne $net.PSObject.Properties['tcp'] -and $null -ne $net.tcp) {
         $tcpRecs = @($net.tcp)
         if ($tcpRecs.Count -eq 0) {
-            Add-R "T115" $true "Network.tcp schema: empty array — no records to validate" @() $true
+            Add-R "T115" $true "Network.tcp schema: empty array -- no records to validate" @() $true
         } else {
             $t115d = @()
             $reqTcpFields = @('OwningProcess','LocalAddress','LocalPort','RemoteAddress','RemotePort','State','Protocol')
@@ -511,7 +511,7 @@ if ($null -eq $data.PSObject.Properties['Network'] -or $null -eq $data.Network) 
             }
         }
     } else {
-        Add-R "T115" $true "Network.tcp absent — schema validation skipped" @() $true
+        Add-R "T115" $true "Network.tcp absent -- schema validation skipped" @() $true
     }
 }
 
@@ -519,14 +519,14 @@ if ($null -eq $data.PSObject.Properties['Network'] -or $null -eq $data.Network) 
 # Users section
 # ---------------------------------------------------------------
 if ($null -eq $data.PSObject.Properties['Users'] -or $null -eq $data.Users) {
-    Add-R "T116" $true "Users key absent in JSON — Users tests skipped" @() $true
-    Add-R "T117" $true "Users key absent — skipped" @() $true
-    Add-R "T118" $true "Users key absent — skipped" @() $true
-    Add-R "T119" $true "Users key absent — skipped" @() $true
+    Add-R "T116" $true "Users key absent in JSON -- Users tests skipped" @() $true
+    Add-R "T117" $true "Users key absent -- skipped" @() $true
+    Add-R "T118" $true "Users key absent -- skipped" @() $true
+    Add-R "T119" $true "Users key absent -- skipped" @() $true
 } else {
     $usersSection = $data.Users
 
-    # T116 — Users present and non-empty
+    # T116 -- Users present and non-empty
     if ($usersSection -isnot [System.Management.Automation.PSCustomObject] -and
         $usersSection -isnot [hashtable]) {
         Add-R "T116" $false "Users section is not an object (type: $($usersSection.GetType().Name))"
@@ -536,22 +536,22 @@ if ($null -eq $data.PSObject.Properties['Users'] -or $null -eq $data.Users) {
             $userArr = @($usersSection.users)
         }
         if ($userArr.Count -eq 0) {
-            Add-R "T116" $false "Users.users array is empty — WMI should enumerate at least local accounts"
+            Add-R "T116" $false "Users.users array is empty -- WMI should enumerate at least local accounts"
         } else {
             Add-R "T116" $true "Users present: $($userArr.Count) user record(s) collected via WMI"
         }
     }
 
-    # T117 — Users_source starts with 'wmi_remote'
+    # T117 -- Users_source starts with 'wmi_remote'
     if ($null -eq $mf.PSObject.Properties['Users_source']) {
         Add-R "T117" $false "manifest.Users_source field missing"
     } elseif ($mf.Users_source -notlike 'wmi_remote*') {
         Add-R "T117" $false "manifest.Users_source='$($mf.Users_source)' expected to start with 'wmi_remote'" @("Actual: $($mf.Users_source)")
     } else {
-        Add-R "T117" $true "manifest.Users_source='$($mf.Users_source)' (starts with 'wmi_remote' — correct)"
+        Add-R "T117" $true "manifest.Users_source='$($mf.Users_source)' (starts with 'wmi_remote' -- correct)"
     }
 
-    # T118 — Required top-level fields on Users section
+    # T118 -- Required top-level fields on Users section
     $t118d = @()
     $reqUsersTopFields = @('users','domain_accounts','is_domain_controller','machine_name','machine_sid')
     foreach ($f in $reqUsersTopFields) {
@@ -565,13 +565,13 @@ if ($null -eq $data.PSObject.Properties['Users'] -or $null -eq $data.Users) {
         Add-R "T118" $false "Users top-level fields missing ($($t118d.Count))" $t118d
     }
 
-    # T119 — Each user record has required fields
+    # T119 -- Each user record has required fields
     $userArr119 = @()
     if ($null -ne $usersSection.PSObject.Properties['users'] -and $null -ne $usersSection.users) {
         $userArr119 = @($usersSection.users)
     }
     if ($userArr119.Count -eq 0) {
-        Add-R "T119" $true "Users.users empty — per-record field validation skipped" @() $true
+        Add-R "T119" $true "Users.users empty -- per-record field validation skipped" @() $true
     } else {
         $t119d = @()
         $reqUserFields = @('SID','Username','AccountType','ProfilePath','GroupMemberships','LastLogonUTC','HasLocalAccount')
@@ -598,7 +598,7 @@ if ($null -eq $data.PSObject.Properties['Users'] -or $null -eq $data.Users) {
 }
 
 # ---------------------------------------------------------------
-# T120 — Cross-check: Network.tcp OwningProcess PIDs exist in Processes
+# T120 -- Cross-check: Network.tcp OwningProcess PIDs exist in Processes
 # Only run if both sections are present and non-empty.
 # ---------------------------------------------------------------
 $canCrossCheck = $true

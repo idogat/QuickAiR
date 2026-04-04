@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — WinRM.psm1               ║
+# ║  QuickAiR -- WinRM.psm1               ║
 # ║  Remote executor via WinRM/PSSession║
 # ║  Transfers binary + launches it.   ║
 # ╠══════════════════════════════════════╣
@@ -110,7 +110,7 @@ function Invoke-Executor {
     }
 
     try {
-        # Step 1 — Clean and verify local binary exists
+        # Step 1 -- Clean and verify local binary exists
         $LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
         $LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
         if (-not (Test-Path -LiteralPath $LocalBinaryPath)) {
@@ -119,7 +119,7 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 2 — Establish WinRM PSSession (remote only)
+        # Step 2 -- Establish WinRM PSSession (remote only)
         if ($isLocal) {
             Add-State "CONNECTED" "Local execution (no PSSession needed)"
         } else {
@@ -169,7 +169,7 @@ function Invoke-Executor {
             }
         }
 
-        # Step 3 — Transfer binary
+        # Step 3 -- Transfer binary
         $transferred    = $false
         $transferDetail = ""
         $localHash      = (Get-FileHash -LiteralPath $LocalBinaryPath -Algorithm SHA256).Hash
@@ -302,7 +302,7 @@ function Invoke-Executor {
                     }
                 } catch { }
             } catch {
-                # Fallback: SMB Copy-Item via PSDrive (passes credential properly — EX2)
+                # Fallback: SMB Copy-Item via PSDrive (passes credential properly -- EX2)
                 $smbFallbackDrive = $null
                 try {
                     $uncPath = "\\$ComputerName\" + ($RemoteDestPath -replace '^([A-Za-z]):\\', '$1$\')
@@ -347,7 +347,7 @@ function Invoke-Executor {
             Add-State "TRANSFERRED" $transferDetail
         }
 
-        # Step 4a — BinaryType detection
+        # Step 4a -- BinaryType detection
         if ($BinaryTypeOverride -ne $null) {
             $result.BinaryType = $BinaryTypeOverride
         } else {
@@ -404,7 +404,7 @@ function Invoke-Executor {
             }
 
         } else {
-            # Step 4b — Normal launch
+            # Step 4b -- Normal launch
             $launchPID     = $null
             $earlyExitCode = $null
             try {
@@ -430,9 +430,9 @@ function Invoke-Executor {
                     # Launching via Invoke-Command ScriptBlock creates a child of wsmprovhost.exe;
                     # that child is killed when the PSSession closes.
                     # Win32_Process::Create (called locally on target) spawns under the WMI
-                    # service, which is independent of the WinRM session — process survives close.
+                    # service, which is independent of the WinRM session -- process survives close.
                     # NOTE: $Arguments passed raw to command line. Win32_Process::Create
-                    # uses CreateProcess directly — shell metacharacters (&, |, >) are NOT
+                    # uses CreateProcess directly -- shell metacharacters (&, |, >) are NOT
                     # interpreted. This is safe by design. (EX8)
                     $wmiCodes = $script:WMI_RETURN_CODES
                     $launchResult = Invoke-Command -Session $session -ScriptBlock {
@@ -470,7 +470,7 @@ function Invoke-Executor {
             $result.PID = $launchPID
             Add-State "LAUNCHED" "PID=$launchPID"
 
-            # Step 5 — Alive check
+            # Step 5 -- Alive check
             Start-Sleep -Seconds $AliveCheckSeconds
 
             # EX4: verify PID AND process name to guard against PID reuse

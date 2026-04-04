@@ -160,7 +160,7 @@ if ($t45Missing.Count -eq 0) {
 # ---------------------------------------------------------------
 # T46 - Source field valid values
 # ---------------------------------------------------------------
-$validSources = @('cim','wmi','dotnet_fallback','cim+dotnet_fallback','wmi+dotnet_fallback')
+$validSources = @('cim','wmi','dotnet_fallback','cim+dotnet_fallback','wmi+dotnet_fallback','wmi_remote')
 $t46Violations = @()
 foreach ($p in $procs) {
     $src = $p.source
@@ -249,9 +249,13 @@ if ($t49Violations.Count -eq 0) {
 # T50 - At least one process has non-null IntegrityLevel
 # The collector can always read its own process token even without admin.
 # If every value is null the P/Invoke helper is broken.
+# WMI remote collections cannot retrieve integrity levels (requires local P/Invoke).
 # ---------------------------------------------------------------
+$isWmiRemote = ($procs | Where-Object { $_.source -eq 'wmi_remote' } | Select-Object -First 1) -ne $null
 $nonNullIL = @($procs | Where-Object { $_.IntegrityLevel -ne $null -and $_.IntegrityLevel -ne '' })
-if ($nonNullIL.Count -gt 0) {
+if ($isWmiRemote) {
+    Add-R "T50" $true "IntegrityLevel (SKIP - WMI remote collection, P/Invoke unavailable)" @() $true
+} elseif ($nonNullIL.Count -gt 0) {
     Add-R "T50" $true "IntegrityLevel populated on $($nonNullIL.Count)/$($procs.Count) processes (at least one non-null)"
 } else {
     Add-R "T50" $false "IntegrityLevel is null on ALL $($procs.Count) processes - P/Invoke integrity helper may be broken"

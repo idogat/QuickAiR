@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — Connection.psm1          ║
+# ║  QuickAiR -- Connection.psm1          ║
 # ║  WinRM sessions, WMI fallback,     ║
 # ║  capability probe, hostname res.   ║
 # ╠══════════════════════════════════════╣
@@ -89,7 +89,7 @@ function Get-TargetCaps {
             $c.OSVersion = $os.Version; $c.OSBuild = $os.BuildNumber; $c.OSCaption = $os.Caption
             $tz = Get-WmiObject Win32_TimeZone
             if ($tz) { $c.TimezoneOffsetMinutes = $tz.Bias }
-            else { $c.TimezoneOffsetMinutes = 0; Write-Log 'WARN' "Win32_TimeZone returned null for local — defaulting TimezoneOffsetMinutes to 0 (UTC)" }
+            else { $c.TimezoneOffsetMinutes = 0; Write-Log 'WARN' "Win32_TimeZone returned null for local -- defaulting TimezoneOffsetMinutes to 0 (UTC)" }
             $inst = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name 'InstallationType' -ErrorAction SilentlyContinue
             $c.IsServerCore = ($inst -and $inst.InstallationType -eq 'Server Core')
 
@@ -128,7 +128,7 @@ function Get-TargetCaps {
                 $c.OSCaption             = $r.OSCaption
                 $c.TimezoneOffsetMinutes = $r.TZBias
                 if ($r.PSObject.Properties['TZNull'] -and $r.TZNull) {
-                    Write-Log 'WARN' "Win32_TimeZone returned null on remote $Target — defaulting TimezoneOffsetMinutes to 0 (UTC)"
+                    Write-Log 'WARN' "Win32_TimeZone returned null on remote $Target -- defaulting TimezoneOffsetMinutes to 0 (UTC)"
                 }
                 $c.HasCIM                = $r.HasCIM
                 $c.HasNetTCPIP           = $r.HasNetTCPIP
@@ -169,7 +169,7 @@ function Get-TargetCapsWMI {
             $c.TimezoneOffsetMinutes = $tz.Bias
         } else {
             $c.TimezoneOffsetMinutes = 0
-            Write-Log 'WARN' "Win32_TimeZone returned null for $Target — defaulting TimezoneOffsetMinutes to 0 (UTC). Timestamps may be inaccurate if target is not UTC."
+            Write-Log 'WARN' "Win32_TimeZone returned null for $Target -- defaulting TimezoneOffsetMinutes to 0 (UTC). Timestamps may be inaccurate if target is not UTC."
         }
 
         # PS version via remote registry (StdRegProv)
@@ -205,7 +205,7 @@ function Get-TargetCapsWMI {
                 $c.IsServerCore = $true
             }
         } catch {
-            # Registry unavailable — infer PS version from OS build
+            # Registry unavailable -- infer PS version from OS build
             $build = [int]$c.OSBuild
             if     ($build -ge 10240) { $c.PSVersion = 5 }
             elseif ($build -ge 9200)  { $c.PSVersion = 3 }

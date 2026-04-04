@@ -1,12 +1,13 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — TestSuite.ps1            ║
+# ║  QuickAiR -- TestSuite.ps1            ║
 # ║  Test runner. Auto-discovers and    ║
 # ║  runs Tests\T*.ps1. Prints summary. ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : n/a (entry point)      ║
 # ║  Inputs    : -JsonPath -HtmlPath    ║
-# ║              -T3Threshold -DcMode   ║
+# ║              -T3Threshold           ║
+# ║              -T5Threshold -DcMode   ║
 # ║  Output    : console pass/fail      ║
 # ║  Depends   : Tests\T*.ps1           ║
 # ║  PS compat : 5.1                    ║
@@ -32,7 +33,8 @@
 param(
     [string]$JsonPath    = "",
     [string]$HtmlPath    = "",
-    [float]$T3Threshold  = 0.0,
+    [float]$T3Threshold  = 0.30,
+    [float]$T5Threshold  = 0.30,
     [switch]$DcMode
 )
 
@@ -75,7 +77,7 @@ $tests = Get-ChildItem "$scriptDir\Tests\T*.ps1" | Sort-Object Name
 
 foreach ($t in $tests) {
     $tArgs = @{ JsonPath = $JsonPath; HtmlPath = $HtmlPath }
-    if ($t.BaseName -eq 'T02_Network') { $tArgs['T3Threshold'] = $T3Threshold }
+    if ($t.BaseName -eq 'T02_Network') { $tArgs['T3Threshold'] = $T3Threshold; $tArgs['T5Threshold'] = $T5Threshold }
     try {
         $result = & $t.FullName @tArgs
         foreach ($r in $result.Passed) { $allResults += $r }

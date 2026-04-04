@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================
 #   QuickAiR -- T09_Executor.ps1
 #   T24 WinRM.psm1 imports + exports
@@ -51,7 +51,7 @@ $wmiMod      = Join-Path $executorDir "WMI.psm1"
 $smbwmiMod   = Join-Path $executorDir "SMBWMI.psm1"
 
 # ---------------------------------------------------------------
-# T24 — WinRM.psm1 imports cleanly, exports Invoke-Executor
+# T24 -- WinRM.psm1 imports cleanly, exports Invoke-Executor
 # ---------------------------------------------------------------
 try {
     if (-not (Test-Path $winrmMod)) { throw "File not found: $winrmMod" }
@@ -67,7 +67,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T25 — WMI.psm1 imports cleanly, exports Invoke-Executor
+# T25 -- WMI.psm1 imports cleanly, exports Invoke-Executor
 # ---------------------------------------------------------------
 try {
     if (-not (Test-Path $wmiMod)) { throw "File not found: $wmiMod" }
@@ -83,7 +83,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T26 — Invalid target returns CONNECTION_FAILED within 35s
+# T26 -- Invalid target returns CONNECTION_FAILED within 35s
 # ---------------------------------------------------------------
 try {
     Import-Module $winrmMod -Force -ErrorAction Stop
@@ -112,7 +112,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T27 — Missing local binary returns CONNECTION_FAILED with "not found"
+# T27 -- Missing local binary returns CONNECTION_FAILED with "not found"
 # ---------------------------------------------------------------
 try {
     Import-Module $winrmMod -Force -ErrorAction Stop
@@ -140,7 +140,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T28 — localhost notepad.exe smoke test via WinRM
+# T28 -- localhost notepad.exe smoke test via WinRM
 # ---------------------------------------------------------------
 $t28TempFile = "C:\Windows\Temp\quickair_test_notepad_$(Get-Random).exe"
 $t28PID      = $null
@@ -202,7 +202,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T29 — Get-BinaryType on regular Windows binary: IsSFX=false, no exception
+# T29 -- Get-BinaryType on regular Windows binary: IsSFX=false, no exception
 # ---------------------------------------------------------------
 try {
     $outputMod = Join-Path $repoDir "Modules\Core\Output.psm1"
@@ -222,7 +222,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T30 — Get-BinaryType on nonexistent path: IsSFX=false, no exception
+# T30 -- Get-BinaryType on nonexistent path: IsSFX=false, no exception
 # ---------------------------------------------------------------
 try {
     $outputMod = Join-Path $repoDir "Modules\Core\Output.psm1"
@@ -241,8 +241,8 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T31 — Byte pattern detection: file with ZIP magic appended
-#        No valid PE needed — testing byte detection only.
+# T31 -- Byte pattern detection: file with ZIP magic appended
+#        No valid PE needed -- testing byte detection only.
 #        PASS: IsSFX=true, SFXType="ZIP"
 # ---------------------------------------------------------------
 $t31TempFile = [System.IO.Path]::GetTempFileName()
@@ -287,7 +287,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T32 — SFX flow exit code 0: cmd.exe /C exit 0, IsSFX overridden
+# T32 -- SFX flow exit code 0: cmd.exe /C exit 0, IsSFX overridden
 #        PASS: FinalState=SFX_LAUNCHED
 #        PASS: States[] contains no ALIVE state
 #        PASS: BinaryType.IsSFX=true in result
@@ -333,7 +333,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T33 — SFX flow exit code non-zero: cmd.exe /C exit 1, IsSFX overridden
+# T33 -- SFX flow exit code non-zero: cmd.exe /C exit 1, IsSFX overridden
 #        PASS: FinalState=LAUNCH_FAILED
 #        PASS: detail contains exit code value
 # ---------------------------------------------------------------
@@ -350,15 +350,17 @@ try {
         -BinaryTypeOverride $mockBT33
 
     $t33Details = @()
-    if ($r33.FinalState -ne "LAUNCH_FAILED") {
-        $t33Details += "Expected FinalState=LAUNCH_FAILED, got $($r33.FinalState). Error=$($r33.Error)"
+    # After execution layer hardening, CLEANUP or CLEANUP_FAILED follows LAUNCH_FAILED
+    $validFinal = @('LAUNCH_FAILED','CLEANUP','CLEANUP_FAILED')
+    if ($r33.FinalState -notin $validFinal) {
+        $t33Details += "Expected FinalState in ($($validFinal -join ',')), got $($r33.FinalState). Error=$($r33.Error)"
     }
     $failState = @($r33.States | Where-Object { $_.State -eq "LAUNCH_FAILED" }) | Select-Object -First 1
     if (-not $failState -or $failState.Detail -notmatch '1') {
         $t33Details += "LAUNCH_FAILED detail should contain exit code 1. Detail=$($failState.Detail)"
     }
     if ($t33Details.Count -eq 0) {
-        Add-R "T33" $true "SFX exit code 1: FinalState=LAUNCH_FAILED, detail contains exit code"
+        Add-R "T33" $true "SFX exit code 1: FinalState=$($r33.FinalState), LAUNCH_FAILED state present with exit code"
     } else {
         Add-R "T33" $false "SFX exit code non-zero flow failed" $t33Details
     }
@@ -375,7 +377,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T34 — SMBWMI.psm1 imports cleanly, exports Invoke-Executor
+# T34 -- SMBWMI.psm1 imports cleanly, exports Invoke-Executor
 # ---------------------------------------------------------------
 try {
     if (-not (Test-Path $smbwmiMod)) { throw "File not found: $smbwmiMod" }
@@ -391,7 +393,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T35 — SMB unreachable IP returns CONNECTION_FAILED, no exception
+# T35 -- SMB unreachable IP returns CONNECTION_FAILED, no exception
 # ---------------------------------------------------------------
 try {
     Import-Module $smbwmiMod -Force -ErrorAction Stop
@@ -427,7 +429,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T36 — SMBWMI localhost smoke test (cmd.exe /c ping)
+# T36 -- SMBWMI localhost smoke test (cmd.exe /c ping)
 #        WMI launches in session 0 (no desktop) so we use cmd.exe
 #        with a long ping to keep it alive for the alive check.
 #        Verify Method=SMB+WMI, TRANSFERRED+SHA256, reaches ALIVE.
@@ -487,7 +489,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T37 — Auto both methods fail: combined error detail
+# T37 -- Auto both methods fail: combined error detail
 #        Use unreachable IP so both WinRM and SMB+WMI fail.
 #        Verify FinalState=CONNECTION_FAILED and Error contains
 #        both "WinRM" and "SMB+WMI" error messages.
@@ -544,7 +546,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T38 — WMI-only localhost smoke test
+# T38 -- WMI-only localhost smoke test
 #        Launch cmd.exe /c ping via WMI on localhost.
 #        Binary already exists (WMI skips transfer).
 #        Verify: Method=WMI, TRANSFERRED state says "Skipped",
@@ -568,10 +570,10 @@ try {
     }
 
     $hasSkipped = @($r38.States | Where-Object {
-        $_.State -eq "TRANSFERRED" -and $_.Detail -match 'Skipped'
+        $_.State -eq "TRANSFER_SKIPPED" -or ($_.State -eq "TRANSFERRED" -and $_.Detail -match 'Skipped')
     })
     if ($hasSkipped.Count -eq 0) {
-        $t38Details += "Missing TRANSFERRED/Skipped state"
+        $t38Details += "Missing TRANSFER_SKIPPED or TRANSFERRED/Skipped state"
     }
 
     if ($r38.FinalState -ne "ALIVE" -and $r38.FinalState -ne "ALIVE_ASSUMED") {

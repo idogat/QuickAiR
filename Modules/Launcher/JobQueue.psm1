@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  QuickAiR — JobQueue.psm1                                   ║
+# ║  QuickAiR -- JobQueue.psm1                                   ║
 # ║  Thread-safe job queue and state management.               ║
 # ║  Wraps a Generic List with monitor-lock for thread safety. ║
 # ║  Enforces forward-only status transitions.                 ║
@@ -9,7 +9,7 @@
 # ║              Update-JobStatus, Get-QueueSummary            ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.4                                          ║
+# ║  Version   : 1.5                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Continue'
 #region ── Module constants ──────────────────────────────────────
 $script:FORBIDDEN = @(';', '&', '|', '`', '$(', ')', '{', '}')
 
-# Status transition order — higher = further along.
+# Status transition order -- higher = further along.
 # Terminal states share 100; any transition to them from a non-terminal
 # state is always valid (100 >= anything <= 3).
 $script:StatusOrder = @{
@@ -53,9 +53,13 @@ function Invoke-JobValidation {
     foreach ($c in $script:FORBIDDEN) {
         if ($raw.binary     -and ([string]$raw.binary).Contains($c))     { $errs += "Binary path contains forbidden char: $c" }
         if ($raw.remoteDest -and ([string]$raw.remoteDest).Contains($c)) { $errs += "RemoteDest contains forbidden char: $c" }
+        if ($raw.arguments  -and ([string]$raw.arguments).Contains($c))  { $errs += "Arguments contains forbidden char: $c" }
     }
     if ($raw.binary -and ([string]$raw.binary).StartsWith('\\')) {
         $errs += "Binary path must not be a UNC path"
+    }
+    if ($raw.remoteDest -and ([string]$raw.remoteDest).Contains('..')) {
+        $errs += "RemoteDest must not contain path traversal (..)"
     }
     if (-not $raw.binary) { $errs += 'binary path is required' }
     $ac = 0
@@ -237,8 +241,9 @@ function Update-JobStatus {
     $j.Status = $Status
     if ($null -ne $Detail) { $j.Detail = $Detail }
     if ($Status -in $script:TerminalStatuses) {
-        $j.IsDone  = $true
-        $j.EndTime = [DateTime]::UtcNow
+        $j.IsDone     = $true
+        $j.EndTime    = [DateTime]::UtcNow
+        $j.Credential = $null   # clear credential reference on terminal state
     }
     return $true
 }

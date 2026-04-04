@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — Executor.ps1             ║
+# ║  QuickAiR -- Executor.ps1             ║
 # ║  Thin orchestrator. Transfers and   ║
 # ║  launches a tool on a remote target ║
 # ║  via WinRM or WMI.                  ║
@@ -103,8 +103,8 @@ if ($Help) {
     Write-Host "  LAUNCH_FAILED       Process did not start or exited before alive check"
     Write-Host "  ALIVE               Process still running after AliveCheck seconds (PID + name verified)"
     Write-Host "  ALIVE_ASSUMED       WMI alive-check query failed; process assumed alive (inconclusive)"
-    Write-Host "  SFX_LAUNCHED        SFX exited with code 0 (WinRM only — exit code verified)"
-    Write-Host "  SFX_ASSUMED         SFX exited but exit code unavailable (WMI — extraction unverified)"
+    Write-Host "  SFX_LAUNCHED        SFX exited with code 0 (WinRM only -- exit code verified)"
+    Write-Host "  SFX_ASSUMED         SFX exited but exit code unavailable (WMI -- extraction unverified)"
     Write-Host "  CLEANUP             Transferred binary removed from target after failure"
     Write-Host "  CLEANUP_FAILED      Could not remove transferred binary after failure"
     Write-Host ""
@@ -157,7 +157,7 @@ if (-not $LocalBinaryPath) {
         }
     } while (-not $LocalBinaryPath)
 }
-# Clean path — strip surrounding quotes, trim whitespace, normalize separators
+# Clean path -- strip surrounding quotes, trim whitespace, normalize separators
 $LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
 $LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
 

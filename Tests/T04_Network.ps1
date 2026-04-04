@@ -349,37 +349,45 @@ if ($netNode -eq $null) {
     # ---------------------------------------------------------------
     # T69 - Source fields valid values
     # ---------------------------------------------------------------
-    $validNetSources = @('cim','netstat_fallback','netstat_legacy','unknown')
-    $validDnsSources = @('cim','ipconfig_fallback','ipconfig_legacy','unknown')
+    $validNetSources = @('cim','netstat_fallback','netstat_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
+    $validUdpSources = @('cim','netstat_fallback','netstat_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
+    $validDnsSources = @('cim','ipconfig_fallback','ipconfig_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
 
     $t69Violations = @()
-    $srcNode = $data.manifest.PSObject.Properties['network_source']
-    # Source lives in the result's source property; access via manifest or check raw JSON
-    # The collector stores source in the top-level return; TestSuite merges it into manifest
-    # Try both locations: manifest.network_source and data.Network_source
     $netSrc = $null; $udpSrc = $null; $dnsSrc = $null
-    if ($manifest.PSObject.Properties['network_source']) { $netSrc = $manifest.network_source }
-    if ($manifest.PSObject.Properties['udp_source'])     { $udpSrc = $manifest.udp_source }
-    if ($manifest.PSObject.Properties['dns_source'])     { $dnsSrc = $manifest.dns_source }
+
+    # Try nested Network_source structure first (current collector format)
+    $networkSourceObj = $manifest.PSObject.Properties['Network_source']
+    if ($networkSourceObj -and $networkSourceObj.Value) {
+        $srcObj = $networkSourceObj.Value
+        if ($srcObj.PSObject.Properties['network']) { $netSrc = $srcObj.network }
+        if ($srcObj.PSObject.Properties['udp'])     { $udpSrc = $srcObj.udp }
+        if ($srcObj.PSObject.Properties['dns'])     { $dnsSrc = $srcObj.dns }
+    }
+
+    # Fallback: try flat manifest fields (backwards compat)
+    if ($netSrc -eq $null -and $manifest.PSObject.Properties['network_source']) { $netSrc = $manifest.network_source }
+    if ($udpSrc -eq $null -and $manifest.PSObject.Properties['udp_source'])     { $udpSrc = $manifest.udp_source }
+    if ($dnsSrc -eq $null -and $manifest.PSObject.Properties['dns_source'])     { $dnsSrc = $manifest.dns_source }
 
     if ($netSrc -ne $null) {
         if ($validNetSources -notcontains $netSrc) {
-            $t69Violations += "source.network='$netSrc' not a valid value (expected: $($validNetSources -join ', '))"
+            $t69Violations += "source.network='$netSrc' not valid (expected: $($validNetSources -join ', '))"
         }
     }
     if ($udpSrc -ne $null) {
-        if ($validNetSources -notcontains $udpSrc) {
-            $t69Violations += "source.udp='$udpSrc' not a valid value"
+        if ($validUdpSources -notcontains $udpSrc) {
+            $t69Violations += "source.udp='$udpSrc' not valid (expected: $($validUdpSources -join ', '))"
         }
     }
     if ($dnsSrc -ne $null) {
         if ($validDnsSources -notcontains $dnsSrc) {
-            $t69Violations += "source.dns='$dnsSrc' not a valid value (expected: $($validDnsSources -join ', '))"
+            $t69Violations += "source.dns='$dnsSrc' not valid (expected: $($validDnsSources -join ', '))"
         }
     }
 
     if ($netSrc -eq $null -and $udpSrc -eq $null -and $dnsSrc -eq $null) {
-        Add-R "T69" $true "Network source fields not present in manifest (collector may store separately - SKIP)" @() $true
+        Add-R "T69" $true "Network source fields not present in manifest (SKIP)" @() $true
     } elseif ($t69Violations.Count -eq 0) {
         Add-R "T69" $true "Network source fields valid (network=$netSrc udp=$udpSrc dns=$dnsSrc)"
     } else {

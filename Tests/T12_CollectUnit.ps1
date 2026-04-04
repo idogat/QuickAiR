@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================
 #   QuickAiR -- T12_CollectUnit.ps1
 #   T86 Parse-CollectURI empty array
@@ -40,7 +40,7 @@ $quickairCollect = Join-Path $repoDir 'QuickAiRCollect.ps1'
 
 # ---------------------------------------------------------------
 # Helper: encode targets array to quickair-collect:// URI
-# Mirrors 09c_collect.js colCollect() — btoa(JSON.stringify(targets))
+# Mirrors 09c_collect.js colCollect() -- btoa(JSON.stringify(targets))
 # ---------------------------------------------------------------
 function Build-CollectURI {
     param([array]$Targets)
@@ -106,7 +106,7 @@ try {
 if ($parseLoaded) {
 
     # ---------------------------------------------------------------
-    # T86 — Parse-CollectURI with empty array (T-C1)
+    # T86 -- Parse-CollectURI with empty array (T-C1)
     # URI: quickair-collect://collect?targets=<base64 of "[]">
     # Expect: returns @(), no exception, no crash
     # ---------------------------------------------------------------
@@ -133,7 +133,7 @@ if ($parseLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T87 — Parse-CollectURI single localhost target (T-C2)
+    # T87 -- Parse-CollectURI single localhost target (T-C2)
     # Build URI with localhost + all 4 plugins
     # Expect: 1 target returned, hostname=localhost
     # ---------------------------------------------------------------
@@ -168,9 +168,9 @@ if ($parseLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T88 — Parse-CollectURI malformed base64 (T-C3)
+    # T88 -- Parse-CollectURI malformed base64 (T-C3)
     # Parse-CollectURI calls MessageBox + exit 1 on bad input.
-    # Cannot call directly — verify catch structure + .NET throw.
+    # Cannot call directly -- verify catch structure + .NET throw.
     # ---------------------------------------------------------------
     try {
         $t88d = @()
@@ -211,7 +211,7 @@ if ($parseLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T89 — CSV contract: 3 valid hostnames (T-C4)
+    # T89 -- CSV contract: 3 valid hostnames (T-C4)
     # Mirrors the encoding that 09c_collect.js produces from a 3-line CSV.
     # Parse-CollectURI should return all 3.
     # ---------------------------------------------------------------
@@ -247,8 +247,8 @@ if ($parseLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T90 — CSV contract: 2 valid + 1 invalid hostname (T-C5)
-    # Invalid hostname has space — rejected by regex '^[\w][\w\.\-]{0,253}$'
+    # T90 -- CSV contract: 2 valid + 1 invalid hostname (T-C5)
+    # Invalid hostname has space -- rejected by regex '^[\w][\w\.\-]{0,253}$'
     # Expect: 2 returned, 1 skipped
     # ---------------------------------------------------------------
     try {
@@ -283,7 +283,7 @@ if ($parseLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T91 — Plugin subset: encode only Processes+Network (T-C6)
+    # T91 -- Plugin subset: encode only Processes+Network (T-C6)
     # Uncheck DLLs and Users → plugins array excludes them.
     # Parse-CollectURI returns raw targets; Add-Targets filters
     # plugins against $ALL_PLUGINS. Test both: raw parse preserves

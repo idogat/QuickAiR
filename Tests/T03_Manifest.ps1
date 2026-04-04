@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — T03_Manifest.ps1         ║
+# ║  QuickAiR -- T03_Manifest.ps1         ║
 # ║  T8 manifest integrity + SHA256,    ║
 # ║  T9 collection error log audit      ║
 # ╠══════════════════════════════════════╣
@@ -40,18 +40,22 @@ $manifest = $data.manifest
 # ---------------------------------------------------------------
 $t8Fails = @()
 
-# SHA256 verification - reconstruct pre-hash JSON by replacing stored hash with null
+# SHA256 verification -- re-serialize with null sha256, hash, compare to stored hash.
+# Must match Write-JsonOutput logic: ConvertTo-Json -Depth 20, UTF8 bytes, SHA256.
 $storedHash = $manifest.sha256
 if ($storedHash) {
     $hashVerified = $false
-    foreach ($nullFmt in @('  null', ' null', 'null')) {
-        $reconstructed = $jsonRaw -replace ('"sha256":\s*"[^"]*"'), ('"sha256":' + $nullFmt)
-        $bytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-            [System.Text.Encoding]::UTF8.GetBytes($reconstructed))
-        $computed = ($bytes | ForEach-Object { $_.ToString('X2') }) -join ''
-        if ($computed -ieq $storedHash) { $hashVerified = $true; break }
-    }
-    if (-not $hashVerified) { $t8Fails += "sha256 mismatch: stored=$storedHash" }
+    try {
+        $data['manifest'].sha256 = $null
+        $jsonForHash = $data | ConvertTo-Json -Depth 20
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $computed = ($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($jsonForHash)) |
+            ForEach-Object { $_.ToString('X2') }) -join ''
+        $sha.Dispose()
+        $data['manifest'].sha256 = $storedHash   # restore
+        if ($computed -ieq $storedHash) { $hashVerified = $true }
+    } catch { }
+    if (-not $hashVerified) { $t8Fails += "sha256 mismatch: stored=$storedHash computed=$computed" }
 } else {
     $t8Fails += "sha256 field is null or missing"
 }
@@ -72,24 +76,24 @@ if ($manifest.target_ps_version -notmatch '^\d') {
 $networkSourceObj = $manifest.Network_source
 if ($networkSourceObj) {
     $netSrcVal = $networkSourceObj.network
-    $validNetSrc = @('cim','netstat_fallback','netstat_legacy')
+    $validNetSrc = @('cim','netstat_fallback','netstat_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
     if ($validNetSrc -notcontains $netSrcVal) {
         $t8Fails += "Network_source.network invalid: '$netSrcVal' - expected one of: $($validNetSrc -join '|')"
     }
     $dnsSrcVal = $networkSourceObj.dns
-    $validDnsSrc = @('cim','ipconfig_fallback','ipconfig_legacy')
+    $validDnsSrc = @('cim','ipconfig_fallback','ipconfig_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
     if ($validDnsSrc -notcontains $dnsSrcVal) {
         $t8Fails += "Network_source.dns invalid: '$dnsSrcVal' - expected one of: $($validDnsSrc -join '|')"
     }
 } else {
     # Backwards compat: try flat fields
-    $validNetSrc = @('cim','netstat_fallback','netstat_legacy')
+    $validNetSrc = @('cim','netstat_fallback','netstat_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
     if ($manifest.network_source -and $validNetSrc -notcontains $manifest.network_source) {
         $t8Fails += "network_source invalid: '$($manifest.network_source)' - expected one of: $($validNetSrc -join '|')"
     } elseif (-not $manifest.network_source -and -not $networkSourceObj) {
         $t8Fails += "Network_source (or network_source) field missing from manifest"
     }
-    $validDnsSrc = @('cim','ipconfig_fallback','ipconfig_legacy')
+    $validDnsSrc = @('cim','ipconfig_fallback','ipconfig_legacy','wmi_remote_cimv2','wmi_remote_unavailable','unknown')
     if ($manifest.dns_source -and $validDnsSrc -notcontains $manifest.dns_source) {
         $t8Fails += "dns_source invalid: '$($manifest.dns_source)' - expected one of: $($validDnsSrc -join '|')"
     } elseif (-not $manifest.dns_source -and -not $networkSourceObj) {

@@ -1,8 +1,8 @@
-#Requires -Version 2.0
+﻿#Requires -Version 2.0
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — WMI.psm1                 ║
+# ║  QuickAiR -- WMI.psm1                 ║
 # ║  Remote executor via WMI only.      ║
-# ║  No file transfer — binary must     ║
+# ║  No file transfer -- binary must     ║
 # ║  already exist on target.           ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : Invoke-Executor        ║
@@ -86,7 +86,7 @@ function Invoke-Executor {
     }
 
     try {
-        # Step 1 — Verify local binary path provided (WMI skips transfer; note it)
+        # Step 1 -- Verify local binary path provided (WMI skips transfer; note it)
         # We still validate that LocalBinaryPath is non-empty; actual existence is on target.
         if (-not $LocalBinaryPath) {
             Add-State "CONNECTION_FAILED" "LocalBinaryPath not specified"
@@ -95,7 +95,7 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 2 — Verify WMI connectivity to target
+        # Step 2 -- Verify WMI connectivity to target
         try {
             $wmiParams = @{
                 Class       = 'Win32_OperatingSystem'
@@ -111,11 +111,11 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 3 — Transfer skipped (WMI cannot transfer files)
+        # Step 3 -- Transfer skipped (WMI cannot transfer files)
         # EX9: use TRANSFER_SKIPPED instead of TRANSFERRED to avoid implying file is present
         Add-State "TRANSFER_SKIPPED" "WMI cannot transfer files -- binary must already exist on target"
 
-        # Step 3a — BinaryType detection (on LocalBinaryPath if accessible locally)
+        # Step 3a -- BinaryType detection (on LocalBinaryPath if accessible locally)
         if ($BinaryTypeOverride -ne $null) {
             $result.BinaryType = $BinaryTypeOverride
         } elseif (Get-Command Get-BinaryType -ErrorAction SilentlyContinue) {
@@ -124,7 +124,7 @@ function Invoke-Executor {
 
         $isSFX = $result.BinaryType -and $result.BinaryType.IsSFX
 
-        # Step 4 — Launch via Win32_Process.Create
+        # Step 4 -- Launch via Win32_Process.Create
         $commandLine = if ($Arguments) { "`"$RemoteDestPath`" $Arguments" } else { "`"$RemoteDestPath`"" }
 
         $launchPID = $null
@@ -136,7 +136,7 @@ function Invoke-Executor {
             if ($Credential) {
                 $scope.Options.Username = $Credential.UserName
                 # NOTE (EX10): Plaintext password is required by ManagementScope API.
-                # This is a known .NET WMI limitation — no SecureString overload exists.
+                # This is a known .NET WMI limitation -- no SecureString overload exists.
                 # The string persists in managed heap until GC. Ensure no error handler
                 # or serializer captures $scope.Options.Password.
                 $scope.Options.Password = $Credential.GetNetworkCredential().Password
@@ -203,7 +203,7 @@ function Invoke-Executor {
                 } catch {
                     $wmiErrors++
                     if ($wmiErrors -ge 3) {
-                        # WMI permanently inaccessible — assume SFX launched
+                        # WMI permanently inaccessible -- assume SFX launched
                         # EX11: use SFX_ASSUMED to signal exit code was not verified
                         Add-State "SFX_ASSUMED" "SFX assumed launched (WMI poll error: $($_.Exception.Message))"
                         break
@@ -213,13 +213,13 @@ function Invoke-Executor {
 
             if ($sfxExited) {
                 # EX11: WMI cannot retrieve exit codes. SFX may have failed extraction.
-                Add-State "SFX_ASSUMED" "SFX process exited (exit code unavailable via WMI — extraction not verified)"
+                Add-State "SFX_ASSUMED" "SFX process exited (exit code unavailable via WMI -- extraction not verified)"
             }
 
         } else {
             Add-State "LAUNCHED" "PID=$launchPID"
 
-            # Step 5 — Alive check (EX12: verify PID + process name to guard against PID reuse)
+            # Step 5 -- Alive check (EX12: verify PID + process name to guard against PID reuse)
             $expectedName = [System.IO.Path]::GetFileName($RemoteDestPath)
             Start-Sleep -Seconds $AliveCheckSeconds
 
@@ -242,7 +242,7 @@ function Invoke-Executor {
                     $aliveResult = 'ALIVE'
                 }
             } catch {
-                # WMI query failed — cannot confirm process is running.
+                # WMI query failed -- cannot confirm process is running.
                 # Report ALIVE_ASSUMED so consumers know the check was inconclusive.
                 $aliveResult = 'ALIVE_ASSUMED'
                 Add-State "ALIVE_ASSUMED" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"

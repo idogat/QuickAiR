@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  QuickAiR — QuickAiRCollect.ps1                              ║
+# ║  QuickAiR -- QuickAiRCollect.ps1                              ║
 # ║  WinForms collection trigger.                               ║
 # ║  Receives target list via quickair-collect:// URI.           ║
 # ║  Single-instance via named mutex; second instance writes    ║
@@ -17,7 +17,7 @@
 # ║       "plugins":["Processes","Network"] }]                  ║
 # ║                                                             ║
 # ║  Depends    : Collector.ps1, Modules\Launcher\PipeListener  ║
-# ║  Version    : 2.3                                           ║
+# ║  Version    : 2.4                                           ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -108,6 +108,12 @@ $script:MaxConcurrent  = [Math]::Max(1, [Math]::Min(20, $MaxConcurrent))
 function Parse-CollectURI {
     param([string]$URI)
 
+    # Validate URI scheme before any parsing
+    if ($URI -notmatch '^(quickair-collect://|file:)') {
+        Write-Warning "Invalid URI scheme. Expected quickair-collect:// or file: prefix."
+        return @()
+    }
+
     # If URI was passed via temp file (from self-elevation), read the real URI
     if ($URI -match '^file:(.+)$') {
         $tmpPath = $Matches[1]
@@ -130,8 +136,13 @@ function Parse-CollectURI {
         }
 
         if ($qParams['targets']) {
+            $b64 = $qParams['targets']
+            if ($b64.Length -gt 1048576) {   # 1 MB limit on base64 payload
+                Write-Warning "URI payload exceeds 1 MB limit ($($b64.Length) bytes). Rejected."
+                return @()
+            }
             $json       = [System.Text.Encoding]::UTF8.GetString(
-                              [System.Convert]::FromBase64String($qParams['targets']))
+                              [System.Convert]::FromBase64String($b64))
             $rawTargets = $json | ConvertFrom-Json
         }
         else {
@@ -346,10 +357,13 @@ function Show-CredentialDialog {
     $r = $dlg.ShowDialog($script:Form)
     $user = $txtU.Text.Trim()
     $pass = $txtP.Text
+    $txtP.Text = ''   # clear plaintext from TextBox buffer
     $dlg.Dispose()
 
     if ($r -eq [System.Windows.Forms.DialogResult]::OK -and $user) {
+        if ([string]::IsNullOrEmpty($pass)) { $pass = [char]0x0 }  # SecureString requires non-empty
         $sec  = ConvertTo-SecureString $pass -AsPlainText -Force
+        $pass = $null  # clear plaintext from variable
         return [System.Management.Automation.PSCredential]::new($user, $sec)
     }
     return $null
@@ -378,7 +392,7 @@ function Resolve-Credential {
 function Resolve-AllCredentials {
     # Prompt for all unique non-local hosts upfront before scheduling starts.
     [System.Threading.Monitor]::Enter($script:Lock)
-    $snap = @($script:PluginRows)
+    $snap = @($script:HostRows)
     [System.Threading.Monitor]::Exit($script:Lock)
 
     $seen = @{}
@@ -419,7 +433,7 @@ function Start-HostRunspace {
     $hostRow.StartTime = [DateTime]::UtcNow
 
     # Create a progress file for Collector.ps1 to write per-plugin status.
-    # The scheduler reads this file — the runspace must NOT delete it.
+    # The scheduler reads this file -- the runspace must NOT delete it.
     $progressFile = Join-Path $env:TEMP "quickair_progress_$([guid]::NewGuid().ToString('N')).txt"
     # Write CONNECTING so the scheduler can show the state immediately
     try { [System.IO.File]::WriteAllText($progressFile, "CONNECTING`n") } catch {}
@@ -590,7 +604,7 @@ function Invoke-Schedule {
     # Read progress files and build accumulated detail for each host row
     foreach ($pr in $prSnap) {
         if ($pr.IsDone) {
-            # Already resolved — just update grid
+            # Already resolved -- just update grid
             $elapsed = if ($pr.EndTime -ne [DateTime]::MinValue -and $pr.StartTime -ne [DateTime]::MinValue) {
                 [int]($pr.EndTime - $pr.StartTime).TotalSeconds } else { 0 }
             $timeStr = if ($pr.IsDone) { "${elapsed}s" } else { '' }
@@ -951,14 +965,14 @@ function Build-UI {
 
             # Prompt fresh credential on UI thread
             $cred = Show-CredentialDialog $pr.Hostname
-            if ($null -eq $cred) { continue }   # Cancelled — rows stay Failed, Retry stays visible
+            if ($null -eq $cred) { continue }   # Cancelled -- rows stay Failed, Retry stays visible
 
             # Store new credential in cache
             $script:CredCache[$targetKey] = $cred
             $domKey = if ($cred.UserName -match '^([^\\]+)\\') { $Matches[1].ToLower() } else { $targetKey }
             $script:CredCache[$domKey] = $cred
 
-            # Reset host row — scheduler picks it up on next tick
+            # Reset host row -- scheduler picks it up on next tick
             $pr.Status       = 'Queued'
             $pr.Detail       = ''
             $pr.Progress     = ''
@@ -1057,7 +1071,7 @@ $acquired = $false
 try { $acquired = $mutex.WaitOne(3000) } catch { $acquired = $false }
 
 if (-not $acquired) {
-    # Another instance is running — hand off targets via bridge file and exit
+    # Another instance is running -- hand off targets via bridge file and exit
     if ($rawTargets.Count -gt 0) {
         Send-JobBatch -BridgeDir $BRIDGE_DIR -Jobs $rawTargets
     }

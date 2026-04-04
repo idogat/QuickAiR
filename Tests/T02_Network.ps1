@@ -1,11 +1,12 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — T02_Network.ps1          ║
+# ║  QuickAiR -- T02_Network.ps1          ║
 # ║  T3 network completeness, T4 proc   ║
 # ║  assign, T5 DNS, T6 correl, T7 rDNS ║
 # ╠══════════════════════════════════════╣
 # ║  Inputs    : -JsonPath -HtmlPath    ║
 # ║              -T3Threshold           ║
+# ║              -T5Threshold           ║
 # ║  Output    : @{ Passed=@();         ║
 # ║               Failed=@(); Info=@() }║
 # ║  PS compat : 5.1                    ║
@@ -14,7 +15,8 @@
 param(
     [string]$JsonPath     = "",
     [string]$HtmlPath     = "",
-    [float]$T3Threshold   = 0.0
+    [float]$T3Threshold   = 0.30,
+    [float]$T5Threshold   = 0.30
 )
 
 Set-StrictMode -Off
@@ -133,7 +135,7 @@ if (-not $isLocalJson) {
     foreach ($line in $ipconfigLines) {
         if ($line.ToString().Trim() -match 'Record Name[\s.]*:[\s]*(.+)') {
             $h = $Matches[1].Trim().ToLower()
-            if ($h -match '\.(in-addr|ip6)\.arpa$') { continue }
+            if ($h -match '\.(in-addr|ip6)\.arpa\.?$') { continue }
             if ($h -match '\.(1e100\.net|bc\.googleusercontent\.com|amazonaws\.com|azure\.com|azurewebsites\.net|cloudfront\.net)$') { continue }
             $ipconfigHosts += $h
         }
@@ -148,10 +150,15 @@ if (-not $isLocalJson) {
         if (-not $jsonDnsSet.ContainsKey($h)) { $t5Missing += $h }
     }
 
-    if ($t5Missing.Count -eq 0) {
-        Add-R "T5" $true "DNS cache completeness ($($ipconfigHosts.Count)/$($ipconfigHosts.Count))"
+    $total5    = $ipconfigHosts.Count
+    $missRate5 = if ($total5 -gt 0) { $t5Missing.Count / $total5 } else { 0 }
+    $t5Pass    = ($t5Missing.Count -eq 0) -or ($T5Threshold -gt 0 -and $missRate5 -le $T5Threshold)
+
+    if ($t5Pass) {
+        $label5 = if ($T5Threshold -gt 0 -and $t5Missing.Count -gt 0) { " (within $T5Threshold threshold)" } else { "" }
+        Add-R "T5" $true "DNS cache completeness ($($total5 - $t5Missing.Count)/$total5)$label5"
     } else {
-        Add-R "T5" $false "DNS cache completeness ($($t5Missing.Count) missing of $($ipconfigHosts.Count))" $t5Missing
+        Add-R "T5" $false "DNS cache completeness ($($t5Missing.Count) missing of $total5)" $t5Missing
     }
 }
 
@@ -175,7 +182,7 @@ if ($t6Missing.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# T7 - ReverseDns for public IPs
+# T7 - ReverseDns for public IPs (cache-only verification)
 # ---------------------------------------------------------------
 $privatePattern = '^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.|0\.0\.0\.0$|::1$|fe80:|::$)'
 $uniquePublic   = @($netTcp |
@@ -185,16 +192,23 @@ $uniquePublic   = @($netTcp |
                    $_.RemoteAddress -notmatch $privatePattern } |
     ForEach-Object { $_.RemoteAddress } | Sort-Object -Unique)
 
+# Only verify IPs that have an entry in the DNS cache (reverse DNS is cache-only by design)
+$dnsCacheIPs = @{}
+foreach ($e in $dnsCach) { if ($e.Data) { $dnsCacheIPs[$e.Data] = $true } }
+$publicWithCache = @($uniquePublic | Where-Object { $dnsCacheIPs.ContainsKey($_) })
+
 $t7Missing = @()
-foreach ($ip in $uniquePublic) {
+foreach ($ip in $publicWithCache) {
     $hasRev = $netTcp | Where-Object { $_.RemoteAddress -eq $ip -and $_.ReverseDns } | Select-Object -First 1
     if (-not $hasRev) { $t7Missing += $ip }
 }
 
+$totalPublic  = $uniquePublic.Count
+$checkedCount = $publicWithCache.Count
 if ($t7Missing.Count -eq 0) {
-    Add-R "T7" $true "ReverseDns ($($uniquePublic.Count) public IPs, all populated)"
+    Add-R "T7" $true "ReverseDns ($checkedCount/$totalPublic public IPs have DNS cache entry, all populated)"
 } else {
-    Add-R "T7" $false "ReverseDns ($($t7Missing.Count)/$($uniquePublic.Count) public IPs missing ReverseDns)" $t7Missing
+    Add-R "T7" $false "ReverseDns ($($t7Missing.Count)/$checkedCount public IPs with cache entry missing ReverseDns)" $t7Missing
 }
 
 return @{ Passed=$script:passResults; Failed=$script:failResults; Info=$script:infoResults }

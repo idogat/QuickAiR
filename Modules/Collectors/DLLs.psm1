@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — DLLs.psm1                ║
+# ║  QuickAiR -- DLLs.psm1                ║
 # ║  Loaded modules per process via     ║
 # ║  .NET Process.Modules + SHA256.     ║
 # ╠══════════════════════════════════════╣
@@ -39,7 +39,7 @@ $script:DLL_SB = {
         }
     }
     # Only skip processes that have no modules (PID 0, PID 4). lsass/csrss/smss/wininit
-    # are attempted — ACCESS_DENIED is handled gracefully and logged.
+    # are attempted -- ACCESS_DENIED is handled gracefully and logged.
     $PROTECTED_PROCS  = @('System','Idle')
     $PRIVATE_MARKERS  = @('\Temp\','\AppData\','\ProgramData\','\Users\Public\','\Downloads\')
 
@@ -233,7 +233,7 @@ public class CatalogChecker
             $sigD = $null
             if ($mPath) {
                 if ($psMajor -ge 3) {
-                    # PS 3+ — Get-AuthenticodeSignature (with cache)
+                    # PS 3+ -- Get-AuthenticodeSignature (with cache)
                     if ($sigCache.ContainsKey($mPath)) {
                         $sigD = $sigCache[$mPath]
                     } else {
@@ -282,7 +282,7 @@ public class CatalogChecker
                     $sigCache[$mPath] = $sigD
                     }
                 } else {
-                    # PS 2.0 — Catalog DB + CreateFromSignedFile for cert details
+                    # PS 2.0 -- Catalog DB + CreateFromSignedFile for cert details
                     if ($sigCache.ContainsKey($mPath)) {
                         $sigD = $sigCache[$mPath]
                     } else {
@@ -379,7 +379,7 @@ function Invoke-Collector {
 
     try {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
-            # DLL collection requires .NET Process.Modules — no WMI equivalent
+            # DLL collection requires .NET Process.Modules -- no WMI equivalent
             $errors += @{ artifact = 'DLLs'; severity = 'warning'; degraded = $true; message = 'DLL/module collection unavailable via WMI remote. This target requires WinRM for DLL enumeration.' }
             Write-Log 'WARN' 'DLL collection skipped: WMI fallback does not support .NET Process.Modules'
             return @{

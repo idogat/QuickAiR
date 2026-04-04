@@ -284,7 +284,7 @@ function colCollect() {
   if (maxC < 1) maxC = 1; if (maxC > 20) maxC = 20;
   var uri = 'quickair-collect://collect?targets=' + encoded + '&maxConcurrent=' + maxC;
 
-  console.log('[COLLECT] URI generated:', uri);
+  // URI log removed — contains sensitive target data
   var ifr = document.createElement('iframe');
   ifr.style.display = 'none';
   ifr.src = uri;

@@ -106,7 +106,6 @@ function buildProcHeader(COLS) {
   ];
   const h = el('proc-header');
   if (!h) return;
-  restoreColWidths('processes', 'proc-header');
   h.innerHTML = headers.map(hd => {
     const numeric = /Id$|PID$|PPID$|Count$|Session$|Handle$|^IntegrityLevel$/.test(hd.key);
     const arrow = (sortState.tab === 'processes' && sortState.column === hd.key)

@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — DateTime.psm1            ║
+# ║  QuickAiR -- DateTime.psm1            ║
 # ║  UTC normalization, DMTF to ISO 8601║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : ConvertTo-UtcIso       ║
@@ -31,11 +31,11 @@ function ConvertTo-UtcIso {
             return $Value.AddMinutes(-[int]$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
         if ($Value.Kind -eq [DateTimeKind]::Unspecified) {
-            # No offset available — assume UTC rather than silently using analyst-local timezone
-            Write-Warning "ConvertTo-UtcIso: DateTime Kind=Unspecified with no FallbackOffsetMin — treating as UTC"
+            # No offset available -- assume UTC rather than silently using analyst-local timezone
+            Write-Warning "ConvertTo-UtcIso: DateTime Kind=Unspecified with no FallbackOffsetMin -- treating as UTC"
             return $Value.ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
-        # Kind=Local — analyst-local ToUniversalTime() is correct
+        # Kind=Local -- analyst-local ToUniversalTime() is correct
         return $Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     }
 
@@ -55,13 +55,13 @@ function ConvertTo-UtcIso {
         }
     }
 
-    # Partial DMTF — looks like DMTF but malformed, don't guess
+    # Partial DMTF -- looks like DMTF but malformed, don't guess
     if ($s -match '^\d{14}') {
         Write-Warning "Malformed DMTF string (partial match, no offset): '$s'"
         return $null
     }
 
-    # Generic parse fallback — apply target timezone offset, not analyst-local
+    # Generic parse fallback -- apply target timezone offset, not analyst-local
     try {
         $dt = [datetime]::Parse($s, [System.Globalization.CultureInfo]::InvariantCulture,
                                 [System.Globalization.DateTimeStyles]::None)
@@ -72,8 +72,8 @@ function ConvertTo-UtcIso {
         if ($null -ne $FallbackOffsetMin) {
             return $dt.AddMinutes(-[int]$FallbackOffsetMin).ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
-        # No offset info — assume UTC rather than silently using analyst-local timezone
-        Write-Warning "ConvertTo-UtcIso: parsed datetime with no FallbackOffsetMin — treating as UTC"
+        # No offset info -- assume UTC rather than silently using analyst-local timezone
+        Write-Warning "ConvertTo-UtcIso: parsed datetime with no FallbackOffsetMin -- treating as UTC"
         return $dt.ToString('yyyy-MM-ddTHH:mm:ssZ')
     } catch { return $null }
 }

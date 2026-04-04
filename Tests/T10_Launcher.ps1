@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================
 #   QuickAiR -- T10_Launcher.ps1
 #   T34 JobQueue.psm1 imports cleanly
@@ -61,7 +61,7 @@ function New-RawJob {
 }
 
 # ---------------------------------------------------------------
-# T34 — JobQueue.psm1 imports cleanly, exports required functions
+# T34 -- JobQueue.psm1 imports cleanly, exports required functions
 # ---------------------------------------------------------------
 try {
     if (-not (Test-Path $jobQueueMod)) { throw "File not found: $jobQueueMod" }
@@ -81,7 +81,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T35 — PipeListener.psm1 imports cleanly, exports required functions
+# T35 -- PipeListener.psm1 imports cleanly, exports required functions
 # ---------------------------------------------------------------
 try {
     if (-not (Test-Path $pipeListMod)) { throw "File not found: $pipeListMod" }
@@ -101,7 +101,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T36 — JobQueue concurrency control
+# T36 -- JobQueue concurrency control
 # ---------------------------------------------------------------
 try {
     Import-Module $jobQueueMod -Force -ErrorAction Stop
@@ -117,7 +117,7 @@ try {
     # Verify queue accepted all 4
     if ($q.Jobs.Count -ne 4) { $t36d += "Expected 4 jobs in queue, got $($q.Jobs.Count)" }
 
-    # No jobs running yet — first Get-NextJob should return j1
+    # No jobs running yet -- first Get-NextJob should return j1
     $n1 = Get-NextJob -Queue $q
     if ($null -eq $n1)             { $t36d += "First Get-NextJob returned null (expected job)" }
     elseif ($n1.JobId -ne $j1.JobId) { $t36d += "First Get-NextJob returned wrong job" }
@@ -133,7 +133,7 @@ try {
     # Advance j2 to Connecting (occupies 2 slots)
     Update-JobStatus -Queue $q -JobId $j2.JobId -Status 'Connecting' | Out-Null
 
-    # Both slots occupied — should return null
+    # Both slots occupied -- should return null
     $n3 = Get-NextJob -Queue $q
     if ($null -ne $n3) { $t36d += "Get-NextJob returned job when both slots occupied (expected null)" }
 
@@ -165,7 +165,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T37 — JobQueue status transitions
+# T37 -- JobQueue status transitions
 # ---------------------------------------------------------------
 try {
     Import-Module $jobQueueMod -Force -ErrorAction Stop
@@ -216,7 +216,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T38 — Bridge file pickup
+# T38 -- Bridge file pickup
 # ---------------------------------------------------------------
 try {
     Import-Module $pipeListMod -Force -ErrorAction Stop
@@ -269,7 +269,7 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T39/T40/T41 — Load Parse-QuickAiRURI from QuickAiRLaunch.ps1
+# T39/T40/T41 -- Load Parse-QuickAiRURI from QuickAiRLaunch.ps1
 # Strategy: read bytes as UTF-8, extract lines for the function,
 # create a ScriptBlock, and dot-source it into current scope.
 # This avoids AST parse-error issues with the full file while
@@ -298,11 +298,11 @@ try {
     if ($startIdx -lt 0) { throw "function Parse-QuickAiRURI not found in $quickairLaunch" }
 
     # Walk forward counting { and } (ignoring those inside strings/comments
-    # is complex; use a simple heuristic — stop when brace depth returns to 0).
+    # is complex; use a simple heuristic -- stop when brace depth returns to 0).
     $depth = 0; $endIdx = $startIdx
     for ($i = $startIdx; $i -lt $allLines.Count; $i++) {
         $line = $allLines[$i]
-        # Strip line comments (# ...) before counting — rough but sufficient here
+        # Strip line comments (# ...) before counting -- rough but sufficient here
         if ($line -match '^([^#"'']*)(#.*)?$') { $bare = $Matches[1] } else { $bare = $line }
         foreach ($ch in $bare.ToCharArray()) {
             if ($ch -eq '{') { $depth++ }
@@ -328,7 +328,7 @@ try {
 if ($parseUriLoaded) {
 
     # ---------------------------------------------------------------
-    # T39 — URI parsing valid: 2 jobs, all fields populated
+    # T39 -- URI parsing valid: 2 jobs, all fields populated
     # ---------------------------------------------------------------
     try {
         $jobs39 = @(
@@ -363,7 +363,7 @@ if ($parseUriLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T40 — URI parsing invalid base64: catch path verified
+    # T40 -- URI parsing invalid base64: catch path verified
     # NOTE: Parse-QuickAiRURI calls MessageBox + exit 1 on bad base64.
     #       Running the real function in-process would kill the test runner.
     #       This test verifies the catch block exists and handles the error
@@ -407,7 +407,7 @@ if ($parseUriLoaded) {
     }
 
     # ---------------------------------------------------------------
-    # T41 — URI parsing invalid job fields: missing target skipped, valid jobs processed
+    # T41 -- URI parsing invalid job fields: missing target skipped, valid jobs processed
     # ---------------------------------------------------------------
     try {
         $jobs41 = @(
@@ -438,7 +438,7 @@ if ($parseUriLoaded) {
 }
 
 # ---------------------------------------------------------------
-# T42 — Protocol registration
+# T42 -- Protocol registration
 # ---------------------------------------------------------------
 try {
     if (-not (Test-Path $regScript)) { throw "Register-QuickAiRProtocol.ps1 not found: $regScript" }
@@ -485,14 +485,14 @@ try {
 }
 
 # ---------------------------------------------------------------
-# T43 — Input validation rejects job with forbidden char in target
+# T43 -- Input validation rejects job with forbidden char in target
 # ---------------------------------------------------------------
 try {
     Import-Module $jobQueueMod -Force -ErrorAction Stop
     $q43   = New-JobQueue -MaxConcurrent 5
     $t43d  = @()
 
-    # Job with semicolon in target — forbidden by target regex '^[\w\.\-]+$'
+    # Job with semicolon in target -- forbidden by target regex '^[\w\.\-]+$'
     $badJob = [PSCustomObject]@{
         target     = 'host;evil'
         type       = 'Memory'

@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════╗
-# ║  QuickAiR — Processes.psm1               ║
+# ║  QuickAiR -- Processes.psm1               ║
 # ║  Process list via CIM (PS3+), WMI       ║
 # ║  (PS2), or WMI remote. .NET fallback.  ║
 # ╠══════════════════════════════════════════╣
@@ -300,7 +300,7 @@ public class IntegrityHelper {
                 $owner = if ($d) { "$d\$u" } else { $u }
             }
         } catch {
-            $outerErrors += "GetOwner failed for PID $pid_: $($_.Exception.Message)"
+            $outerErrors += "GetOwner failed for PID ${pid_}: $($_.Exception.Message)"
         }
 
         # SHA256 with cache
@@ -547,7 +547,7 @@ public class IntegrityHelper {
                 $entry.Owner = if ($d) { "$d\$u" } else { $u }
             }
         } catch {
-            $outerErrors += "GetOwner failed for PID $pid_: $($_.Exception.Message)"
+            $outerErrors += "GetOwner failed for PID ${pid_}: $($_.Exception.Message)"
         }
 
         # SHA256 with cache
@@ -660,7 +660,7 @@ function _getSigPS3($path) {
     }
 }
 
-# IntegrityLevel helper — uses P/Invoke to read process token integrity RID
+# IntegrityLevel helper -- uses P/Invoke to read process token integrity RID
 # Returns @(levelString, errorString). levelString is one of:
 #   Untrusted, Low, Medium, MediumPlus, High, System, ProtectedProcess, or the raw RID
 $script:_integrityTypeAdded = $false
@@ -773,7 +773,7 @@ function Invoke-Collector {
                     try { $hc      = [int]$wp.HandleCount }      catch {}
                     if ($pid_ -eq $null) { continue }
 
-                    # CreationDate — WMI datetime format
+                    # CreationDate -- WMI datetime format
                     $utcVal = $null
                     try {
                         if ($wp.CreationDate) {
@@ -781,7 +781,7 @@ function Invoke-Collector {
                         }
                     } catch {}
 
-                    # Owner via GetOwner() — WMI ManagementObject method
+                    # Owner via GetOwner() -- WMI ManagementObject method
                     $owner = $null
                     try {
                         $ownerInfo = $wp.InvokeMethod('GetOwner', $null)
@@ -832,7 +832,7 @@ function Invoke-Collector {
                 }
             }
             $errors += @{ artifact = 'processes'; severity = 'warning'; message = 'WMI fallback: SHA256, signatures, integrity levels unavailable' }
-            $errors += @{ artifact = 'dotnet_crosscheck'; severity = 'warning'; message = 'DKOM_CHECK_UNAVAILABLE: .NET cross-check skipped on WMI remote — DKOM-hidden processes will not be detected' }
+            $errors += @{ artifact = 'dotnet_crosscheck'; severity = 'warning'; message = 'DKOM_CHECK_UNAVAILABLE: .NET cross-check skipped on WMI remote -- DKOM-hidden processes will not be detected' }
 
         } elseif ($Session -ne $null) {
             # Remote path (WinRM)
@@ -864,7 +864,7 @@ function Invoke-Collector {
                 $ppid2 = $null; try { if ($p.ParentProcessId -ne $null) { $ppid2 = [int]$p.ParentProcessId } } catch {}
                 $ws2   = [long]0; try { $ws2 = [long]$p.WorkingSetSize } catch {}
                 $vs2   = [long]0; try { $vs2 = [long]$p.VirtualSize }    catch {}
-                # Extract Signature hashtable from PSObject — defensive access for
+                # Extract Signature hashtable from PSObject -- defensive access for
                 # properties that may be absent after WinRM deserialization on older PS
                 $sigOut = $null
                 if ($p.Signature -ne $null) {
@@ -879,7 +879,7 @@ function Invoke-Collector {
                             Issuer        = $(if ($s_.PSObject.Properties['Issuer'])        { $s_.Issuer }        else { $null })
                             Thumbprint    = $(if ($s_.PSObject.Properties['Thumbprint'])    { $s_.Thumbprint }    else { $null })
                             NotAfter      = $(if ($s_.PSObject.Properties['NotAfter'] -and $s_.NotAfter) {
-                                                    # Normalize to UTC Z — remoting may return local time with offset
+                                                    # Normalize to UTC Z -- remoting may return local time with offset
                                                     $naVal = $s_.NotAfter
                                                     if ($naVal -is [datetime]) {
                                                         $naVal.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -1068,7 +1068,7 @@ function Invoke-Collector {
                 }
 
             } else {
-                # WMI path — local collection runs on analyst machine (PS 5.1+)
+                # WMI path -- local collection runs on analyst machine (PS 5.1+)
                 $sourceStr = 'wmi'
                 $fallbackCount = 0
                 $searcher = New-Object System.Management.ManagementObjectSearcher("root\cimv2", "SELECT * FROM Win32_Process")

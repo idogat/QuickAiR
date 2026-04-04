@@ -109,11 +109,6 @@ function sortTable(tab, colKey, numeric) {
   }
 }
 
-function makeSortHeader(label, tab, colKey, numeric) {
-  return `<th class="sortable-th" onclick="sortTable('${tab}','${colKey}',${numeric?'true':'false'})">` +
-    `${esc(label)} <span class="sort-arrow" id="sort-${tab}-${colKey}">⇅</span></th>`;
-}
-
 function applySortToRows(rows, colKey, numeric) {
   if (!sortState.dir || sortState.dir === 'none') return rows;
   const dir = sortState.dir === 'asc' ? 1 : -1;
@@ -204,9 +199,6 @@ function addResizeHandles(headerId, tabName) {
     });
   });
 }
-
-// no-op: addResizeHandles now handles restoration from sessionStorage
-function restoreColWidths(tabName, headerId) {}
 
 // Re-apply grid-template-columns to all vrows after virtual scroll render
 function reapplyColWidthsFromStorage(tabName, vsEl) {

@@ -1,6 +1,6 @@
-#Requires -Version 2.0
+﻿#Requires -Version 2.0
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — SMBWMI.psm1             ║
+# ║  QuickAiR -- SMBWMI.psm1             ║
 # ║  Remote executor via SMB transfer   ║
 # ║  + WMI execution.                  ║
 # ║  Fallback when WinRM unavailable.  ║
@@ -109,7 +109,7 @@ function Invoke-Executor {
             $wmiScope = New-Object System.Management.ManagementScope("\\$Host_\root\cimv2")
             if ($Cred) {
                 $wmiScope.Options.Username = $Cred.UserName
-                # NOTE (EX15): Plaintext required by ManagementScope API — no SecureString overload.
+                # NOTE (EX15): Plaintext required by ManagementScope API -- no SecureString overload.
                 $wmiScope.Options.Password = $Cred.GetNetworkCredential().Password
             }
             $wmiScope.Connect()
@@ -137,7 +137,7 @@ function Invoke-Executor {
     $smbDriveName = $null
 
     try {
-        # Step 1 — Verify local binary exists on analyst machine
+        # Step 1 -- Verify local binary exists on analyst machine
         $LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
         $LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
         if (-not (Test-Path -LiteralPath $LocalBinaryPath)) {
@@ -147,7 +147,7 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 2 — Test SMB connectivity: map PSDrive to share
+        # Step 2 -- Test SMB connectivity: map PSDrive to share
         if ($SmbShare) {
             # Custom share provided (e.g. \\host\CustomShare or just CustomShare)
             $shareRoot = $SmbShare.TrimEnd('\')
@@ -225,7 +225,7 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 3 — Compute SHA256 of local binary (PS 2.0 compatible — no Get-FileHash)
+        # Step 3 -- Compute SHA256 of local binary (PS 2.0 compatible -- no Get-FileHash)
         $localSha = [System.Security.Cryptography.SHA256]::Create()
         $localBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
         $localHashBytes = $localSha.ComputeHash($localBytes)
@@ -233,7 +233,7 @@ function Invoke-Executor {
         $localHash = ([System.BitConverter]::ToString($localHashBytes) -replace '-','')
         $localSize = $localBytes.Length
 
-        # Step 4 — Transfer binary via SMB (use UNC path — PSDrive caches credentials)
+        # Step 4 -- Transfer binary via SMB (use UNC path -- PSDrive caches credentials)
         try {
             # EX16: use -LiteralPath consistently for UNC paths with special chars
             $uncDir = Split-Path -Parent $uncPath
@@ -269,7 +269,7 @@ function Invoke-Executor {
             return [PSCustomObject]$result
         }
 
-        # Step 4a — BinaryType detection
+        # Step 4a -- BinaryType detection
         if ($BinaryTypeOverride -ne $null) {
             $result.BinaryType = $BinaryTypeOverride
         } elseif (Get-Command Get-BinaryType -ErrorAction SilentlyContinue) {
@@ -278,7 +278,7 @@ function Invoke-Executor {
 
         $isSFX = $result.BinaryType -and $result.BinaryType.IsSFX
 
-        # Step 5 — Launch via WMI Win32_Process::Create
+        # Step 5 -- Launch via WMI Win32_Process::Create
         $commandLine = if ($Arguments) { "`"$RemoteDestPath`" $Arguments" } else { "`"$RemoteDestPath`"" }
 
         $launchPID = $null
@@ -287,7 +287,7 @@ function Invoke-Executor {
             $launchScope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
             if ($Credential) {
                 $launchScope.Options.Username = $Credential.UserName
-                # NOTE (EX15): Plaintext required by ManagementScope API — no SecureString overload.
+                # NOTE (EX15): Plaintext required by ManagementScope API -- no SecureString overload.
                 $launchScope.Options.Password = $Credential.GetNetworkCredential().Password
             }
             $launchScope.Connect()
@@ -359,14 +359,14 @@ function Invoke-Executor {
             }
 
             if ($sfxExited) {
-                # EX19: WMI cannot retrieve exit codes — extraction not verified
-                Add-State "SFX_ASSUMED" "SFX process exited (exit code unavailable via WMI — extraction not verified)"
+                # EX19: WMI cannot retrieve exit codes -- extraction not verified
+                Add-State "SFX_ASSUMED" "SFX process exited (exit code unavailable via WMI -- extraction not verified)"
             }
 
         } else {
             Add-State "LAUNCHED" "PID=$launchPID"
 
-            # Step 6 — Alive check via WMI (EX18: verify PID + process name for PID reuse)
+            # Step 6 -- Alive check via WMI (EX18: verify PID + process name for PID reuse)
             $expectedName = [System.IO.Path]::GetFileName($RemoteDestPath)
             Start-Sleep -Seconds $AliveCheckSeconds
 
@@ -389,7 +389,7 @@ function Invoke-Executor {
                     $aliveResult = 'ALIVE'
                 }
             } catch {
-                # WMI query failed — cannot confirm process is running.
+                # WMI query failed -- cannot confirm process is running.
                 # Report ALIVE_ASSUMED so consumers know the check was inconclusive.
                 $aliveResult = 'ALIVE_ASSUMED'
                 Add-State "ALIVE_ASSUMED" "PID=$launchPID assumed alive (WMI check error: $($_.Exception.Message))"

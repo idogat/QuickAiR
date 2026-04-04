@@ -1,5 +1,5 @@
-# ╔══════════════════════════════════════╗
-# ║  QuickAiR — Users.psm1               ║
+﻿# ╔══════════════════════════════════════╗
+# ║  QuickAiR -- Users.psm1               ║
 # ║  User account collection + WMI     ║
 # ╠══════════════════════════════════════╣
 # ║  Exports  : Invoke-Collector        ║
@@ -34,7 +34,7 @@
 Set-StrictMode -Off
 $ErrorActionPreference = 'Continue'
 
-# ── PS 2.0-compatible scriptblock — runs ON the target ──────────────────────
+# ── PS 2.0-compatible scriptblock -- runs ON the target ──────────────────────
 $script:USERS_SB = {
     $r = @{
         is_dc              = $false
@@ -260,7 +260,7 @@ public class RegLwt {
                     }
                 }
             } catch {
-                # ADSI fallback — PS 2.0 / no RSAT
+                # ADSI fallback -- PS 2.0 / no RSAT
                 $r.dc_source = 'ADSI'
                 $adRoot   = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
                 $domDN    = $adRoot.Properties["defaultNamingContext"][0]
@@ -536,7 +536,7 @@ function script:Invoke-UsersWMIRemote {
     }
 
     if ($r.profiles_raw.Count -gt 0) {
-        $r.errors += "WMI remote: profile timestamps (LastUse, ProfileFolder, NTUSER.DAT, RegistryKey) unavailable — FirstLogon confidence degraded to N/A for all users"
+        $r.errors += "WMI remote: profile timestamps (LastUse, ProfileFolder, NTUSER.DAT, RegistryKey) unavailable -- FirstLogon confidence degraded to N/A for all users"
     }
 
     # ── Local accounts ───────────────────────────────────────────────────
@@ -717,7 +717,7 @@ function Invoke-Collector {
         $groupMap[$mn] += [string]$gm.GroupName
     }
 
-    # Build users[] — source = ProfileList, enriched with local account data
+    # Build users[] -- source = ProfileList, enriched with local account data
     $userMap = @{}
 
     foreach ($p in @($raw.profiles_raw)) {

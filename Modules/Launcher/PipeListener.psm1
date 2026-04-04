@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  QuickAiR — PipeListener.psm1                               ║
+# ║  QuickAiR -- PipeListener.psm1                               ║
 # ║  Bridge folder file watcher for inter-process job handoff. ║
 # ║  Second QuickAiRLaunch.ps1 instance writes <guid>.json;     ║
 # ║  background runspace reads and deletes them.               ║
@@ -112,7 +112,7 @@ function Stop-BridgeListener {
         $closeDelegate = [System.Action]{ $Listener.Runspace.Close() }
         $closeResult = $closeDelegate.BeginInvoke($null, $null)
         if (-not $closeResult.AsyncWaitHandle.WaitOne(3000)) {
-            # Timed out — force dispose instead
+            # Timed out -- force dispose instead
             try { $Listener.Runspace.Dispose() } catch { }
         } else {
             $closeDelegate.EndInvoke($closeResult)

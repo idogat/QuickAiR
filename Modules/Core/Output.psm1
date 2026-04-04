@@ -1,6 +1,6 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════╗
-# ║  QuickAiR — Output.psm1              ║
+# ║  QuickAiR -- Output.psm1              ║
 # ║  Logging, JSON write, SHA256,       ║
 # ║  manifest building                  ║
 # ╠══════════════════════════════════════╣

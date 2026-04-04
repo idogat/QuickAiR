@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  QuickAiR — QuickAiRLaunch.ps1                               ║
+# ║  QuickAiR -- QuickAiRLaunch.ps1                               ║
 # ║  Persistent WinForms job manager.                          ║
 # ║  Receives job batches via quickair:// URI.                  ║
 # ║  Single-instance via named mutex; second instance writes   ║
@@ -18,7 +18,7 @@
 # ║       "aliveCheck":10 }]                                   ║
 # ║                                                            ║
 # ║  Depends    : Executor.ps1, Modules\Launcher\*.psm1        ║
-# ║  Version    : 3.0                                          ║
+# ║  Version    : 3.1                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -102,6 +102,12 @@ $script:ScheduleRunning = $false   # re-entry guard for Invoke-Schedule
 function Parse-QuickAiRURI {
     param([string]$URI)
 
+    # Validate URI scheme before any parsing
+    if ($URI -notmatch '^(quickair://|file:)') {
+        Write-Warning "Invalid URI scheme. Expected quickair:// or file: prefix."
+        return @()
+    }
+
     # If URI was passed via temp file (from self-elevation), read the real URI
     if ($URI -match '^file:(.+)$') {
         $tmpPath = $Matches[1]
@@ -125,12 +131,17 @@ function Parse-QuickAiRURI {
         }
 
         if ($qParams['jobs']) {
+            $b64 = $qParams['jobs']
+            if ($b64.Length -gt 1048576) {   # 1 MB limit on base64 payload
+                Write-Warning "URI payload exceeds 1 MB limit ($($b64.Length) bytes). Rejected."
+                return @()
+            }
             $json    = [System.Text.Encoding]::UTF8.GetString(
-                           [System.Convert]::FromBase64String($qParams['jobs']))
+                           [System.Convert]::FromBase64String($b64))
             $rawJobs = $json | ConvertFrom-Json
         }
         else {
-            # No jobs parameter — treat as empty batch
+            # No jobs parameter -- treat as empty batch
             return @()
         }
     }
@@ -139,7 +150,7 @@ function Parse-QuickAiRURI {
         Write-Warning $errMsg
         [System.Windows.Forms.MessageBox]::Show(
             $errMsg,
-            'QuickAiR — URI Parse Error',
+            'QuickAiR -- URI Parse Error',
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
         exit 1
@@ -155,7 +166,7 @@ function Parse-QuickAiRURI {
         $ok     = $true
         $reason = ''
 
-        # target — non-null, matches hostname/IP pattern
+        # target -- non-null, matches hostname/IP pattern
         $tgt = if ($raw.PSObject.Properties['target']) { [string]$raw.target } else { '' }
         if ([string]::IsNullOrWhiteSpace($tgt)) {
             $ok = $false; $reason = 'target is null or empty'
@@ -164,7 +175,7 @@ function Parse-QuickAiRURI {
             $ok = $false; $reason = "target invalid format: '$tgt'"
         }
 
-        # type / tool — must be Memory or Disk (case-insensitive)
+        # type / tool -- must be Memory or Disk (case-insensitive)
         # Accept both "type" (browser payload) and "tool" (test/legacy callers)
         if ($ok) {
             $typ = if ($raw.PSObject.Properties['type']) { [string]$raw.type }
@@ -178,7 +189,7 @@ function Parse-QuickAiRURI {
             }
         }
 
-        # binary — non-null
+        # binary -- non-null
         if ($ok) {
             $bin = if ($raw.PSObject.Properties['binary']) { [string]$raw.binary } else { '' }
             if ([string]::IsNullOrWhiteSpace($bin)) {
@@ -186,7 +197,7 @@ function Parse-QuickAiRURI {
             }
         }
 
-        # method — must be Auto, WinRM, SMB+WMI, or WMI
+        # method -- must be Auto, WinRM, SMB+WMI, or WMI
         if ($ok) {
             $meth = if ($raw.PSObject.Properties['method']) { [string]$raw.method } else { '' }
             if ($meth -notmatch '^(Auto|WinRM|SMB\+WMI|WMI)$') {
@@ -198,7 +209,7 @@ function Parse-QuickAiRURI {
             $valid += $raw
         }
         else {
-            Write-Warning "Job skipped — $reason (target=$tgt)"
+            Write-Warning "Job skipped -- $reason (target=$tgt)"
         }
     }
 
@@ -314,10 +325,13 @@ function Show-CredentialDialog {
     $r = $dlg.ShowDialog($script:Form)
     $user = $txtU.Text.Trim()
     $pass = $txtP.Text
+    $txtP.Text = ''   # clear plaintext from TextBox buffer
     $dlg.Dispose()
 
     if ($r -eq [System.Windows.Forms.DialogResult]::OK -and $user) {
+        if ([string]::IsNullOrEmpty($pass)) { $pass = [char]0x0 }  # SecureString requires non-empty
         $sec  = ConvertTo-SecureString $pass -AsPlainText -Force
+        $pass = $null  # clear plaintext from variable
         return [System.Management.Automation.PSCredential]::new($user, $sec)
     }
     return $null
@@ -403,9 +417,9 @@ function Start-JobRunspace {
                     $job.Detail = "Share=$($data.SmbShare) | " + $job.Detail
                 }
                 if ($job.Status -eq 'ALIVE') {
-                    $job.Detail = $job.Detail + ' — Tool running. Launcher job complete.'
+                    $job.Detail = $job.Detail + ' -- Tool running. Launcher job complete.'
                 } elseif ($job.Status -eq 'SFX_LAUNCHED') {
-                    $job.Detail = $job.Detail + ' — SFX launched. Child process running.'
+                    $job.Detail = $job.Detail + ' -- SFX launched. Child process running.'
                 }
             }
             else {
@@ -441,7 +455,7 @@ function Set-RowStyle {
 
 function Add-GridRow {
     param([object]$job)
-    # Use Rows.Add(params Object[]) — avoids CreateCells void-return issue
+    # Use Rows.Add(params Object[]) -- avoids CreateCells void-return issue
     $rowIdx = $script:Grid.Rows.Add(
         [object]$job.RowNumber,
         [object]([string]$job.Type),
@@ -723,7 +737,7 @@ function Build-UI {
             $jid = $row.Tag
             $j   = @($script:Queue.Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
             if ($null -eq $j -or -not $j.IsDone) { continue }
-            # Skip successful jobs — only retry failures
+            # Skip successful jobs -- only retry failures
             if ($j.Status -in 'ALIVE','ALIVE_ASSUMED','SFX_LAUNCHED') { continue }
 
             # Clear cached credential so user gets a fresh prompt
@@ -738,7 +752,8 @@ function Build-UI {
             $j.Detail     = ''
             $j.IsDone     = $false
             $j.Credential = $null
-            $j.StartTime  = $null
+            $j.StartTime  = [DateTime]::MinValue
+            $j.EndTime    = [DateTime]::MinValue
             if ($null -ne $j.PS_) { try { $j.PS_.Dispose() } catch { } }
             $j.PS_        = $null
             $j.RunHandle_ = $null
@@ -811,7 +826,7 @@ function Build-UI {
             return
         }
 
-        # No running jobs — allow close; do lightweight cleanup then return.
+        # No running jobs -- allow close; do lightweight cleanup then return.
         # Do NOT call Stop-BridgeListener here: Runspace.Close() blocks the UI
         # thread, preventing the form from actually closing. Signal stop only;
         # full cleanup happens after Application::Run returns in the finally block.
@@ -836,7 +851,7 @@ function Build-UI {
         # 4. Clear credential cache
         if ($script:CredCache) { $script:CredCache.Clear() }
 
-        # Cancel stays $false — form closes after this handler returns
+        # Cancel stays $false -- form closes after this handler returns
     })
 
     return $form
@@ -858,7 +873,7 @@ for ($mtry = 1; $mtry -le 3; $mtry++) {
 }
 
 if (-not $acquired) {
-    # Another instance is running — hand off jobs via bridge file and exit
+    # Another instance is running -- hand off jobs via bridge file and exit
     if ($rawJobs.Count -gt 0) {
         Send-JobBatch -BridgeDir $BRIDGE_DIR -Jobs $rawJobs
     }

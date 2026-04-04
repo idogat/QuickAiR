@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================
 #   QuickAiR -- T08_Users.ps1
 #   T19  Users data structure
@@ -204,7 +204,7 @@ if (-not $data.Users -or -not $data.Users.users) {
             continue
         }
         # Each entry in GroupMemberships must be a non-empty string (empty array is valid)
-        # PS serializes empty @() as {} which deserializes as PSCustomObject — skip these
+        # PS serializes empty @() as {} which deserializes as PSCustomObject -- skip these
         if ($null -eq $user.GroupMemberships -or $user.GroupMemberships -is [PSCustomObject]) { continue }
         $gm = @($user.GroupMemberships)
         for ($i = 0; $i -lt $gm.Count; $i++) {
