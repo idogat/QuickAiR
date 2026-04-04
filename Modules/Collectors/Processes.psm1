@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.5                         ║
+# ║  Version   : 3.6                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -286,6 +286,11 @@ public class IntegrityHelper {
         try { $cmdLine = $p.CommandLine }          catch {}
         try { $exePath = $p.ExecutablePath }       catch {}
         try { $cdate  = $p.CreationDate }          catch {}
+        # Normalize CreationDate (DMTF) to UTC ISO within scriptblock -- same field name as CIM path
+        $cdateUtc = $null
+        try {
+            if ($cdate) { $cdateUtc = [System.Management.ManagementDateTimeConverter]::ToDateTime($cdate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+        } catch { $outerErrors += "CreationDate parse failed for PID ${pid_}: $($_.Exception.Message)" }
         try { $ws     = [long]$p.WorkingSetSize }  catch {}
         try { $vs     = [long]$p.VirtualSize }     catch {}
         try { $sid    = [int]$p.SessionId }        catch {}
@@ -325,7 +330,7 @@ public class IntegrityHelper {
                 Name            = $name_
                 CommandLine     = $cmdLine
                 ExecutablePath  = $exePath
-                CreationDate    = $cdate
+                CreationDateUtc = $cdateUtc
                 WorkingSetSize  = $ws
                 VirtualSize     = $vs
                 SessionId       = $sid
@@ -371,13 +376,13 @@ public class IntegrityHelper {
                 $dotnet += New-Object PSObject -Property @{
                     ProcessId = [int]$dp.Id; ParentProcessId = $null
                     Name = $dp.ProcessName; CommandLine = $null; ExecutablePath = $exeFn
-                    CreationDate = $startT; WorkingSetSize = $ws2; VirtualSize = $vs2
+                    CreationDateUtc = $startT; WorkingSetSize = $ws2; VirtualSize = $vs2
                     SessionId = $sid2; HandleCount = $hc2; Owner = $null
                     IntegrityLevel = $ilFb[0]; IntegrityLevelError = $ilFb[1]
                     SHA256 = $sha256Fb; SHA256Error = $sha256ErrFb; Signature = $sigFb
                     source = 'dotnet_fallback'
                 }
-                $outerErrors += "ANOMALY: PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from WMI/CIM - possible DKOM or race condition"
+                $outerErrors += "ANOMALY: PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from WMI - possible DKOM or short-lived process started after WMI snapshot"
             }
         }
     } catch {
@@ -429,13 +434,14 @@ $script:PROC_SB_CIM = {
                 TimeStamper   = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
                 IsOSBinary    = $isOSBin
                 SignatureType = $sigType
+                CatalogFile   = $null
             }
         } catch {
             return New-Object PSObject -Property @{
                 IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
                 SignerSubject=$null; SignerCompany=$null; Issuer=$null
                 Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                IsOSBinary=$null; SignatureType=$null
+                IsOSBinary=$null; SignatureType=$null; CatalogFile=$null
             }
         }
     }
@@ -601,7 +607,7 @@ public class IntegrityHelper {
                     SHA256 = $sha256Fb2; SHA256Error = $sha256ErrFb2; Signature = $sigFb2
                     source = 'dotnet_fallback'
                 }
-                $outerErrors += "ANOMALY: PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from CIM - possible DKOM or race condition"
+                $outerErrors += "ANOMALY: PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from CIM - possible DKOM or short-lived process started after CIM snapshot"
             }
         }
     } catch {
@@ -649,13 +655,14 @@ function _getSigPS3($path) {
             TimeStamper   = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { $null }
             IsOSBinary    = $isOSBin
             SignatureType = $sigType
+            CatalogFile   = $null
         }
     } catch {
         return New-Object PSObject -Property @{
             IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
             SignerSubject=$null; SignerCompany=$null; Issuer=$null
             Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-            IsOSBinary=$null; SignatureType=$null
+            IsOSBinary=$null; SignatureType=$null; CatalogFile=$null
         }
     }
 }
@@ -1100,7 +1107,9 @@ function Invoke-Collector {
                             $dW = $ownerInfoW['Domain']; $uW = $ownerInfoW['User']
                             $ownerW = if ($dW) { "$dW\$uW" } else { $uW }
                         }
-                    } catch {}
+                    } catch {
+                        $errors += @{ artifact='process_owner'; ProcessId=$pid_; message="GetOwner failed: $($_.Exception.Message)" }
+                    }
 
                     # SHA256 with cache
                     $sha256W = $null; $sha256ErrW = $null
@@ -1189,7 +1198,7 @@ function Invoke-Collector {
                                 source           = 'dotnet_fallback'
                             }
                             $fallbackCount++
-                            $errors += @{ artifact = 'dotnet_crosscheck'; message = "PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from WMI - possible DKOM or race condition"; severity = 'HIGH' }
+                            $errors += @{ artifact = 'dotnet_crosscheck'; message = "PID $([int]$dp.Id) ($($dp.ProcessName)) present in .NET but absent from WMI - possible DKOM or short-lived process started after WMI snapshot"; severity = 'HIGH' }
                             Write-Log 'WARN' "PID=$($dp.Id) Name=$($dp.ProcessName) absent from WMI/CIM - added via .NET fallback"
                         }
                     }

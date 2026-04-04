@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.4                    ║
+# ║  Version   : 3.5                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -48,7 +48,8 @@ if (-not [System.IO.Path]::IsPathRooted($OutputPath)) {
 #endregion
 
 #region --- Constants ---
-$COLLECTOR_VERSION = "2.0"
+$COLLECTOR_VERSION = (Get-Content (Join-Path $PSScriptRoot 'VERSION') -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+if (-not $COLLECTOR_VERSION) { $COLLECTOR_VERSION = "unknown" }
 $MAX_RETRY         = 3
 $RETRY_WAIT_SEC    = 5
 #endregion
@@ -141,9 +142,13 @@ foreach ($target in $Targets) {
     }
 
     # Ensure target is in WinRM TrustedHosts (required for non-domain WinRM connections)
+    # Mutex prevents concurrent Collector.ps1 instances from corrupting each other's restore
     $originalTrustedHosts = $null
+    $thMutex = $null
     if (-not $isLocalTarget) {
         try {
+            $thMutex = New-Object System.Threading.Mutex($false, 'Global\QuickAiR_TrustedHosts')
+            try { [void]$thMutex.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] {}
             $originalTrustedHosts = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
             if ($originalTrustedHosts -ne '*' -and $originalTrustedHosts -notmatch [regex]::Escape($target)) {
                 $newList = if ($originalTrustedHosts) { "$originalTrustedHosts,$target" } else { $target }
@@ -153,6 +158,7 @@ foreach ($target in $Targets) {
                 $originalTrustedHosts = $null  # no change made, no restore needed
             }
         } catch { Write-Log 'WARN' "Could not update TrustedHosts: $($_.Exception.Message)"; $originalTrustedHosts = $null }
+        finally { if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {} } }
     }
 
     # Shorten verbose WinRM errors to short actionable messages
@@ -419,9 +425,10 @@ foreach ($target in $Targets) {
         $collectorModules = @($collectorModules | Where-Object { $_.BaseName -in $Plugins })
     }
 
-    $output          = [ordered]@{}
-    $sources         = @{}
-    $networkAdapters = @()
+    $output             = [ordered]@{}
+    $sources            = @{}
+    $networkAdapters    = @()
+    $targetDiskWritten  = $false
 
     foreach ($c in $collectorModules) {
         try {
@@ -458,6 +465,7 @@ foreach ($target in $Targets) {
             if ($c.BaseName -eq 'Network') {
                 $output['Network'] = @{ tcp = $result.data.tcp; udp = $result.data.udp; dns = $result.data.dns; adapters = $result.data.adapters }
                 $networkAdapters   = $result.data.adapters
+                if ($result.target_disk_written) { $targetDiskWritten = $true }
             } else {
                 $output[$c.BaseName] = $result.data
             }
@@ -481,12 +489,14 @@ foreach ($target in $Targets) {
         }
     }
 
-    # Restore TrustedHosts if we modified it
+    # Restore TrustedHosts if we modified it (mutex-protected against concurrent instances)
     if ($null -ne $originalTrustedHosts) {
         try {
+            if ($thMutex) { try { [void]$thMutex.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] {} }
             Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
             Write-Log 'INFO' "Restored WinRM TrustedHosts"
         } catch { Write-Log 'WARN' "Could not restore TrustedHosts: $($_.Exception.Message)" }
+        finally { if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {}; try { $thMutex.Dispose() } catch {} } }
     }
 
     # Resolve hostname for output
@@ -521,6 +531,9 @@ foreach ($target in $Targets) {
         -ConnectionMethod  $connectionMethod `
         -WmiFallbackUsed   $usingWmiFallback `
         -DegradedArtifacts $(if ($usingWmiFallback) { @('DLLs','DNS_cache','process_hashes','process_signatures','integrity_levels','dotnet_crosscheck','user_firstlogon_timestamps') } else { @() })
+
+    # Flag if any collector wrote to target disk (violating read-only principle)
+    if ($targetDiskWritten) { $manifest['target_disk_written'] = $true }
 
     # Build full output: manifest first, then each collector's data
     $jsonOutput = [ordered]@{}

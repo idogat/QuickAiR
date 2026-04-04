@@ -16,7 +16,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.5                    ║
+# ║  Version   : 2.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -35,8 +35,15 @@ function Resolve-TargetHostname {
     if ($Target -eq 'localhost' -or $Target -eq '127.0.0.1') { return $env:COMPUTERNAME }
     if ($Target -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
         try {
-            $h = [System.Net.Dns]::GetHostEntry($Target)
-            return $h.HostName
+            # Use async DNS with 5-second timeout to avoid blocking on unreachable DNS
+            $ar = [System.Net.Dns]::BeginGetHostEntry($Target, $null, $null)
+            if ($ar.AsyncWaitHandle.WaitOne(5000)) {
+                $h = [System.Net.Dns]::EndGetHostEntry($ar)
+                return $h.HostName
+            } else {
+                Write-Log 'WARN' "DNS resolution timed out (5s) for $Target, using IP as fallback"
+                return $Target
+            }
         } catch {
             Write-Log 'WARN' "DNS resolution failed for $Target, using IP as fallback: $($_.Exception.Message)"
             return $Target
@@ -178,6 +185,8 @@ function Get-TargetCapsWMI {
             $scope = New-Object System.Management.ManagementScope("\\$Target\root\default")
             $scope.Options.Timeout = [TimeSpan]::FromSeconds($script:OP_TIMEOUT_SEC)
             if ($Cred) {
+                # SECURITY NOTE: ManagementScope has no SecureString overload -- plaintext
+                # password unavoidable. Scope.Dispose() in finally block limits lifetime.
                 $scope.Options.Username = $Cred.UserName
                 $scope.Options.Password = $Cred.GetNetworkCredential().Password
             }
@@ -243,6 +252,8 @@ function New-WMISession {
         $probeScope = New-Object System.Management.ManagementScope("\\$Target\root\cimv2")
         $probeScope.Options.Timeout = [TimeSpan]::FromSeconds($script:OP_TIMEOUT_SEC)
         if ($Credential) {
+            # SECURITY NOTE: ManagementScope has no SecureString overload -- plaintext
+            # password unavoidable. Scope.Dispose() in finally block limits lifetime.
             $probeScope.Options.Username = $Credential.UserName
             $probeScope.Options.Password = $Credential.GetNetworkCredential().Password
         }
@@ -258,6 +269,7 @@ function New-WMISession {
         $stdScope = New-Object System.Management.ManagementScope("\\$Target\ROOT\StandardCimv2")
         $stdScope.Options.Timeout = [TimeSpan]::FromSeconds($script:OP_TIMEOUT_SEC)
         if ($Credential) {
+            # SECURITY NOTE: ManagementScope -- see note in New-WMISession above.
             $stdScope.Options.Username = $Credential.UserName
             $stdScope.Options.Password = $Credential.GetNetworkCredential().Password
         }

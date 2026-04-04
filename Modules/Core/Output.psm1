@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.6                    ║
+# ║  Version   : 2.7                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -150,6 +150,7 @@ function Build-Manifest {
     $manifest['wmi_fallback_used']  = $WmiFallbackUsed
     $manifest['degraded_artifacts'] = $DegradedArtifacts
     $manifest['sha256']            = $null
+    $manifest['sha256_method']     = 'content_with_null_hash'
     $manifest['collection_errors'] = $CollectionErrors
 
     return $manifest

@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.7                      ║
+# ║  Version   : 2.8                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -90,6 +90,9 @@ $script:DNS_PARSE_SB = {
             $ttl = [int]$Matches[1]
         } elseif ($line -match '(A|AAAA)\s+\(Host\) Record[\s.]*:[\s]*(.+)') {
             $data = $Matches[2].Trim()
+        } elseif ($line -match 'CNAME Record[\s.]*:[\s]*(.+)') {
+            $data = $Matches[1].Trim()
+            if (-not $recType) { $recType = 'CNAME' }
         } elseif ($line -match 'Host Record[\s.]*:[\s]*(.+)') {
             $data = $Matches[1].Trim()
         } elseif (-not $data -and $line -match '^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$') {
@@ -262,6 +265,7 @@ function Resolve-InterfaceAlias {
             $ipToAlias[$la]
         } else {
             $unknownCount++
+            Write-Log 'WARN' "InterfaceAlias: no adapter match for LocalAddress=$la (connection to $($c.RemoteAddress):$($c.RemotePort))"
             'UNKNOWN'
         }
 
@@ -344,6 +348,7 @@ function Invoke-Collector {
     $networkSource = 'unknown'
     $udpSource     = 'unknown'
     $dnsSource     = 'unknown'
+    $targetDiskWritten = $false
 
     $OP_TIMEOUT_SEC = 60
 
@@ -359,12 +364,14 @@ function Invoke-Collector {
                     $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\root\cimv2")
                     $scope.Options.Timeout = [TimeSpan]::FromSeconds($OP_TIMEOUT_SEC)
                     if ($Session.Credential) {
+                        # SECURITY NOTE: ManagementScope -- no SecureString overload.
                         $scope.Options.Username = $Session.Credential.UserName
                         $scope.Options.Password = $Session.Credential.GetNetworkCredential().Password
                     }
                     try { $scope.Connect() } catch {
                         throw (New-Object System.Management.ManagementException("WMI netstat scope connection failed for $($Session.ComputerName)"))
                     }
+                    $targetDiskWritten = $true
                     $tmpName = "quickair_netstat_$([guid]::NewGuid().ToString('N')).txt"
                     $tmpRemote = "C:\Windows\Temp\$tmpName"
                     $cmdLine = "cmd.exe /c netstat -ano > `"$tmpRemote`""
@@ -394,6 +401,7 @@ function Invoke-Collector {
                                 $networkSource = 'netstat_wmi_remote'
                                 $udpSource     = 'netstat_wmi_remote'
                                 $netstatFallbackOk = $true
+                                $errors += @{ artifact = 'network_collection'; severity = 'warning'; message = "Netstat-over-WMI wrote temp file to target disk ($tmpRemote). Read-only collection violated. Cleanup attempted." }
                             } else {
                                 $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Netstat-over-WMI timed out after ${maxWait}s (UNC path may be inaccessible if SMB is blocked)" }
                             }
@@ -430,6 +438,7 @@ function Invoke-Collector {
                 $scope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\ROOT\StandardCimv2")
                 $scope.Options.Timeout = [TimeSpan]::FromSeconds($OP_TIMEOUT_SEC)
                 if ($Session.Credential) {
+                    # SECURITY NOTE: ManagementScope -- no SecureString overload.
                     $scope.Options.Username = $Session.Credential.UserName
                     $scope.Options.Password = $Session.Credential.GetNetworkCredential().Password
                 }
@@ -450,7 +459,9 @@ function Invoke-Collector {
                         if ($c['CreationTime']) {
                             $ct = [System.Management.ManagementDateTimeConverter]::ToDateTime([string]$c['CreationTime']).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                         }
-                    } catch {}
+                    } catch {
+                        $errors += @{ artifact = 'network_tcp_timestamp'; severity = 'warning'; message = "CreationTime parse failed (raw=$($c['CreationTime'])): $($_.Exception.Message)" }
+                    }
                     $conns += @{
                         Protocol       = 'TCP'
                         LocalAddress   = $la
@@ -823,6 +834,7 @@ function Invoke-Collector {
             dns     = $dnsSource
         }
         errors = $errors
+        target_disk_written = $targetDiskWritten
     }
 }
 

@@ -13,7 +13,7 @@
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.6                    ║
+# ║  Version   : 3.7                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -29,7 +29,7 @@ $script:DLL_SB = {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
             $s  = [Security.Cryptography.SHA256]::Create()
-            $h  = $s.ComputeHash($fs); $fs.Close(); $s.Clear()
+            try { $h = $s.ComputeHash($fs) } finally { $fs.Close(); $s.Clear() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -380,7 +380,7 @@ function Invoke-Collector {
     try {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
             # DLL collection requires .NET Process.Modules -- no WMI equivalent
-            $errors += @{ artifact = 'DLLs'; severity = 'warning'; degraded = $true; message = 'DLL/module collection unavailable via WMI remote. This target requires WinRM for DLL enumeration.' }
+            $errors += @{ artifact = 'DLLs'; severity = 'warning'; degraded = $true; message = 'DLL/module collection unavailable via WMI remote (no WMI equivalent for .NET Process.Modules). Enable WinRM on this target for full DLL enumeration including injection detection.' }
             Write-Log 'WARN' 'DLL collection skipped: WMI fallback does not support .NET Process.Modules'
             return @{
                 data   = @()

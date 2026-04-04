@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 2.9                    ║
+# ║  Version  : 3.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -484,6 +484,7 @@ function script:Invoke-UsersWMIRemote {
         $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\default")
         $scope.Options.Timeout = [TimeSpan]::FromSeconds(60)
         if ($Credential) {
+            # SECURITY NOTE: ManagementScope -- no SecureString overload.
             $scope.Options.Username = $Credential.UserName
             $scope.Options.Password = $Credential.GetNetworkCredential().Password
         }
@@ -536,7 +537,7 @@ function script:Invoke-UsersWMIRemote {
     }
 
     if ($r.profiles_raw.Count -gt 0) {
-        $r.errors += "WMI remote: profile timestamps (LastUse, ProfileFolder, NTUSER.DAT, RegistryKey) unavailable -- FirstLogon confidence degraded to N/A for all users"
+        $r.errors += @{ artifact = 'users_firstlogon_degraded'; severity = 'info'; message = "WMI remote: profile timestamps (LastUse, ProfileFolder, NTUSER.DAT, RegistryKey) unavailable -- FirstLogon confidence degraded to N/A for all users" }
     }
 
     # ── Local accounts ───────────────────────────────────────────────────
@@ -596,6 +597,7 @@ function script:Invoke-UsersWMIRemote {
             } catch {
                 # ADSI fallback
                 $r.dc_source = 'ADSI'
+                # SECURITY NOTE: DirectoryEntry -- no SecureString overload for LDAP bind.
                 $root = if ($Credential) {
                     New-Object System.DirectoryServices.DirectoryEntry("LDAP://$ComputerName", $Credential.UserName, $Credential.GetNetworkCredential().Password, [System.DirectoryServices.AuthenticationTypes]::Secure)
                 } else {
