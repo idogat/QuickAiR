@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.6                    ║
+# ║  Version   : 2.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -109,6 +109,7 @@ function Invoke-Executor {
             $wmiScope = New-Object System.Management.ManagementScope("\\$Host_\root\cimv2")
             if ($Cred) {
                 $wmiScope.Options.Username = $Cred.UserName
+                # NOTE (EX15): Plaintext required by ManagementScope API — no SecureString overload.
                 $wmiScope.Options.Password = $Cred.GetNetworkCredential().Password
             }
             $wmiScope.Connect()
@@ -234,8 +235,9 @@ function Invoke-Executor {
 
         # Step 4 — Transfer binary via SMB (use UNC path — PSDrive caches credentials)
         try {
+            # EX16: use -LiteralPath consistently for UNC paths with special chars
             $uncDir = Split-Path -Parent $uncPath
-            if ($uncDir -and -not (Test-Path $uncDir)) {
+            if ($uncDir -and -not (Test-Path -LiteralPath $uncDir)) {
                 New-Item -ItemType Directory -Path $uncDir -Force | Out-Null
             }
             Copy-Item -LiteralPath $LocalBinaryPath -Destination $uncPath -Force -ErrorAction Stop
@@ -285,6 +287,7 @@ function Invoke-Executor {
             $launchScope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
             if ($Credential) {
                 $launchScope.Options.Username = $Credential.UserName
+                # NOTE (EX15): Plaintext required by ManagementScope API — no SecureString overload.
                 $launchScope.Options.Password = $Credential.GetNetworkCredential().Password
             }
             $launchScope.Connect()
@@ -348,20 +351,23 @@ function Invoke-Executor {
                 } catch {
                     $wmiErrors++
                     if ($wmiErrors -ge 3) {
-                        Add-State "SFX_LAUNCHED" "SFX assumed launched (WMI poll error: $($_.Exception.Message))"
+                        # EX19: use SFX_ASSUMED to signal exit code was not verified
+                        Add-State "SFX_ASSUMED" "SFX assumed launched (WMI poll error: $($_.Exception.Message))"
                         break
                     }
                 }
             }
 
             if ($sfxExited) {
-                Add-State "SFX_LAUNCHED" "SFX exited (exit code unavailable via WMI)"
+                # EX19: WMI cannot retrieve exit codes — extraction not verified
+                Add-State "SFX_ASSUMED" "SFX process exited (exit code unavailable via WMI — extraction not verified)"
             }
 
         } else {
             Add-State "LAUNCHED" "PID=$launchPID"
 
-            # Step 6 — Alive check via WMI
+            # Step 6 — Alive check via WMI (EX18: verify PID + process name for PID reuse)
+            $expectedName = [System.IO.Path]::GetFileName($RemoteDestPath)
             Start-Sleep -Seconds $AliveCheckSeconds
 
             $aliveResult = 'UNKNOWN'
@@ -374,7 +380,14 @@ function Invoke-Executor {
                 }
                 if ($Credential) { $aliveParams['Credential'] = $Credential }
                 $proc = Get-WmiObject @aliveParams
-                $aliveResult = if ($null -ne $proc) { 'ALIVE' } else { 'EXITED' }
+                if ($null -eq $proc) {
+                    $aliveResult = 'EXITED'
+                } elseif ($expectedName -and $proc.Name -ine $expectedName) {
+                    $aliveResult = 'EXITED'  # PID reused by different process
+                    Add-State "WARNING" "PID=$launchPID reused by '$($proc.Name)' (expected '$expectedName')"
+                } else {
+                    $aliveResult = 'ALIVE'
+                }
             } catch {
                 # WMI query failed — cannot confirm process is running.
                 # Report ALIVE_ASSUMED so consumers know the check was inconclusive.
@@ -400,6 +413,17 @@ function Invoke-Executor {
             $result.Error = $_.Exception.Message
         }
     } finally {
+        # EX14: Clean up transferred binary on failure (before removing PSDrive)
+        if ($result.FinalState -match 'FAILED' -and $uncPath -and $smbDriveName) {
+            try {
+                if (Test-Path -LiteralPath $uncPath) {
+                    Remove-Item -LiteralPath $uncPath -Force -ErrorAction Stop
+                    Add-State "CLEANUP" "Removed transferred binary from target"
+                }
+            } catch {
+                Add-State "CLEANUP_FAILED" "Could not remove transferred binary: $($_.Exception.Message)"
+            }
+        }
         # Always clean up PSDrive mapping
         if ($smbDriveName) {
             try { Remove-PSDrive -Name $smbDriveName -Force -ErrorAction SilentlyContinue } catch { }

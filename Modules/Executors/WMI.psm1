@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 1.3                    ║
+# ║  Version   : 2.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -112,7 +112,8 @@ function Invoke-Executor {
         }
 
         # Step 3 — Transfer skipped (WMI cannot transfer files)
-        Add-State "TRANSFERRED" "Skipped -- binary must exist on target"
+        # EX9: use TRANSFER_SKIPPED instead of TRANSFERRED to avoid implying file is present
+        Add-State "TRANSFER_SKIPPED" "WMI cannot transfer files -- binary must already exist on target"
 
         # Step 3a — BinaryType detection (on LocalBinaryPath if accessible locally)
         if ($BinaryTypeOverride -ne $null) {
@@ -134,6 +135,10 @@ function Invoke-Executor {
             $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
             if ($Credential) {
                 $scope.Options.Username = $Credential.UserName
+                # NOTE (EX10): Plaintext password is required by ManagementScope API.
+                # This is a known .NET WMI limitation — no SecureString overload exists.
+                # The string persists in managed heap until GC. Ensure no error handler
+                # or serializer captures $scope.Options.Password.
                 $scope.Options.Password = $Credential.GetNetworkCredential().Password
             }
             $scope.Connect()
@@ -199,20 +204,23 @@ function Invoke-Executor {
                     $wmiErrors++
                     if ($wmiErrors -ge 3) {
                         # WMI permanently inaccessible — assume SFX launched
-                        Add-State "SFX_LAUNCHED" "SFX assumed launched (WMI poll error: $($_.Exception.Message))"
+                        # EX11: use SFX_ASSUMED to signal exit code was not verified
+                        Add-State "SFX_ASSUMED" "SFX assumed launched (WMI poll error: $($_.Exception.Message))"
                         break
                     }
                 }
             }
 
             if ($sfxExited) {
-                Add-State "SFX_LAUNCHED" "SFX exited (exit code unavailable via WMI)"
+                # EX11: WMI cannot retrieve exit codes. SFX may have failed extraction.
+                Add-State "SFX_ASSUMED" "SFX process exited (exit code unavailable via WMI — extraction not verified)"
             }
 
         } else {
             Add-State "LAUNCHED" "PID=$launchPID"
 
-            # Step 5 — Alive check
+            # Step 5 — Alive check (EX12: verify PID + process name to guard against PID reuse)
+            $expectedName = [System.IO.Path]::GetFileName($RemoteDestPath)
             Start-Sleep -Seconds $AliveCheckSeconds
 
             $aliveResult = 'UNKNOWN'
@@ -225,7 +233,14 @@ function Invoke-Executor {
                 }
                 if ($Credential) { $aliveParams['Credential'] = $Credential }
                 $proc = Get-WmiObject @aliveParams
-                $aliveResult = if ($null -ne $proc) { 'ALIVE' } else { 'EXITED' }
+                if ($null -eq $proc) {
+                    $aliveResult = 'EXITED'
+                } elseif ($expectedName -and $proc.Name -ine $expectedName) {
+                    $aliveResult = 'EXITED'  # PID reused by different process
+                    Add-State "WARNING" "PID=$launchPID reused by '$($proc.Name)' (expected '$expectedName')"
+                } else {
+                    $aliveResult = 'ALIVE'
+                }
             } catch {
                 # WMI query failed — cannot confirm process is running.
                 # Report ALIVE_ASSUMED so consumers know the check was inconclusive.

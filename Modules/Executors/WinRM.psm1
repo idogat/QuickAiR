@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 3.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -32,6 +32,16 @@ if (-not $PSScriptRoot) {
 }
 if (Test-Path $_outputMod) {
     Import-Module $_outputMod -Force -ErrorAction SilentlyContinue
+}
+
+# WMI Win32_Process.Create return code mapping (used in remote launch path)
+$script:WMI_RETURN_CODES = @{
+    0  = "Success"
+    2  = "Access denied"
+    3  = "Insufficient privilege"
+    8  = "Unknown failure"
+    9  = "Path not found"
+    21 = "Invalid parameter"
 }
 
 function Invoke-Executor {
@@ -292,9 +302,20 @@ function Invoke-Executor {
                     }
                 } catch { }
             } catch {
-                # Fallback: SMB Copy-Item
+                # Fallback: SMB Copy-Item via PSDrive (passes credential properly — EX2)
+                $smbFallbackDrive = $null
                 try {
                     $uncPath = "\\$ComputerName\" + ($RemoteDestPath -replace '^([A-Za-z]):\\', '$1$\')
+                    $uncRoot = "\\$ComputerName\" + ($RemoteDestPath -replace '^([A-Za-z]):\\.*', '$1$')
+                    $smbFallbackDrive = "QuickAiRFB_$(Get-Random)"
+                    $fbDriveParams = @{
+                        Name        = $smbFallbackDrive
+                        PSProvider  = 'FileSystem'
+                        Root        = $uncRoot
+                        ErrorAction = 'Stop'
+                    }
+                    if ($Credential) { $fbDriveParams['Credential'] = $Credential }
+                    New-PSDrive @fbDriveParams | Out-Null
                     Copy-Item -LiteralPath $LocalBinaryPath -Destination $uncPath -Force -ErrorAction Stop
 
                     $remoteHash2 = Invoke-Command -Session $session -ScriptBlock {
@@ -314,6 +335,10 @@ function Invoke-Executor {
                     Add-State "TRANSFER_FAILED" $_.Exception.Message
                     $result.Error = $_.Exception.Message
                     return [PSCustomObject]$result
+                } finally {
+                    if ($smbFallbackDrive) {
+                        try { Remove-PSDrive -Name $smbFallbackDrive -Force -ErrorAction SilentlyContinue } catch { }
+                    }
                 }
             }
         }
@@ -406,15 +431,25 @@ function Invoke-Executor {
                     # that child is killed when the PSSession closes.
                     # Win32_Process::Create (called locally on target) spawns under the WMI
                     # service, which is independent of the WinRM session — process survives close.
+                    # NOTE: $Arguments passed raw to command line. Win32_Process::Create
+                    # uses CreateProcess directly — shell metacharacters (&, |, >) are NOT
+                    # interpreted. This is safe by design. (EX8)
+                    $wmiCodes = $script:WMI_RETURN_CODES
                     $launchResult = Invoke-Command -Session $session -ScriptBlock {
-                        param($exePath, $exeArgs)
+                        param($exePath, $exeArgs, $returnCodes)
                         $cmdLine = if ($exeArgs) { "`"$exePath`" $exeArgs" } else { "`"$exePath`"" }
                         $wmiResult = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $cmdLine -ErrorAction Stop
                         if ($wmiResult.ReturnValue -ne 0) {
-                            throw "Win32_Process::Create failed with return value $($wmiResult.ReturnValue)"
+                            $rc = [int]$wmiResult.ReturnValue
+                            $msg = if ($returnCodes -and $returnCodes.ContainsKey($rc)) {
+                                $returnCodes[$rc]
+                            } else {
+                                "WMI return code $rc"
+                            }
+                            throw "Win32_Process::Create failed: $msg (code=$rc)"
                         }
                         return [PSCustomObject]@{ PID = [int]$wmiResult.ProcessId; ExitCode = $null }
-                    } -ArgumentList @($RemoteDestPath, $Arguments) -ErrorAction Stop
+                    } -ArgumentList @($RemoteDestPath, $Arguments, $wmiCodes) -ErrorAction Stop
                 }
 
                 if ($launchResult -is [int] -or $launchResult -is [long]) {
@@ -438,13 +473,19 @@ function Invoke-Executor {
             # Step 5 — Alive check
             Start-Sleep -Seconds $AliveCheckSeconds
 
+            # EX4: verify PID AND process name to guard against PID reuse
+            $expectedName = [System.IO.Path]::GetFileNameWithoutExtension($RemoteDestPath)
             $stillAlive = $false
             try {
                 $stillAlive = Invoke-OnTarget -ScriptBlock {
-                    param($checkPid)
+                    param($checkPid, $expectedProcessName)
                     $p = Get-Process -Id $checkPid -ErrorAction SilentlyContinue
-                    return ($null -ne $p)
-                } -ArgumentList @($launchPID)
+                    if ($null -eq $p) { return $false }
+                    if ($expectedProcessName -and $p.ProcessName -ine $expectedProcessName) {
+                        return $false  # PID reused by different process
+                    }
+                    return $true
+                } -ArgumentList @($launchPID, $expectedName)
             } catch { $stillAlive = $false }
             $stillAlive = [bool]$stillAlive
 
@@ -462,6 +503,27 @@ function Invoke-Executor {
         }
 
     } finally {
+        # EX1: Clean up transferred binary on failure (before closing session)
+        if ($result.FinalState -match 'FAILED' -and $RemoteDestPath) {
+            try {
+                if ($isLocal) {
+                    if (Test-Path -LiteralPath $RemoteDestPath) {
+                        Remove-Item -LiteralPath $RemoteDestPath -Force -ErrorAction Stop
+                        Add-State "CLEANUP" "Removed transferred binary from target"
+                    }
+                } elseif ($session -and $session.State -eq 'Opened') {
+                    Invoke-Command -Session $session -ScriptBlock {
+                        param($p)
+                        if (Test-Path -LiteralPath $p) {
+                            Remove-Item -LiteralPath $p -Force -ErrorAction Stop
+                        }
+                    } -ArgumentList $RemoteDestPath -ErrorAction Stop
+                    Add-State "CLEANUP" "Removed transferred binary from target"
+                }
+            } catch {
+                Add-State "CLEANUP_FAILED" "Could not remove transferred binary: $($_.Exception.Message)"
+            }
+        }
         # B1: Restore TrustedHosts to original value if we modified it
         if ($trustedHostsModified) {
             $thMutex = $null
@@ -470,8 +532,8 @@ function Invoke-Executor {
                 $thMutex.WaitOne(10000) | Out-Null
                 Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
             } catch {
-                # If restore fails (e.g. process killed), TrustedHosts will retain the target.
-                # Analyst should verify TrustedHosts manually after hard kills.
+                # EX5: Log warning instead of silently swallowing
+                Add-State "WARNING" "TrustedHosts restore failed: $($_.Exception.Message). Verify WSMan:\localhost\Client\TrustedHosts manually."
             } finally {
                 if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {} }
             }

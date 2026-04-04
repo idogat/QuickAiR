@@ -22,7 +22,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 1.9                    ║
+# ║  Version   : 2.0                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -47,7 +47,7 @@ Set-StrictMode -Version 2
 # -ErrorAction Stop where failure matters.
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "1.9"
+$EXECUTOR_VERSION = "2.0"
 
 #region --- Help ---
 if ($Help) {
@@ -97,12 +97,16 @@ if ($Help) {
     Write-Host "  -----------------   ------------------------------------------"
     Write-Host "  CONNECTION_FAILED   Could not reach target or binary not found locally"
     Write-Host "  TRANSFERRED         Binary copied to target and SHA256 verified"
+    Write-Host "  TRANSFER_SKIPPED    WMI-only mode: no transfer, binary must exist on target"
     Write-Host "  TRANSFER_FAILED     Binary copy or SHA256 check failed"
     Write-Host "  LAUNCHED            Process started; PID captured"
     Write-Host "  LAUNCH_FAILED       Process did not start or exited before alive check"
-    Write-Host "  ALIVE               Process still running after AliveCheck seconds"
+    Write-Host "  ALIVE               Process still running after AliveCheck seconds (PID + name verified)"
     Write-Host "  ALIVE_ASSUMED       WMI alive-check query failed; process assumed alive (inconclusive)"
-    Write-Host "  SFX_LAUNCHED        SFX exited cleanly. Extraction and execution initiated on target."
+    Write-Host "  SFX_LAUNCHED        SFX exited with code 0 (WinRM only — exit code verified)"
+    Write-Host "  SFX_ASSUMED         SFX exited but exit code unavailable (WMI — extraction unverified)"
+    Write-Host "  CLEANUP             Transferred binary removed from target after failure"
+    Write-Host "  CLEANUP_FAILED      Could not remove transferred binary after failure"
     Write-Host ""
     Write-Host "CLEANUP NOTE" -ForegroundColor Yellow
     Write-Host "  The transferred binary is NOT automatically deleted from the target"
@@ -239,23 +243,25 @@ $result = $null
 
 if ($Method -eq "Auto") {
     # Auto chain: WinRM → SMB+WMI → FAILED
+    # EX20: Fall back on any pre-launch failure (CONNECTION_FAILED or TRANSFER_FAILED),
+    # not just CONNECTION_FAILED. Once a process is LAUNCHED there is no point retrying.
     Write-Ts "Trying WinRM..." "Cyan"
     Import-Module "$executorDir\WinRM.psm1" -Force
     $result = Invoke-Executor @execParams
     Show-States $result
 
-    if ($result.FinalState -eq "CONNECTION_FAILED") {
+    if ($result.FinalState -eq "CONNECTION_FAILED" -or $result.FinalState -eq "TRANSFER_FAILED") {
         $winrmError = $result.Error
-        Write-Ts "WinRM failed -- trying SMB+WMI..." "Yellow"
+        Write-Ts "WinRM $($result.FinalState) -- trying SMB+WMI..." "Yellow"
         Import-Module "$executorDir\SMBWMI.psm1" -Force
         $result = Invoke-Executor @smbExecParams
         Show-States $result
 
-        if ($result.FinalState -eq "CONNECTION_FAILED") {
+        if ($result.FinalState -eq "CONNECTION_FAILED" -or $result.FinalState -eq "TRANSFER_FAILED") {
             $smbError = $result.Error
             Write-Ts "SMB+WMI failed -- no more methods." "Red"
             # Aggregate both errors into the final result
-            $result.Error = "All methods failed -- WinRM: $winrmError | SMB+WMI: $smbError"
+            $result.Error = "All methods failed -- WinRM: $winrmError | SMB+WMI: $smbError. If binary is already on target, retry with -Method WMI."
         }
     }
 }
@@ -287,8 +293,10 @@ $fullResult = [ordered]@{
     ExecutorVersion = $EXECUTOR_VERSION
     AnalystMachine  = $env:COMPUTERNAME
 }
-# Merge result fields
+# Merge result fields (EX23: strip any credential/password properties as defense-in-depth)
+$sensitiveKeys = @('Credential', 'Password', 'SecurePassword', 'Secret', 'Token')
 foreach ($k in $result.PSObject.Properties.Name) {
+    if ($k -iin $sensitiveKeys) { continue }
     $fullResult[$k] = $result.$k
 }
 
@@ -310,6 +318,11 @@ if ($result.FinalState -eq 'ALIVE') {
     Write-Host "  [~] ALIVE_ASSUMED -- tool likely running as PID $($result.PID)" -ForegroundColor Yellow
     Write-Host "  WMI alive-check failed; process was launched but could not be verified." -ForegroundColor Yellow
     Write-Host "  Check target manually." -ForegroundColor Yellow
+} elseif ($result.FinalState -eq 'SFX_ASSUMED') {
+    Write-Host ""
+    Write-Host "  [~] SFX_ASSUMED -- SFX process exited but exit code unavailable" -ForegroundColor Yellow
+    Write-Host "  WMI cannot retrieve exit codes. Extraction may have failed." -ForegroundColor Yellow
+    Write-Host "  Verify extracted payload is running on target." -ForegroundColor Yellow
 } elseif ($result.FinalState -eq 'LAUNCH_FAILED') {
     $lastDetail = if ($result.States -and $result.States.Count -gt 0) {
         $result.States[-1].Detail
