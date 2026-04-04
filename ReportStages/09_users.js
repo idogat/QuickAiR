@@ -402,7 +402,7 @@ function buildUserExpand(u) {
                   '\nConfidence: ' + (fl.Confidence || '?');
       const lastTip = 'Source: ProfileList LastUseTime.\nPath: HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\ProfileList\\' + (u.SID || '<SID>') + '\\LastUseTime\nUpdated on each logoff.';
       const profPathFull = m.ProfilePath || '';
-      const profPathShort= profPathFull.length > 38 ? '&#8230;' + esc(profPathFull.slice(-36)) : esc(profPathFull || '&#8212;');
+      const profPathShort= profPathFull.length > 38 ? '&#8230;' + esc(profPathFull.slice(-36)) : (profPathFull ? esc(profPathFull) : '&#8212;');
 
       html += `<tr>
         <td>${esc(m.hostname)}</td>
