@@ -43,7 +43,7 @@ function Resolve-TargetHostname {
                 return $h.HostName
             } else {
                 # Complete the async operation to prevent dangling callback (W-02)
-                try { [System.Net.Dns]::EndGetHostEntry($ar) } catch {}
+                try { $null = [System.Net.Dns]::EndGetHostEntry($ar) } catch {}
                 Write-Log 'WARN' "DNS resolution timed out (5s) for $Target, using IP as fallback"
                 return $Target
             }

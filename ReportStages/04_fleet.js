@@ -95,7 +95,7 @@ function renderFleet() {
   ];
 
   function buildRows() {
-    const rows = hosts.map(h => {
+    let rows = hosts.map(h => {
       const d  = state.hosts[h];
       const m  = d.manifest || {};
       const allConns = (d.network_tcp||[]).concat(d.network_udp||[]);
