@@ -6,10 +6,11 @@
 # ║  Enforces forward-only status transitions.                 ║
 # ╠══════════════════════════════════════════════════════════════╣
 # ║  Exports   : New-JobQueue, Add-Job, Get-NextJob,           ║
-# ║              Update-JobStatus, Get-QueueSummary            ║
+# ║              Update-JobStatus, Reset-JobStatus,            ║
+# ║              Get-QueueSummary                              ║
 # ║  Depends   : none                                          ║
 # ║  PS compat : 5.1 (analyst machine)                        ║
-# ║  Version   : 1.5                                          ║
+# ║  Version   : 1.6                                          ║
 # ╚══════════════════════════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -219,33 +220,71 @@ function Update-JobStatus {
         [Parameter(Mandatory=$false)] [string]$Detail = $null
     )
     [System.Threading.Monitor]::Enter($Queue.Lock)
-    $j = $null
-    foreach ($item in $Queue.Jobs) {
-        if ($item.JobId -eq $JobId) { $j = $item; break }
-    }
-    [System.Threading.Monitor]::Exit($Queue.Lock)
+    try {
+        $j = $null
+        foreach ($item in $Queue.Jobs) {
+            if ($item.JobId -eq $JobId) { $j = $item; break }
+        }
 
-    if ($null -eq $j) {
-        Write-Warning "Update-JobStatus: job $JobId not found"
-        return $false
-    }
+        if ($null -eq $j) {
+            Write-Warning "Update-JobStatus: job $JobId not found"
+            return $false
+        }
 
-    $curOrder = if ($script:StatusOrder.ContainsKey($j.Status)) { $script:StatusOrder[$j.Status] } else { -1 }
-    $newOrder = if ($script:StatusOrder.ContainsKey($Status))   { $script:StatusOrder[$Status] }   else { 100 }
+        $curOrder = if ($script:StatusOrder.ContainsKey($j.Status)) { $script:StatusOrder[$j.Status] } else { -1 }
+        $newOrder = if ($script:StatusOrder.ContainsKey($Status))   { $script:StatusOrder[$Status] }   else { 100 }
 
-    if ($newOrder -lt $curOrder) {
-        Write-Warning "Update-JobStatus: invalid backward transition $($j.Status) -> $Status for job $JobId"
-        return $false
-    }
+        if ($newOrder -lt $curOrder) {
+            Write-Warning "Update-JobStatus: invalid backward transition $($j.Status) -> $Status for job $JobId"
+            return $false
+        }
 
-    $j.Status = $Status
-    if ($null -ne $Detail) { $j.Detail = $Detail }
-    if ($Status -in $script:TerminalStatuses) {
-        $j.IsDone     = $true
-        $j.EndTime    = [DateTime]::UtcNow
-        $j.Credential = $null   # clear credential reference on terminal state
+        $j.Status = $Status
+        if ($null -ne $Detail) { $j.Detail = $Detail }
+        if ($Status -in $script:TerminalStatuses) {
+            $j.IsDone     = $true
+            $j.EndTime    = [DateTime]::UtcNow
+            $j.Credential = $null   # clear credential reference on terminal state
+        }
+        return $true
+    } finally {
+        [System.Threading.Monitor]::Exit($Queue.Lock)
     }
-    return $true
+}
+
+function Reset-JobStatus {
+    <#
+    .SYNOPSIS
+        Resets a terminal-state job back to Queued for retry.
+        Intentional exception to forward-only state machine — used by UI retry button.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] $Queue,
+        [Parameter(Mandatory=$true)] [string]$JobId
+    )
+    [System.Threading.Monitor]::Enter($Queue.Lock)
+    try {
+        $j = $null
+        foreach ($item in $Queue.Jobs) {
+            if ($item.JobId -eq $JobId) { $j = $item; break }
+        }
+        if ($null -eq $j) {
+            Write-Warning "Reset-JobStatus: job $JobId not found"
+            return $false
+        }
+        if (-not $j.IsDone) {
+            Write-Warning "Reset-JobStatus: job $JobId is not in a terminal state ($($j.Status))"
+            return $false
+        }
+        $j.Status     = 'Queued'
+        $j.IsDone     = $false
+        $j.Detail     = $null
+        $j.EndTime    = $null
+        return $true
+    } finally {
+        [System.Threading.Monitor]::Exit($Queue.Lock)
+    }
 }
 
 function Get-QueueSummary {

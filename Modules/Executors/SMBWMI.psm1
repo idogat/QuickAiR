@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -87,6 +87,8 @@ function Invoke-Executor {
         $result.FinalState = $State
     }
 
+    $uncPath = $null
+
     # Convert local path to UNC: C:\Windows\Temp\x.exe → \\host\C$\Windows\Temp\x.exe
     function ConvertTo-UNCPath {
         param([string]$Host_, [string]$LocalPath)
@@ -107,6 +109,7 @@ function Invoke-Executor {
         $wmiScope = $null; $searcher = $null
         try {
             $wmiScope = New-Object System.Management.ManagementScope("\\$Host_\root\cimv2")
+            $wmiScope.Options.Timeout = [TimeSpan]::FromSeconds(60)
             if ($Cred) {
                 $wmiScope.Options.Username = $Cred.UserName
                 # NOTE (EX15): Plaintext required by ManagementScope API -- no SecureString overload.
@@ -226,10 +229,14 @@ function Invoke-Executor {
         }
 
         # Step 3 -- Compute SHA256 of local binary (PS 2.0 compatible -- no Get-FileHash)
-        $localSha = [System.Security.Cryptography.SHA256]::Create()
-        $localBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
-        $localHashBytes = $localSha.ComputeHash($localBytes)
-        try { $localSha.Dispose() } catch { }
+        $localSha = $null
+        try {
+            $localSha = [System.Security.Cryptography.SHA256]::Create()
+            $localBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
+            $localHashBytes = $localSha.ComputeHash($localBytes)
+        } finally {
+            if ($localSha) { try { $localSha.Dispose() } catch {} }
+        }
         $localHash = ([System.BitConverter]::ToString($localHashBytes) -replace '-','')
         $localSize = $localBytes.Length
 
@@ -238,7 +245,7 @@ function Invoke-Executor {
             # EX16: use -LiteralPath consistently for UNC paths with special chars
             $uncDir = Split-Path -Parent $uncPath
             if ($uncDir -and -not (Test-Path -LiteralPath $uncDir)) {
-                New-Item -ItemType Directory -Path $uncDir -Force | Out-Null
+                New-Item -ItemType Directory -LiteralPath $uncDir -Force -ErrorAction Stop | Out-Null
             }
             Copy-Item -LiteralPath $LocalBinaryPath -Destination $uncPath -Force -ErrorAction Stop
 
@@ -285,6 +292,7 @@ function Invoke-Executor {
         $launchScope = $null; $classObj = $null
         try {
             $launchScope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
+            $launchScope.Options.Timeout = [TimeSpan]::FromSeconds(60)
             if ($Credential) {
                 $launchScope.Options.Username = $Credential.UserName
                 # NOTE (EX15): Plaintext required by ManagementScope API -- no SecureString overload.

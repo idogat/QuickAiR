@@ -14,9 +14,9 @@
 # ║  Inputs    : -Target -Cred          ║
 # ║  Output    : caps hashtable;        ║
 # ║              PSSession | hashtable  ║
-# ║  Depends   : none                   ║
+# ║  Depends   : Core\Output.psm1       ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.6                    ║
+# ║  Version   : 2.7                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -34,6 +34,7 @@ function Resolve-TargetHostname {
     param([string]$Target)
     if ($Target -eq 'localhost' -or $Target -eq '127.0.0.1') { return $env:COMPUTERNAME }
     if ($Target -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+        $ar = $null
         try {
             # Use async DNS with 5-second timeout to avoid blocking on unreachable DNS
             $ar = [System.Net.Dns]::BeginGetHostEntry($Target, $null, $null)
@@ -41,12 +42,16 @@ function Resolve-TargetHostname {
                 $h = [System.Net.Dns]::EndGetHostEntry($ar)
                 return $h.HostName
             } else {
+                # Complete the async operation to prevent dangling callback (W-02)
+                try { [System.Net.Dns]::EndGetHostEntry($ar) } catch {}
                 Write-Log 'WARN' "DNS resolution timed out (5s) for $Target, using IP as fallback"
                 return $Target
             }
         } catch {
             Write-Log 'WARN' "DNS resolution failed for $Target, using IP as fallback: $($_.Exception.Message)"
             return $Target
+        } finally {
+            if ($ar) { try { $ar.AsyncWaitHandle.Close() } catch {} }
         }
     }
     return $Target

@@ -34,6 +34,16 @@ $_isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIde
 if (-not $_isAdmin) {
     $tmpUri = Join-Path $env:TEMP "quickair_collect_uri_$([guid]::NewGuid().ToString('N')).txt"
     [System.IO.File]::WriteAllText($tmpUri, $URI, [System.Text.Encoding]::UTF8)
+    # Restrict temp file to current user only
+    try {
+        $acl = Get-Acl -LiteralPath $tmpUri
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+            'FullControl', 'Allow')
+        $acl.SetAccessRule($rule)
+        Set-Acl -LiteralPath $tmpUri -AclObject $acl
+    } catch {}
     $fileUri = "file:$tmpUri"
     Start-Process powershell.exe -Verb RunAs -ArgumentList @(
         '-ExecutionPolicy', 'Bypass',
@@ -1011,7 +1021,9 @@ function Build-UI {
         try { Invoke-Schedule }
         catch {
             $msg = "$(([DateTime]::UtcNow.ToString('o'))) REFRESH: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
-            [System.IO.File]::AppendAllText('C:\DFIRLab\collector_error.log', $msg)
+            $logPath = 'C:\DFIRLab\collector_error.log'
+            try { if ((Test-Path $logPath) -and (Get-Item $logPath).Length -gt 5MB) { Move-Item $logPath "$logPath.old" -Force } } catch {}
+            [System.IO.File]::AppendAllText($logPath, $msg)
         }
     })
     $script:RefreshTimer.Start()
@@ -1025,7 +1037,9 @@ function Build-UI {
         }
         catch {
             $msg = "$(([DateTime]::UtcNow.ToString('o'))) BRIDGE: $($_.Exception.GetType().FullName): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
-            [System.IO.File]::AppendAllText('C:\DFIRLab\collector_error.log', $msg)
+            $logPath = 'C:\DFIRLab\collector_error.log'
+            try { if ((Test-Path $logPath) -and (Get-Item $logPath).Length -gt 5MB) { Move-Item $logPath "$logPath.old" -Force } } catch {}
+            [System.IO.File]::AppendAllText($logPath, $msg)
         }
     })
     $script:BridgeTimer.Start()

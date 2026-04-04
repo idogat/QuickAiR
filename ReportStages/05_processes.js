@@ -257,7 +257,7 @@ function onProcRowClick(i, p, rowEl) {
     <div class="kv-grid">
       <span class="k">CommandLine</span>   <span class="v">${esc(p.CommandLine||'—')}</span>
       <span class="k">ExecutablePath</span> <span class="v">${esc(p.ExecutablePath||'—')}</span>
-      <span class="k">CreationDateUTC</span><span class="v">${esc(p.CreationDateUTC||'')}</span>
+      <span class="k">CreationDateUTC</span><span class="v">${fmtUTC(p.CreationDateUTC)}</span>
       <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
       <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
       <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>

@@ -162,13 +162,13 @@ function renderExecute() {
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
-      return '<tr id="exec-row-' + esc(h) + '">' +
+      return '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + esc(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '</tr>';
     }).join('');
@@ -210,7 +210,7 @@ function renderExecute() {
 
 
 function execBulkMemCheck(hostname) {
-  var cb = el('exc-mem-' + hostname);
+  var cb = el('exc-mem-' + cssId(hostname));
   if (!cb || !_bulkSel[hostname]) return;
   _bulkSel[hostname].mem = cb.checked;
   _execUpdateSelCounter();
@@ -229,7 +229,7 @@ function execBulkToggleMem() {
   var allOn = hosts.every(function(h) { return _bulkSel[h].mem; });
   hosts.forEach(function(h) {
     _bulkSel[h].mem = !allOn;
-    var cb = el('exc-mem-' + h);
+    var cb = el('exc-mem-' + cssId(h));
     if (cb) cb.checked = !allOn;
   });
   _execUpdateSelCounter();

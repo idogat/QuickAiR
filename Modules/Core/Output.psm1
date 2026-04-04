@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.7                    ║
+# ║  Version   : 2.8                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -259,9 +259,17 @@ function Get-BinaryType {
             return $empty
         }
 
-        $bytes = [System.IO.File]::ReadAllBytes($Path)
-        $fileSize = $bytes.Length
+        $fi = New-Object System.IO.FileInfo($Path)
+        $fileSize = $fi.Length
         $empty.FileSizeBytes = $fileSize
+
+        # W-04: Skip analysis for very large files to prevent OOM
+        if ($fileSize -gt 104857600) { # 100MB
+            Write-Log "WARN" "Get-BinaryType: file too large for SFX analysis ($('{0:N0}' -f $fileSize) bytes): $Path"
+            return $empty
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($Path)
 
         # Locate PE header
         if ($fileSize -lt 64) { return $empty }
@@ -361,25 +369,21 @@ function Get-BinaryType {
             }
         }
 
-        # --- NSIS marker: "Nullsoft" string in PE ---
+        # --- NSIS marker + PE version info keywords (single ASCII scan) ---
         if (-not $sfxType) {
-            $nsisSig = [System.Text.Encoding]::ASCII.GetBytes("Nullsoft")
-            $found = $false
-            for ($j = 0; $j -le ($fileSize - $nsisSig.Length); $j++) {
-                $match = $true
-                for ($k = 0; $k -lt $nsisSig.Length; $k++) {
-                    if ($bytes[$j+$k] -ne $nsisSig[$k]) { $match = $false; break }
-                }
-                if ($match) { $found = $true; break }
-            }
-            if ($found) { $sfxType = "NSIS"; $sfxMethod = "NSISMarker" }
-        }
-
-        # --- PE version info keywords (ASCII scan) ---
-        if (-not $sfxType) {
-            $keywords = @("Self-Extractor","SFX","NSIS","Inno Setup")
             $peBytes  = if ($peEnd -lt $fileSize) { $bytes[0..($peEnd-1)] } else { $bytes }
             $peText   = [System.Text.Encoding]::ASCII.GetString($peBytes)
+            if ($peText.IndexOf("Nullsoft", [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $sfxType = "NSIS"; $sfxMethod = "NSISMarker"
+            }
+        }
+
+        if (-not $sfxType) {
+            if (-not $peText) {
+                $peBytes  = if ($peEnd -lt $fileSize) { $bytes[0..($peEnd-1)] } else { $bytes }
+                $peText   = [System.Text.Encoding]::ASCII.GetString($peBytes)
+            }
+            $keywords = @("Self-Extractor","SFX","NSIS","Inno Setup")
             foreach ($kw in $keywords) {
                 if ($peText.IndexOf($kw, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
                     $sfxType = switch -Regex ($kw) {

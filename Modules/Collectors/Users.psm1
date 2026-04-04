@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 3.0                    ║
+# ║  Version  : 3.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -57,9 +57,11 @@ $script:USERS_SB = {
         $r.machine_name= [string]$cs.Name
     } catch { $r.errors += "SysInfo: $($_.Exception.Message)" }
 
-    # ── Machine SID prefix ───────────────────────────────────────────────────
+    # ── Machine SID prefix (also caches local users for reuse) ────────────────
+    $cachedLocalUsers = $null
     try {
-        $lu = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" | Select-Object -First 1
+        $cachedLocalUsers = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True"
+        $lu = $cachedLocalUsers | Select-Object -First 1
         if ($lu -and $lu.SID) {
             $p = $lu.SID.Split('-')
             $r.machine_sid = ($p[0..($p.Length - 2)]) -join '-'
@@ -100,7 +102,9 @@ public class RegLwt {
 }
 '@ -ErrorAction Stop
             $_regLwtAvailable = $true
-        } catch {}
+        } catch {
+            $r.errors += "Add-Type RegLwt failed (CSC compiler unavailable?): $($_.Exception.Message). Registry key timestamps will not be available."
+        }
     }
     try { if ($_regLwtAvailable) { [void][RegLwt]; $_rkHelper = $true } } catch {}
 
@@ -116,7 +120,7 @@ public class RegLwt {
 
                 $profilePath = [string]$sk.GetValue("ProfileImagePath")
                 $state       = $sk.GetValue("State")
-                $username    = if ($profilePath) { Split-Path $profilePath -Leaf } else { $null }
+                $username    = $(if ($profilePath) { Split-Path $profilePath -Leaf } else { $null })
 
                 # LastUseTime from FILETIME high/low dwords
                 $lastUseRaw = $null
@@ -153,7 +157,7 @@ public class RegLwt {
                     }
                 } catch {
                     # NTUSER.DAT commonly locked for active user sessions
-                    Write-Warning "Cannot read NTUSER.DAT for SID $sidStr at '$ntPath': $($_.Exception.Message)"
+                    $r.errors += "NTUSER.DAT read failed for SID $sidStr at '$ntPath': $($_.Exception.Message)"
                 }
 
                 # Registry key LastWrite time (Get-Item; P/Invoke fallback for older .NET)
@@ -191,9 +195,9 @@ public class RegLwt {
         }
     } catch { $r.errors += "Profiles: $($_.Exception.Message)" }
 
-    # ── COLLECT 2: Local accounts ────────────────────────────────────────────
+    # ── COLLECT 2: Local accounts (reuses cached query from Machine SID) ────
     try {
-        $localUsers = Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True"
+        $localUsers = if ($cachedLocalUsers) { $cachedLocalUsers } else { Get-WmiObject Win32_UserAccount -Filter "LocalAccount=True" }
         foreach ($u in $localUsers) {
             $r.local_accounts_raw += @{
                 Name     = [string]$u.Name
@@ -239,7 +243,7 @@ public class RegLwt {
         try {
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
-                $adUsers = Get-ADUser -Filter * -Properties `
+                $adUsers = Get-ADUser -Filter * -ResultPageSize 1000 -Properties `
                     Created,LastLogonDate,lastLogon,PasswordLastSet,
                     Enabled,BadLogonCount,LockedOut,MemberOf
                 $r.dc_source = 'Get-ADUser'
@@ -340,7 +344,7 @@ function script:ComputeFirstLogonConfidence {
     if ($ntAvail -and $ntUTC) { $available += 'NT' }
     if ($rkAvail -and $rkUTC) { $available += 'RK' }
 
-    $firstUTC          = if ($pfUTC) { $pfUTC } elseif ($ntUTC) { $ntUTC } else { $rkUTC }
+    $firstUTC          = $(if ($pfUTC) { $pfUTC } elseif ($ntUTC) { $ntUTC } else { $rkUTC })
     $confidence        = 'LOW'
     $timestampMismatch = $false
 
@@ -393,7 +397,7 @@ function script:ComputeFirstLogonConfidence {
             $confidence = 'MEDIUM'; $firstUTC = $pfUTC
         } elseif ($pfNtAgree -or $pfRkAgree -or $ntRkAgree) {
             $confidence = 'MEDIUM'
-            $firstUTC = if ($pfNtAgree -or $pfRkAgree) { $pfUTC } else { $ntUTC }
+            $firstUTC = $(if ($pfNtAgree -or $pfRkAgree) { $pfUTC } else { $ntUTC })
         } else {
             $confidence = '?'; $timestampMismatch = $true; $firstUTC = $pfUTC
         }
@@ -510,8 +514,8 @@ function script:Invoke-UsersWMIRemote {
             $inP['sSubKeyName'] = "$plRoot\$sidStr"
             $inP['sValueName']  = 'ProfileImagePath'
             $outP = $reg.InvokeMethod('GetStringValue', $inP, $null)
-            $profilePath = if ($outP['ReturnValue'] -eq 0) { [string]$outP['sValue'] } else { $null }
-            $username = if ($profilePath) { Split-Path $profilePath -Leaf } else { $null }
+            $profilePath = $(if ($outP['ReturnValue'] -eq 0) { [string]$outP['sValue'] } else { $null })
+            $username = $(if ($profilePath) { Split-Path $profilePath -Leaf } else { $null })
 
             # Read State (DWORD)
             $inS = $reg.GetMethodParameters('GetDWORDValue')
@@ -519,7 +523,7 @@ function script:Invoke-UsersWMIRemote {
             $inS['sSubKeyName'] = "$plRoot\$sidStr"
             $inS['sValueName']  = 'State'
             $outS = $reg.InvokeMethod('GetDWORDValue', $inS, $null)
-            $state = if ($outS['ReturnValue'] -eq 0) { $outS['uValue'] } else { $null }
+            $state = $(if ($outS['ReturnValue'] -eq 0) { $outS['uValue'] } else { $null })
 
             $r.profiles_raw += @{
                 SID         = $sidStr
@@ -574,7 +578,8 @@ function script:Invoke-UsersWMIRemote {
         try {
             try {
                 Import-Module ActiveDirectory -ErrorAction Stop
-                $adArgs = @{ Server = $ComputerName; Filter = '*'; Properties = @('Created','LastLogonDate','lastLogon','PasswordLastSet','Enabled','BadLogonCount','LockedOut','MemberOf') }
+                # NOTE: Runs on analyst machine, requires RSAT or LDAP connectivity from analyst to target DC.
+                $adArgs = @{ Server = $ComputerName; Filter = '*'; ResultPageSize = 1000; Properties = @('Created','LastLogonDate','lastLogon','PasswordLastSet','Enabled','BadLogonCount','LockedOut','MemberOf') }
                 if ($Credential) { $adArgs.Credential = $Credential }
                 $adUsers = Get-ADUser @adArgs
                 $r.dc_source = 'Get-ADUser'
@@ -695,6 +700,9 @@ function Invoke-Collector {
         if ($e -and $e -is [string]) {
             $errors += @{ artifact = 'Users'; message = $e }
             Write-Log 'WARN' "Users: $e"
+        } elseif ($e -is [hashtable]) {
+            $errors += $e
+            Write-Log 'WARN' "Users: $($e.message)"
         }
     }
 

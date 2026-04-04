@@ -46,6 +46,6 @@ if ($ok) {
         'QuickAiR Setup', 'OK', 'Information') | Out-Null
 } else {
     [System.Windows.Forms.MessageBox]::Show(
-        "Setup failed - registry keys not created.`nTry right-clicking and selecting Run as Administrator.",
+        "Setup failed - registry keys not created.`nPossible causes: group policy restrictions or security software blocking registry changes.`nHKCU writes do not require elevation.",
         'QuickAiR Setup', 'OK', 'Error') | Out-Null
 }

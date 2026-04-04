@@ -22,7 +22,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -160,6 +160,11 @@ if (-not $LocalBinaryPath) {
 # Clean path -- strip surrounding quotes, trim whitespace, normalize separators
 $LocalBinaryPath = $LocalBinaryPath.Trim().Trim('"').Trim("'").Trim()
 $LocalBinaryPath = $LocalBinaryPath -replace '/', '\'
+
+if (-not (Test-Path -LiteralPath $LocalBinaryPath)) {
+    Write-Ts "File not found: $LocalBinaryPath" "Red"
+    exit 1
+}
 
 $isLocal = ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or
             $Target -eq '::1' -or $Target -eq '[::1]' -or
@@ -301,7 +306,8 @@ foreach ($k in $result.PSObject.Properties.Name) {
 }
 
 $jsonText = $fullResult | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText($jsonFile, $jsonText, [System.Text.Encoding]::UTF8)
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($jsonFile, $jsonText, $utf8NoBom)
 
 $finalIcon = if ($result.FinalState -match 'FAILED') { "[x]" } else { "[v]" }
 $finalCol  = if ($result.FinalState -match 'FAILED') { "Red" } else { "Green" }

@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.0                    ║
+# ║  Version   : 3.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -205,7 +205,7 @@ function Invoke-Executor {
                             Copy-Item -LiteralPath $muiSrc -Destination $muiDest -Force -ErrorAction Stop
                         }
                     }
-                } catch { }
+                } catch { Add-State "MUI_TRANSFER_WARN" "MUI transfer failed (non-fatal): $($_.Exception.Message)" }
             } catch {
                 Add-State "TRANSFER_FAILED" $_.Exception.Message
                 $result.Error = $_.Exception.Message
@@ -300,7 +300,7 @@ function Invoke-Executor {
                             } -ArgumentList $muiB64, $muiDest2 -ErrorAction Stop
                         }
                     }
-                } catch { }
+                } catch { Add-State "MUI_TRANSFER_WARN" "MUI transfer failed (non-fatal): $($_.Exception.Message)" }
             } catch {
                 # Fallback: SMB Copy-Item via PSDrive (passes credential properly -- EX2)
                 $smbFallbackDrive = $null
@@ -318,6 +318,11 @@ function Invoke-Executor {
                     New-PSDrive @fbDriveParams | Out-Null
                     Copy-Item -LiteralPath $LocalBinaryPath -Destination $uncPath -Force -ErrorAction Stop
 
+                    # Re-validate session before verification (W-35)
+                    if ($session.State -ne 'Opened') {
+                        Remove-PSSession $session -ErrorAction SilentlyContinue
+                        $session = New-PSSession -ComputerName $ComputerName -Credential $Credential -ErrorAction Stop
+                    }
                     $remoteHash2 = Invoke-Command -Session $session -ScriptBlock {
                         param($path)
                         $sha  = [System.Security.Cryptography.SHA256]::Create()
@@ -517,8 +522,20 @@ function Invoke-Executor {
                         if (Test-Path -LiteralPath $p) {
                             Remove-Item -LiteralPath $p -Force -ErrorAction Stop
                         }
+                        # Clean up MUI subdirectories
+                        $dir = Split-Path -Parent $p
+                        $name = [System.IO.Path]::GetFileNameWithoutExtension($p)
+                        Get-ChildItem -Path $dir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                            $muiFile = Join-Path $_.FullName "$name.mui"
+                            if (Test-Path -LiteralPath $muiFile) {
+                                Remove-Item -LiteralPath $muiFile -Force -ErrorAction SilentlyContinue
+                                if (-not (Get-ChildItem $_.FullName -Force -ErrorAction SilentlyContinue)) {
+                                    Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+                                }
+                            }
+                        }
                     } -ArgumentList $RemoteDestPath -ErrorAction Stop
-                    Add-State "CLEANUP" "Removed transferred binary from target"
+                    Add-State "CLEANUP" "Removed transferred binary and MUI files from target"
                 }
             } catch {
                 Add-State "CLEANUP_FAILED" "Could not remove transferred binary: $($_.Exception.Message)"

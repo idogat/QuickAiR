@@ -165,7 +165,7 @@ function onDllRowClick(i, e, rowEl) {
 
   const d = activeData();
   // Show all sibling DLLs (unfiltered) for forensic completeness
-  const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e);
+  const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId === e.ProcessId && x !== e);
   const INITIAL_SHOW = 30;
   const shown = allSameProc.slice(0, INITIAL_SHOW);
   const more  = allSameProc.length - shown.length;

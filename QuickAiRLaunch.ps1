@@ -36,6 +36,16 @@ if (-not $_isAdmin) {
     # Write URI to temp file to avoid command-line length/encoding issues
     $tmpUri = Join-Path $env:TEMP "quickair_uri_$([guid]::NewGuid().ToString('N')).txt"
     [System.IO.File]::WriteAllText($tmpUri, $URI, [System.Text.Encoding]::UTF8)
+    # Restrict temp file to current user only
+    try {
+        $acl = Get-Acl -LiteralPath $tmpUri
+        $acl.SetAccessRuleProtection($true, $false)
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+            'FullControl', 'Allow')
+        $acl.SetAccessRule($rule)
+        Set-Acl -LiteralPath $tmpUri -AclObject $acl
+    } catch {}
     $fileUri = "file:$tmpUri"
     Start-Process powershell.exe -Verb RunAs -ArgumentList @(
         '-ExecutionPolicy', 'Bypass',

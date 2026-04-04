@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.8                      ║
+# ║  Version   : 2.9                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -33,13 +33,13 @@ $script:NET_SB_FALLBACK = {
     New-Object PSObject -Property @{ Source = 'netstat_fallback'; Lines = $lines }
 }
 $script:NET_SB_CIM = {
-    $out = @(); $udpOut = @()
+    $out = New-Object System.Collections.ArrayList; $udpOut = New-Object System.Collections.ArrayList
     try {
         $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -OperationTimeoutSec 60
         foreach ($c in $raw) {
             $ct = $null
             if ($c.CreationTime) { $ct = $c.CreationTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
-            $out += New-Object PSObject -Property @{
+            [void]$out.Add((New-Object PSObject -Property @{
                 LocalAddress   = $c.LocalAddress
                 LocalPort      = [int]$c.LocalPort
                 RemoteAddress  = $c.RemoteAddress
@@ -48,22 +48,22 @@ $script:NET_SB_CIM = {
                 StateInt       = [int]$c.State
                 InterfaceAlias = $c.InterfaceAlias
                 CreationTime   = $ct
-            }
+            }))
         }
         try {
             $rawU = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetUDPEndpoint -OperationTimeoutSec 60
             foreach ($u in $rawU) {
-                $udpOut += New-Object PSObject -Property @{
+                [void]$udpOut.Add((New-Object PSObject -Property @{
                     LocalAddress  = $u.LocalAddress
                     LocalPort     = [int]$u.LocalPort
                     OwningProcess = [int]$u.OwningProcess
-                }
+                }))
             }
         } catch {
-            $udpOut = @()  # ensure empty on failure
+            $udpOut = New-Object System.Collections.ArrayList  # ensure empty on failure
         }
-        $udpErr = if ($udpOut.Count -eq 0 -and $raw.Count -gt 0) { 'UDP collection failed or returned zero endpoints' } else { $null }
-        New-Object PSObject -Property @{ Source = 'cim'; Connections = $out; UdpEndpoints = $udpOut; UdpError = $udpErr }
+        $udpErr = $null; if ($udpOut.Count -eq 0 -and $raw.Count -gt 0) { $udpErr = 'UDP collection failed or returned zero endpoints' }
+        New-Object PSObject -Property @{ Source = 'cim'; Connections = @($out); UdpEndpoints = @($udpOut); UdpError = $udpErr }
     } catch {
         $lines = & netstat -ano 2>&1
         New-Object PSObject -Property @{ Source = 'netstat_fallback'; Lines = $lines }
@@ -194,7 +194,7 @@ function ConvertFrom-NetstatOutput {
     foreach ($line in $Lines) {
         $line = $line.Trim()
         # TCP: has state column
-        if ($line -match '^TCP\s+(\[?[\d.:a-fA-F]+\]?):(\d+)\s+(\[?[\d.:a-fA-F*]+\]?):(\d+|\*)\s+(\S+)\s+(\d+)\s*$') {
+        if ($line -match '^TCP\s+(\[?[\d.:a-fA-F%]+\]?):(\d+)\s+(\[?[\d.:a-fA-F%*]+\]?):(\d+|\*)\s+(\S+)\s+(\d+)\s*$') {
             $la = $Matches[1] -replace '[\[\]]',''
             $ra = $Matches[3] -replace '[\[\]]',''
             $st = $Matches[5]
@@ -215,7 +215,7 @@ function ConvertFrom-NetstatOutput {
             }
         }
         # UDP: no state column, remote is *:*
-        elseif ($line -match '^UDP\s+(\[?[\d.:a-fA-F]+\]?):(\d+)\s+\S+\s+(\d+)\s*$') {
+        elseif ($line -match '^UDP\s+(\[?[\d.:a-fA-F%]+\]?):(\d+)\s+\S+\s+(\d+)\s*$') {
             $la = $Matches[1] -replace '[\[\]]',''
             $udp += @{
                 Protocol       = 'UDP'
@@ -324,7 +324,7 @@ function ConvertTo-DnsTypeName {
 $script:PROC_SB_PS2 = {
     $out = @{}
     $procs = Get-WmiObject Win32_Process | Select-Object ProcessId, Name
-    foreach ($p in $procs) { $out[[int]$p.ProcessId] = $p.Name }
+    foreach ($p in $procs) { $n = $p.Name; if ($n -and $n.EndsWith('.exe')) { $n = $n.Substring(0, $n.Length - 4) }; $out[[int]$p.ProcessId] = $n }
     $out
 }
 $script:PROC_SB_PS3 = {
@@ -371,7 +371,6 @@ function Invoke-Collector {
                     try { $scope.Connect() } catch {
                         throw (New-Object System.Management.ManagementException("WMI netstat scope connection failed for $($Session.ComputerName)"))
                     }
-                    $targetDiskWritten = $true
                     $tmpName = "quickair_netstat_$([guid]::NewGuid().ToString('N')).txt"
                     $tmpRemote = "C:\Windows\Temp\$tmpName"
                     $cmdLine = "cmd.exe /c netstat -ano > `"$tmpRemote`""
@@ -380,6 +379,7 @@ function Invoke-Collector {
                     $inParams["CommandLine"] = $cmdLine
                     $outP = $classObj.InvokeMethod("Create", $inParams, $null)
                     if ([int]$outP["ReturnValue"] -eq 0) {
+                        $targetDiskWritten = $true
                         $uncPath = "\\$($Session.ComputerName)\C`$\Windows\Temp\$tmpName"
                         try {
                             # Poll for file stability instead of fixed sleep
@@ -414,9 +414,12 @@ function Invoke-Collector {
                                     $delCmd = "cmd.exe /c del /f `"$tmpRemote`""
                                     $delIn = $classObj.GetMethodParameters("Create")
                                     $delIn["CommandLine"] = $delCmd
-                                    $classObj.InvokeMethod("Create", $delIn, $null) | Out-Null
+                                    $delOut = $classObj.InvokeMethod("Create", $delIn, $null)
+                                    if ([int]$delOut["ReturnValue"] -ne 0) {
+                                        $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "WMI cleanup: del command returned $([int]$delOut['ReturnValue']) for $tmpRemote on $($Session.ComputerName)" }
+                                    }
                                 } catch {
-                                    Write-Log 'WARN' "Failed to clean temp file on target $($Session.ComputerName): $tmpRemote"
+                                    $errors += @{ artifact = 'network_tcp'; severity = 'warning'; message = "Failed to clean temp file on target $($Session.ComputerName): $tmpRemote - $($_.Exception.Message)" }
                                 }
                             }
                         }
@@ -580,8 +583,8 @@ function Invoke-Collector {
         } else {
             # Local
             if ($TargetCapabilities.HasNetTCPIP) {
-                $networkSource = 'cim'
                 $raw = Get-CimInstance -Namespace ROOT/StandardCimv2 -ClassName MSFT_NetTCPConnection -OperationTimeoutSec $OP_TIMEOUT_SEC
+                $networkSource = 'cim'
                 foreach ($c in $raw) {
                     $la = $c.LocalAddress; $ra = $c.RemoteAddress
                     $stateStr = ConvertFrom-TcpStateInt ([int]$c.State)
@@ -780,7 +783,7 @@ function Invoke-Collector {
             $wmiProcP = @{ Class = 'Win32_Process'; ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
             if ($Session.Credential) { $wmiProcP.Credential = $Session.Credential }
             $wmiProcs = Get-WmiObject @wmiProcP
-            foreach ($p in $wmiProcs) { $pidMap[[int]$p.ProcessId] = $p.Name }
+            foreach ($p in $wmiProcs) { $n = $p.Name; if ($n -and $n.EndsWith('.exe')) { $n = $n.Substring(0, $n.Length - 4) }; $pidMap[[int]$p.ProcessId] = $n }
         } elseif ($Session -ne $null) {
             $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
             $pidMap = Invoke-Command -Session $Session -ScriptBlock $sb

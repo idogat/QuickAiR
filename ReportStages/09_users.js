@@ -271,7 +271,7 @@ function renderUserRow(u) {
   return `
     <div class="td mono" title="${esc(USER_TIPS.SID)}\nSID: ${esc(u.SID)}">${esc(u.Username || u.SID)}</div>
     <div class="td">${acctTypeBadge(u.AccountType)}</div>
-    <div class="td dim">${esc(u.Domain || '&#8212;')}</div>
+    <div class="td dim">${u.Domain ? esc(u.Domain) : '&#8212;'}</div>
     <div class="td dim" title="${esc(USER_TIPS.WhenCreated)}">${dcDate}</div>
     <div class="td dim" title="${esc(USER_TIPS.FirstLogon)}">${firstLoginCell}</div>
     <div class="td dim" title="${esc(USER_TIPS.LastLogon)}">${fmtUTC(lastLogon)}</div>
@@ -308,7 +308,7 @@ function buildUserExpand(u) {
       <span class="k">Account Type</span>
         <span class="v">${acctTypeBadge(u.AccountType)}</span>
       <span class="k">Domain</span>
-        <span class="v">${esc(u.Domain || '&#8212;')}</span>`;
+        <span class="v">${u.Domain ? esc(u.Domain) : '&#8212;'}</span>`;
 
   if (u.SIDMetadata && u.SIDMetadata.WellKnown) {
     html += `

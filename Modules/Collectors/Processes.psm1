@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.6                         ║
+# ║  Version   : 3.7                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -41,7 +41,7 @@ $script:PROC_SB_WMI = {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $s = [Security.Cryptography.SHA256]::Create()
             $st = [System.IO.File]::OpenRead($p)
-            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Clear() }
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -262,7 +262,7 @@ public class IntegrityHelper {
             return @($null, "IL_ERROR: $m")
         }
     }
-    $out = @()
+    $out = New-Object System.Collections.ArrayList
     $outerErrors = @()
     $sha256Cache = @{}
     $MAX_PROCESS_COUNT = 5000
@@ -324,7 +324,7 @@ public class IntegrityHelper {
         $ilResult = _getIntegrityLevel $pid_
 
         if ($pid_ -ne $null) {
-            $out += New-Object PSObject -Property @{
+            [void]$out.Add((New-Object PSObject -Property @{
                 ProcessId       = $pid_
                 ParentProcessId = $ppid
                 Name            = $name_
@@ -342,7 +342,7 @@ public class IntegrityHelper {
                 SHA256Error     = $sha256Err
                 Signature       = $sigObj
                 source          = 'wmi'
-            }
+            }))
         }
         } catch {
             $outerErrors += "WMI process loop error: $($_.Exception.Message)"
@@ -388,8 +388,8 @@ public class IntegrityHelper {
     } catch {
         $outerErrors += ".NET cross-check failed: $($_.Exception.Message)"
     }
-    $out += $dotnet
-    New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
+    if ($dotnet.Count -gt 0) { $out.AddRange($dotnet) }
+    New-Object PSObject -Property @{ Procs = @($out); FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
 }
 
 # CIM scriptblock for PS 3+ path
@@ -403,7 +403,7 @@ $script:PROC_SB_CIM = {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $s = [Security.Cryptography.SHA256]::Create()
             $st = [System.IO.File]::OpenRead($p)
-            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Clear() }
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -507,7 +507,7 @@ public class IntegrityHelper {
             return @($null, "IL_ERROR: $m")
         }
     }
-    $out = @()
+    $out = New-Object System.Collections.ArrayList
     $outerErrors = @()
     $sha256Cache = @{}
     $MAX_PROCESS_COUNT = 5000
@@ -567,7 +567,7 @@ public class IntegrityHelper {
         # Signature (PS 3+)
         $entry.Signature = _getSigPS3 $entry.ExecutablePath
 
-        $out += $entry
+        [void]$out.Add($entry)
         } catch {
             $outerErrors += "CIM process loop error PID=$($p.ProcessId): $($_.Exception.Message)"
             continue
@@ -613,8 +613,8 @@ public class IntegrityHelper {
     } catch {
         $outerErrors += ".NET cross-check failed: $($_.Exception.Message)"
     }
-    $out += $dotnet
-    New-Object PSObject -Property @{ Procs = $out; FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
+    if ($dotnet.Count -gt 0) { $out.AddRange($dotnet) }
+    New-Object PSObject -Property @{ Procs = @($out); FallbackCount = $dotnet.Count; OuterErrors = $outerErrors }
 }
 
 function _sha256($p) {
@@ -623,7 +623,7 @@ function _sha256($p) {
         if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
         $s = [Security.Cryptography.SHA256]::Create()
         $st = [System.IO.File]::OpenRead($p)
-        try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Clear() }
+        try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
         return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
     } catch {
         $m = $_.Exception.Message

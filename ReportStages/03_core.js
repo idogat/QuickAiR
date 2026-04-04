@@ -704,7 +704,7 @@ function onGlobalSearch(q) {
     str(p.ExecutablePath).includes(lq) || str(p.CommandLine).includes(lq)
   ).slice(0, 20);
 
-  const nMatches = (d.network_tcp || []).filter(c =>
+  const nMatches = (d.network_tcp || []).concat(d.network_udp || []).filter(c =>
     str(c.RemoteAddress).includes(lq) || str(c.RemotePort).includes(lq) ||
     str(c.LocalAddress).includes(lq)  || str(c.LocalPort).includes(lq) ||
     str(c.State).includes(lq)         || str(c.DnsMatch).includes(lq) ||
@@ -772,8 +772,9 @@ document.addEventListener('click', e => {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function str(v) { return v == null ? '' : String(v).toLowerCase(); }
+function cssId(s) { return String(s||'').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function trunc(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
 function fmtUTC(s) {
   if (!s) return '<span style="color:var(--muted)">&#8212;</span>';

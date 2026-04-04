@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.0                    ║
+# ║  Version   : 2.1                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -133,6 +133,7 @@ function Invoke-Executor {
             if ($Credential) { $wmiScopeParams['Credential'] = $Credential }
 
             $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
+            $scope.Options.Timeout = [TimeSpan]::FromSeconds(60)
             if ($Credential) {
                 $scope.Options.Username = $Credential.UserName
                 # NOTE (EX10): Plaintext password is required by ManagementScope API.

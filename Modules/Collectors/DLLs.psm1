@@ -12,8 +12,9 @@
 # ║               source='dotnet';      ║
 # ║               errors=[] }          ║
 # ║  Depends   : Core\DateTime.psm1     ║
-# ║  PS compat : 2.0+ (target-side)     ║
-# ║  Version   : 3.7                    ║
+# ║  PS compat : 5.1 (module/orch);     ║
+# ║              2.0+ (scriptblock)     ║
+# ║  Version   : 3.8                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -25,17 +26,21 @@ $ErrorActionPreference = 'Continue'
 $script:DLL_SB = {
     function _sha256($p) {
         if (-not $p) { return @($null, 'PATH_NULL') }
+        $fs = $null; $s = $null
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
             $s  = [Security.Cryptography.SHA256]::Create()
-            try { $h = $s.ComputeHash($fs) } finally { $fs.Close(); $s.Clear() }
+            $h  = $s.ComputeHash($fs)
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
             if ($m -match 'Access') { return @($null, 'ACCESS_DENIED') }
             elseif ($m -match 'not find|not exist|cannot find') { return @($null, 'FILE_NOT_FOUND') }
             else { return @($null, "COMPUTE_ERROR: $m") }
+        } finally {
+            if ($fs) { try { $fs.Close() } catch {} }
+            if ($s)  { try { $s.Dispose() } catch {} }
         }
     }
     # Only skip processes that have no modules (PID 0, PID 4). lsass/csrss/smss/wininit
@@ -150,7 +155,7 @@ public class CatalogChecker
     $sigCache = @{}
     $catSignerCache = @{}
 
-    $out = @()
+    $out = New-Object System.Collections.ArrayList
     $skippedProcs = @()
     $MAX_MODULE_COUNT = 50000
     $totalModuleCount = 0
@@ -162,6 +167,14 @@ public class CatalogChecker
             $skippedProcs += New-Object PSObject -Property @{ ProcessId=$null; ProcessName='MODULE_LIMIT_REACHED' }
             break
         }
+        # PID-based skip for locale-independent System/Idle detection (W-28)
+        $pId_ = $null; try { $pId_ = [int]$p.Id } catch {}
+        if ($pId_ -eq 0 -or $pId_ -eq 4) {
+            $pnTmp = $null; try { $pnTmp = $p.ProcessName } catch {}
+            $skippedProcs += New-Object PSObject -Property @{ ProcessId=$pId_; ProcessName=$pnTmp }
+            continue
+        }
+
         $pName = $null
         try { $pName = $p.ProcessName } catch {}
         if (-not $pName) { continue }
@@ -184,7 +197,7 @@ public class CatalogChecker
         } catch {
             $reason = $_.Exception.Message
             if ($_.Exception.Message -match 'Access') { $reason = 'ACCESS_DENIED' }
-            $out += New-Object PSObject -Property @{
+            [void]$out.Add((New-Object PSObject -Property @{
                 ProcessId     = $procId
                 ProcessName   = $pName
                 ModuleName    = $null
@@ -198,7 +211,7 @@ public class CatalogChecker
 
                 reason        = $reason
                 source        = 'dotnet'
-            }
+            }))
             continue
         }
 
@@ -270,13 +283,14 @@ public class CatalogChecker
                             TimeStamper   = $sigTimestamper
                             IsOSBinary    = $isOSBinD
                             SignatureType = $sigTypeD
+                            CatalogFile   = $null
                         }
                     } catch {
                         $sigD = New-Object PSObject -Property @{
                             IsSigned=$null; IsValid=$null; Status="ERROR: $($_.Exception.Message)"
                             SignerSubject=$null; SignerCompany=$null; Issuer=$null
                             Thumbprint=$null; NotAfter=$null; TimeStamper=$null
-                            IsOSBinary=$null; SignatureType=$null
+                            IsOSBinary=$null; SignatureType=$null; CatalogFile=$null
                         }
                     }
                     $sigCache[$mPath] = $sigD
@@ -342,7 +356,7 @@ public class CatalogChecker
                 }
             }
 
-            $out += New-Object PSObject -Property @{
+            [void]$out.Add((New-Object PSObject -Property @{
                 ProcessId     = $procId
                 ProcessName   = $pName
                 ModuleName    = $mName
@@ -356,10 +370,10 @@ public class CatalogChecker
 
                 reason        = $null
                 source        = 'dotnet'
-            }
+            }))
         }
     }
-    New-Object PSObject -Property @{ _dlls = $out; _skipped = $skippedProcs }
+    New-Object PSObject -Property @{ _dlls = @($out); _skipped = $skippedProcs }
 }
 
 # ── Invoke-Collector ──────────────────────────────────────────────────────────
@@ -371,7 +385,7 @@ function Invoke-Collector {
     )
 
     $errors = @()
-    $dlls   = @()
+    $dlls   = New-Object System.Collections.ArrayList
 
     $sb = $script:DLL_SB
 
@@ -388,7 +402,7 @@ function Invoke-Collector {
                 errors = $errors
             }
         } elseif ($Session -ne $null) {
-            $raw = Invoke-Command -Session $Session -ScriptBlock $sb
+            $raw = Invoke-Command -Session $Session -ScriptBlock $sb -ErrorAction Stop
         } else {
             $raw = & $sb
         }
@@ -425,7 +439,7 @@ function Invoke-Collector {
                     $errors += @{ artifact='dll_signature_deser'; ProcessId=$entry.ProcessId; ModulePath=$entry.ModulePath; message="Signature deserialization failed: $($_.Exception.Message)" }
                 }
             }
-            $dlls += @{
+            [void]$dlls.Add(@{
                 ProcessId     = $entry.ProcessId
                 ProcessName   = $entry.ProcessName
                 ModuleName    = $entry.ModuleName
@@ -438,7 +452,7 @@ function Invoke-Collector {
                 Signature     = $sigOut2
                 reason        = $entry.reason
                 source        = $entry.source
-            }
+            })
         }
     } catch {
         $errors += @{ artifact = 'DLLs'; message = $_.Exception.Message }

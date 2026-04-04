@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.5                    ║
+# ║  Version   : 3.6                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -483,20 +483,19 @@ foreach ($target in $Targets) {
     }
 
     } finally {
+        # Restore TrustedHosts if we modified it (mutex-protected against concurrent instances)
+        if ($null -ne $originalTrustedHosts) {
+            try {
+                if ($thMutex) { try { [void]$thMutex.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] {} }
+                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
+                Write-Log 'INFO' "Restored WinRM TrustedHosts"
+            } catch { Write-Log 'WARN' "Could not restore TrustedHosts: $($_.Exception.Message)" }
+            finally { if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {}; try { $thMutex.Dispose() } catch {} } }
+        }
         # Close shared session (WMI hashtable sessions need no cleanup)
         if ($session -and $session -is [System.Management.Automation.Runspaces.PSSession]) {
             Remove-PSSession $session -ErrorAction SilentlyContinue
         }
-    }
-
-    # Restore TrustedHosts if we modified it (mutex-protected against concurrent instances)
-    if ($null -ne $originalTrustedHosts) {
-        try {
-            if ($thMutex) { try { [void]$thMutex.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] {} }
-            Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
-            Write-Log 'INFO' "Restored WinRM TrustedHosts"
-        } catch { Write-Log 'WARN' "Could not restore TrustedHosts: $($_.Exception.Message)" }
-        finally { if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {}; try { $thMutex.Dispose() } catch {} } }
     }
 
     # Resolve hostname for output

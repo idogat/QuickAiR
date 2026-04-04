@@ -1102,7 +1102,7 @@ function onGlobalSearch(q) {
     str(p.ExecutablePath).includes(lq) || str(p.CommandLine).includes(lq)
   ).slice(0, 20);
 
-  const nMatches = (d.network_tcp || []).filter(c =>
+  const nMatches = (d.network_tcp || []).concat(d.network_udp || []).filter(c =>
     str(c.RemoteAddress).includes(lq) || str(c.RemotePort).includes(lq) ||
     str(c.LocalAddress).includes(lq)  || str(c.LocalPort).includes(lq) ||
     str(c.State).includes(lq)         || str(c.DnsMatch).includes(lq) ||
@@ -1170,8 +1170,9 @@ document.addEventListener('click', e => {
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function str(v) { return v == null ? '' : String(v).toLowerCase(); }
+function cssId(s) { return String(s||'').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function trunc(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
 function fmtUTC(s) {
   if (!s) return '<span style="color:var(--muted)">&#8212;</span>';
@@ -1805,7 +1806,7 @@ function onProcRowClick(i, p, rowEl) {
     <div class="kv-grid">
       <span class="k">CommandLine</span>   <span class="v">${esc(p.CommandLine||'—')}</span>
       <span class="k">ExecutablePath</span> <span class="v">${esc(p.ExecutablePath||'—')}</span>
-      <span class="k">CreationDateUTC</span><span class="v">${esc(p.CreationDateUTC||'')}</span>
+      <span class="k">CreationDateUTC</span><span class="v">${fmtUTC(p.CreationDateUTC)}</span>
       <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
       <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
       <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>
@@ -2370,7 +2371,7 @@ function onDllRowClick(i, e, rowEl) {
 
   const d = activeData();
   // Show all sibling DLLs (unfiltered) for forensic completeness
-  const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId == e.ProcessId && x !== e);
+  const allSameProc = (d.DLLs||[]).filter(x => x.ProcessId === e.ProcessId && x !== e);
   const INITIAL_SHOW = 30;
   const shown = allSameProc.slice(0, INITIAL_SHOW);
   const more  = allSameProc.length - shown.length;
@@ -2556,11 +2557,11 @@ function applyDnsFilters() {
   if (cnt) cnt.textContent = rows.length + ' entries';
 
   // Correlation summary
-  const totalDns   = (d.dns_cache||[]).length;
-  const matched    = rows.filter(e=>e._isMatched).length;
-  const corrSumEl  = el('dns-corr-summary');
+  const totalVisible = rows.length;
+  const matched      = rows.filter(e=>e._isMatched).length;
+  const corrSumEl    = el('dns-corr-summary');
   if (corrSumEl) {
-    corrSumEl.innerHTML = `<span>${matched}</span> of <span>${totalDns}</span> DNS entries match active connections`;
+    corrSumEl.innerHTML = `<span>${matched}</span> of <span>${totalVisible}</span> DNS entries match active connections`;
   }
 
   const COLS = '280px 140px 60px 60px 180px 80px';
@@ -2583,7 +2584,7 @@ function renderDnsRow(e, i) {
     <div class="td">${esc(e.Entry)}</div>
     <div class="td mono">${esc(e.Data||'')}</div>
     <div class="td dim">${esc(e.Type||'')}</div>
-    <div class="td dim">${e.TTL||''}</div>
+    <div class="td dim">${esc(e.TTL||'')}</div>
     <div class="td accent">${matchLink}</div>
     <div class="td dim">${esc(e._matchedPid||'')}</div>`;
 }
@@ -2893,7 +2894,7 @@ function renderUserRow(u) {
   return `
     <div class="td mono" title="${esc(USER_TIPS.SID)}\nSID: ${esc(u.SID)}">${esc(u.Username || u.SID)}</div>
     <div class="td">${acctTypeBadge(u.AccountType)}</div>
-    <div class="td dim">${esc(u.Domain || '&#8212;')}</div>
+    <div class="td dim">${u.Domain ? esc(u.Domain) : '&#8212;'}</div>
     <div class="td dim" title="${esc(USER_TIPS.WhenCreated)}">${dcDate}</div>
     <div class="td dim" title="${esc(USER_TIPS.FirstLogon)}">${firstLoginCell}</div>
     <div class="td dim" title="${esc(USER_TIPS.LastLogon)}">${fmtUTC(lastLogon)}</div>
@@ -2930,7 +2931,7 @@ function buildUserExpand(u) {
       <span class="k">Account Type</span>
         <span class="v">${acctTypeBadge(u.AccountType)}</span>
       <span class="k">Domain</span>
-        <span class="v">${esc(u.Domain || '&#8212;')}</span>`;
+        <span class="v">${u.Domain ? esc(u.Domain) : '&#8212;'}</span>`;
 
   if (u.SIDMetadata && u.SIDMetadata.WellKnown) {
     html += `
@@ -3209,13 +3210,13 @@ function renderExecute() {
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
-      return '<tr id="exec-row-' + esc(h) + '">' +
+      return '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + esc(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + esc(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '</tr>';
     }).join('');
@@ -3257,7 +3258,7 @@ function renderExecute() {
 
 
 function execBulkMemCheck(hostname) {
-  var cb = el('exc-mem-' + hostname);
+  var cb = el('exc-mem-' + cssId(hostname));
   if (!cb || !_bulkSel[hostname]) return;
   _bulkSel[hostname].mem = cb.checked;
   _execUpdateSelCounter();
@@ -3276,7 +3277,7 @@ function execBulkToggleMem() {
   var allOn = hosts.every(function(h) { return _bulkSel[h].mem; });
   hosts.forEach(function(h) {
     _bulkSel[h].mem = !allOn;
-    var cb = el('exc-mem-' + h);
+    var cb = el('exc-mem-' + cssId(h));
     if (cb) cb.checked = !allOn;
   });
   _execUpdateSelCounter();
@@ -3787,20 +3788,21 @@ function colAddTarget() {
   if (!inp) return;
   var val = inp.value.trim();
   if (!val) return;
+  var msgEl = el('col-import-msg');
   if (/\s/.test(val)) {
-    el('col-import-msg').innerHTML = '<div class="col-msg col-msg-warn">Invalid: hostname cannot contain spaces.</div>';
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Invalid: hostname cannot contain spaces.</div>';
     return;
   }
   // Deduplicate
   for (var i = 0; i < _colTargets.length; i++) {
     if (_colTargets[i].hostname.toLowerCase() === val.toLowerCase()) {
-      el('col-import-msg').innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
+      if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
       return;
     }
   }
   _colTargets.push({ hostname: val, outputPath: _colDefaultOutput });
   inp.value = '';
-  el('col-import-msg').innerHTML = '';
+  if (msgEl) msgEl.innerHTML = '';
   renderCollect();
   var ri = el('col-hostname');
   if (ri) ri.focus();
@@ -3897,6 +3899,12 @@ function colCollect() {
   for (var p = 0; p < _colPlugins.length; p++) {
     var cb = el('col-plug-' + p);
     if (cb && cb.checked) selectedPlugins.push(_colPlugins[p]);
+  }
+
+  if (selectedPlugins.length === 0) {
+    var msgEl = el('col-import-msg');
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Select at least one plugin before collecting.</div>';
+    return;
   }
 
   var globalOut = (el('col-global-output') || {}).value || _colDefaultOutput;

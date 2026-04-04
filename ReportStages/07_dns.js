@@ -114,11 +114,11 @@ function applyDnsFilters() {
   if (cnt) cnt.textContent = rows.length + ' entries';
 
   // Correlation summary
-  const totalDns   = (d.dns_cache||[]).length;
-  const matched    = rows.filter(e=>e._isMatched).length;
-  const corrSumEl  = el('dns-corr-summary');
+  const totalVisible = rows.length;
+  const matched      = rows.filter(e=>e._isMatched).length;
+  const corrSumEl    = el('dns-corr-summary');
   if (corrSumEl) {
-    corrSumEl.innerHTML = `<span>${matched}</span> of <span>${totalDns}</span> DNS entries match active connections`;
+    corrSumEl.innerHTML = `<span>${matched}</span> of <span>${totalVisible}</span> DNS entries match active connections`;
   }
 
   const COLS = '280px 140px 60px 60px 180px 80px';
@@ -141,7 +141,7 @@ function renderDnsRow(e, i) {
     <div class="td">${esc(e.Entry)}</div>
     <div class="td mono">${esc(e.Data||'')}</div>
     <div class="td dim">${esc(e.Type||'')}</div>
-    <div class="td dim">${e.TTL||''}</div>
+    <div class="td dim">${esc(e.TTL||'')}</div>
     <div class="td accent">${matchLink}</div>
     <div class="td dim">${esc(e._matchedPid||'')}</div>`;
 }

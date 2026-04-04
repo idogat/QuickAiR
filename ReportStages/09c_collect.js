@@ -157,20 +157,21 @@ function colAddTarget() {
   if (!inp) return;
   var val = inp.value.trim();
   if (!val) return;
+  var msgEl = el('col-import-msg');
   if (/\s/.test(val)) {
-    el('col-import-msg').innerHTML = '<div class="col-msg col-msg-warn">Invalid: hostname cannot contain spaces.</div>';
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Invalid: hostname cannot contain spaces.</div>';
     return;
   }
   // Deduplicate
   for (var i = 0; i < _colTargets.length; i++) {
     if (_colTargets[i].hostname.toLowerCase() === val.toLowerCase()) {
-      el('col-import-msg').innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
+      if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
       return;
     }
   }
   _colTargets.push({ hostname: val, outputPath: _colDefaultOutput });
   inp.value = '';
-  el('col-import-msg').innerHTML = '';
+  if (msgEl) msgEl.innerHTML = '';
   renderCollect();
   var ri = el('col-hostname');
   if (ri) ri.focus();
@@ -267,6 +268,12 @@ function colCollect() {
   for (var p = 0; p < _colPlugins.length; p++) {
     var cb = el('col-plug-' + p);
     if (cb && cb.checked) selectedPlugins.push(_colPlugins[p]);
+  }
+
+  if (selectedPlugins.length === 0) {
+    var msgEl = el('col-import-msg');
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Select at least one plugin before collecting.</div>';
+    return;
   }
 
   var globalOut = (el('col-global-output') || {}).value || _colDefaultOutput;
