@@ -3,14 +3,12 @@
 // ║  Execute tab, host status panel      ║
 // ║  with memory/disk checkboxes, queue  ║
 // ║  preview dialog, tool dropdown from  ║
-// ║  tools.json, quickair:// URI gen,     ║
-// ║  manual target entry + CSV import    ║
+// ║  tools.json, quickair:// URI gen.     ║
+// ║  Uses shared target list from core.  ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : fleetIndex, tools.json,   ║
-// ║             sessionStorage             ║
-// ║  Writes   : _bulkSel, _toolsManifest,║
-// ║             _manualTargets,            ║
-// ║             sessionStorage             ║
+// ║  Reads    : _sharedTargets,           ║
+// ║             tools.json, state.hosts   ║
+// ║  Writes   : _bulkSel, _toolsManifest ║
 // ║  Functions: renderExecute, execBulk-  ║
 // ║    AddToQueue, execBulkMemCheck,      ║
 // ║    execBulkDiskCheck, execBulkToggle- ║
@@ -22,7 +20,7 @@
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.50                      ║
+// ║  Version  : 4.00                      ║
 // ╚══════════════════════════════════════╝
 
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
@@ -76,7 +74,8 @@
     '.exec-tooltip-wrap{position:relative;display:inline-block}',
     '.exec-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
     '.exec-tooltip-wrap:hover .exec-tooltip{display:block}',
-    '.exec-status-notcollected{color:var(--muted);font-style:italic}'
+    '.exec-status-notcollected{color:var(--muted);font-style:italic}',
+    '.exec-user-input{width:120px;padding:2px 6px;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;box-sizing:border-box}'
   ].join('');
   document.head.appendChild(s);
 })();
@@ -85,20 +84,7 @@ var _bulkSel = {};          // { hostname: { mem, disk } }
 var _toolsManifest       = null;   // cached tools.json data
 var _toolsManifestLoaded = false;  // true once fetch attempt completed
 var _qmRemoteDestModified = false; // legacy — kept for _execTabRemoteDestModified compat
-var _manualTargets = [];    // [ { hostname, os, notes } ]
 var _execRemovedHosts = {}; // collected hosts removed from table by user
-
-function _execLoadManualTargets() {
-  try {
-    var raw = sessionStorage.getItem('quickair_manual_targets');
-    if (raw) _manualTargets = JSON.parse(raw);
-  } catch(e) { _manualTargets = []; }
-}
-
-function _execSaveManualTargets() {
-  try { sessionStorage.setItem('quickair_manual_targets', JSON.stringify(_manualTargets)); }
-  catch(e) {}
-}
 
 function _loadToolsManifest(callback) {
   if (!_toolsManifestLoaded) {
@@ -184,11 +170,11 @@ function renderExecute() {
   var panel = el('panel-execute');
   if (!panel) return;
 
-  _execLoadManualTargets();
+  sharedLoadTargets();
 
   // ── Build unified host list ───────────────────────────────────────────────
   var collectedHosts = Object.keys(state.hosts).filter(function(h) { return !_execRemovedHosts[h]; });
-  var manualHostnames = _manualTargets.map(function(t) { return t.hostname; });
+  var manualHostnames = _sharedTargets.map(function(t) { return t.hostname; });
   var allHosts = collectedHosts.concat(manualHostnames);
 
   // Initialise bulk-selection state for all hosts
@@ -214,7 +200,7 @@ function renderExecute() {
           '<span style="margin-left:12px">' +
             '<div class="exec-tooltip-wrap">' +
               '<button class="exec-add-btn" onclick="document.getElementById(\'exec-csv-input\').click()">Import CSV</button>' +
-              '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes columns\nLines starting with # are ignored</div>' +
+              '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
             '</div>' +
           '</span>' +
           '<input type="file" id="exec-csv-input" accept=".csv,.txt" style="display:none" onchange="execImportManualCSV(this.files)">' +
@@ -242,6 +228,7 @@ function renderExecute() {
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
+      var jsonUser = sharedGetUsername(h);
       rows += '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td><span class="exec-src-badge exec-src-json">JSON</span></td>' +
@@ -250,13 +237,14 @@ function renderExecute() {
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
+        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(jsonUser) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(h) + '\',this.value)"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',false)" title="Remove">&times;</button></td>' +
         '</tr>';
     });
     // Manual host rows
-    _manualTargets.forEach(function(t) {
+    _sharedTargets.forEach(function(t) {
       var h = t.hostname;
       var bs = _bulkSel[h];
       rows += '<tr id="exec-row-' + cssId(h) + '">' +
@@ -267,6 +255,7 @@ function renderExecute() {
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
+        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(t.username || '') + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(h) + '\',this.value)"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',true)" title="Remove">&times;</button></td>' +
@@ -275,7 +264,7 @@ function renderExecute() {
     sec1HTML = addSectionHTML +
       '<table class="exec-host-tbl">' +
       '<thead><tr>' +
-        '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th>' +
+        '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th><th>Username</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
         '<th></th>' +
@@ -630,7 +619,8 @@ function _queueModalLaunch() {
       arguments:  (el('qm-args-' + idx) || {}).value || '',
       method:     (el('qm-method-' + idx) || {}).value || 'Auto',
       remoteShare: (el('qm-smb-' + idx) || {}).value || '',
-      aliveCheck: parseInt((el('qm-alive-' + idx) || {}).value || '30', 10) || 30
+      aliveCheck: parseInt((el('qm-alive-' + idx) || {}).value || '30', 10) || 30,
+      username:   sharedGetUsername(j.target)
     };
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
@@ -652,19 +642,7 @@ function _queueModalLaunch() {
   if (actions) actions.innerHTML = '<button onclick="_closeQueueModal()">Close</button>';
 }
 
-// ── MANUAL TARGET ENTRY ──────────────────────────────────────────────────────
-
-function _execIsHostInTable(hostname) {
-  var lc = hostname.toLowerCase();
-  var collectedHosts = Object.keys(state.hosts).filter(function(h) { return !_execRemovedHosts[h]; });
-  for (var i = 0; i < collectedHosts.length; i++) {
-    if (collectedHosts[i].toLowerCase() === lc) return true;
-  }
-  for (var j = 0; j < _manualTargets.length; j++) {
-    if (_manualTargets[j].hostname.toLowerCase() === lc) return true;
-  }
-  return false;
-}
+// ── MANUAL TARGET ENTRY (delegates to shared target list in 03_core.js) ─────
 
 function execAddManualTarget() {
   var inp = el('exec-manual-input');
@@ -672,28 +650,19 @@ function execAddManualTarget() {
   var val = inp.value.trim();
   var msgEl = el('exec-manual-msg');
   if (!val) return;
-  // Validate format: no spaces, no invalid chars
   if (/[\s<>"';&|]/.test(val)) {
     if (msgEl) msgEl.innerHTML = '<div class="exec-msg exec-msg-warn">Invalid format \u2014 no spaces or special characters allowed.</div>';
     return;
   }
-  // Check duplicate
-  if (_execIsHostInTable(val)) {
+  if (sharedIsHostInList(val) || _sharedCheckCollected(val)) {
     if (msgEl) msgEl.innerHTML = '<div class="exec-msg exec-msg-warn">Already in list.</div>';
     return;
   }
-  _manualTargets.push({ hostname: val, os: '', notes: '' });
-  _execSaveManualTargets();
+  sharedAddTarget(val);
   inp.value = '';
   if (msgEl) msgEl.innerHTML = '';
   renderExecute();
-  // Re-expand the add section and focus input
-  var addBody = el('exec-add-body');
-  if (addBody && addBody.classList.contains('collapsed')) {
-    addBody.classList.remove('collapsed');
-    var arrow = el('exec-add-arrow');
-    if (arrow) arrow.innerHTML = '&#9660;';
-  }
+  _execExpandAddSection();
   var ri = el('exec-manual-input');
   if (ri) ri.focus();
 }
@@ -702,75 +671,39 @@ function execImportManualCSV(files) {
   if (!files || !files.length) return;
   var reader = new FileReader();
   reader.onload = function(e) {
-    var text = e.target.result;
-    var lines = text.split(/\r?\n/);
-    var added = 0, dupes = 0, invalid = [];
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (!line || line.charAt(0) === '#') continue;
-
-      var hostname = '', os = '', notes = '';
-      var commaIdx = line.indexOf(',');
-      if (commaIdx > 0) {
-        var parts = line.split(',');
-        hostname = parts[0].trim();
-        os = (parts[1] || '').trim();
-        notes = (parts[2] || '').trim();
-      } else {
-        hostname = line;
-      }
-
-      // Skip header row
-      if (hostname.toLowerCase() === 'hostname') continue;
-
-      // Validate
-      if (/[\s<>"';&|]/.test(hostname) || !hostname) {
-        invalid.push({ line: i + 1, text: line });
-        continue;
-      }
-
-      // Deduplicate
-      if (_execIsHostInTable(hostname)) { dupes++; continue; }
-
-      _manualTargets.push({ hostname: hostname, os: os, notes: notes });
-      added++;
-    }
-
-    _execSaveManualTargets();
+    var result = sharedImportCSV(e.target.result);
     renderExecute();
-
-    // Re-expand add section to show message
-    var addBody = el('exec-add-body');
-    if (addBody && addBody.classList.contains('collapsed')) {
-      addBody.classList.remove('collapsed');
-      var arrow = el('exec-add-arrow');
-      if (arrow) arrow.innerHTML = '&#9660;';
-    }
+    _execExpandAddSection();
 
     var msgEl = el('exec-manual-msg');
     if (msgEl) {
       var parts = [];
-      if (added > 0) parts.push(added + ' target' + (added !== 1 ? 's' : '') + ' added');
-      if (dupes > 0) parts.push(dupes + ' skipped (duplicate' + (dupes !== 1 ? 's' : '') + ')');
+      if (result.added > 0) parts.push(result.added + ' target' + (result.added !== 1 ? 's' : '') + ' added');
+      if (result.dupes > 0) parts.push(result.dupes + ' skipped (duplicate' + (result.dupes !== 1 ? 's' : '') + ')');
       var html = '';
       if (parts.length > 0) html += '<div class="exec-msg exec-msg-success">' + parts.join(', ') + '.</div>';
-      if (invalid.length > 0) html += '<div class="exec-msg exec-msg-warn">Parse error on line' + (invalid.length !== 1 ? 's' : '') + ' ' +
-        invalid.map(function(e) { return e.line; }).join(', ') + '.</div>';
+      if (result.invalid.length > 0) html += '<div class="exec-msg exec-msg-warn">Parse error on line' + (result.invalid.length !== 1 ? 's' : '') + ' ' +
+        result.invalid.map(function(e) { return e.line; }).join(', ') + '.</div>';
       msgEl.innerHTML = html;
     }
-
-    // Reset file input
     var fi = el('exec-csv-input');
     if (fi) fi.value = '';
   };
   reader.readAsText(files[0]);
 }
 
+function _execExpandAddSection() {
+  var addBody = el('exec-add-body');
+  if (addBody && addBody.classList.contains('collapsed')) {
+    addBody.classList.remove('collapsed');
+    var arrow = el('exec-add-arrow');
+    if (arrow) arrow.innerHTML = '&#9660;';
+  }
+}
+
 function execRemoveHost(hostname, isManual) {
   if (isManual) {
-    _manualTargets = _manualTargets.filter(function(t) { return t.hostname !== hostname; });
-    _execSaveManualTargets();
+    sharedRemoveTarget(hostname);
   } else {
     _execRemovedHosts[hostname] = true;
   }

@@ -282,7 +282,10 @@ function Get-RowBgColor {
 
 #region ── Credential handling ──────────────────────────────────
 function Show-CredentialDialog {
-    param([string]$hostname)
+    param(
+        [string]$hostname,
+        [string]$prefillUser = ''
+    )
 
     $dlg = [System.Windows.Forms.Form]::new()
     $dlg.Text            = 'Credentials Required'
@@ -313,6 +316,7 @@ function Show-CredentialDialog {
     $lbl0   = MkLabel "Enter credentials for: $hostname" 10
     $lblU   = MkLabel 'Username (DOMAIN\user or user):' 40
     $txtU   = MkBox 58 $false
+    if ($prefillUser) { $txtU.Text = $prefillUser }
     $lblP   = MkLabel 'Password:' 88
     $txtP   = MkBox 106 $true
 
@@ -331,6 +335,8 @@ function Show-CredentialDialog {
     $dlg.Controls.AddRange(@($lbl0, $lblU, $txtU, $lblP, $txtP, $btnOK, $btnCancel))
     $dlg.AcceptButton = $btnOK
     $dlg.CancelButton = $btnCancel
+    # Focus password field if username pre-filled, else username field
+    if ($prefillUser) { $dlg.Add_Shown({ $txtP.Focus() }) }
 
     $r = $dlg.ShowDialog($script:Form)
     $user = $txtU.Text.Trim()
@@ -360,7 +366,9 @@ function Resolve-Credential {
     $key = $job.Target.ToLower()
     if ($script:CredCache.ContainsKey($key)) { return $script:CredCache[$key] }
 
-    $cred = Show-CredentialDialog $job.Target
+    # Pre-fill username from payload if available
+    $prefillUser = if ($job.username) { $job.username } else { '' }
+    $cred = Show-CredentialDialog $job.Target $prefillUser
     if ($null -eq $cred) { return 'CANCELLED' }
 
     # Cache by domain (e.g. CORP from CORP\analyst) AND by target

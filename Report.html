@@ -1285,6 +1285,112 @@ function renderSetupBanner(panelId) {
   '</div>';
 }
 
+// ── SHARED TARGET LIST ──────────────────────────────────────────────────────
+// Shared between Execute and Collect tabs. Persisted in sessionStorage.
+// Passwords NEVER stored — only optional usernames for credential pre-fill.
+var _sharedTargets = [];  // [{hostname, os, notes, username}]
+
+function sharedLoadTargets() {
+  try {
+    var raw = sessionStorage.getItem('quickair_targets');
+    if (raw) { _sharedTargets = JSON.parse(raw); return; }
+    // Migration: read old key from previous version
+    var old = sessionStorage.getItem('quickair_manual_targets');
+    if (old) {
+      _sharedTargets = JSON.parse(old);
+      _sharedTargets.forEach(function(t) { if (!t.username) t.username = ''; });
+      sharedSaveTargets();
+      sessionStorage.removeItem('quickair_manual_targets');
+    }
+  } catch(e) { _sharedTargets = []; }
+}
+
+function sharedSaveTargets() {
+  try { sessionStorage.setItem('quickair_targets', JSON.stringify(_sharedTargets)); }
+  catch(e) {}
+}
+
+function sharedIsHostInList(hostname) {
+  var lc = hostname.toLowerCase();
+  for (var i = 0; i < _sharedTargets.length; i++) {
+    if (_sharedTargets[i].hostname.toLowerCase() === lc) return true;
+  }
+  return false;
+}
+
+function _sharedCheckCollected(hostname) {
+  var lc = hostname.toLowerCase();
+  var hosts = Object.keys(state.hosts || {});
+  for (var i = 0; i < hosts.length; i++) {
+    if (hosts[i].toLowerCase() === lc) return true;
+  }
+  return false;
+}
+
+function sharedAddTarget(hostname, os, notes, username) {
+  if (sharedIsHostInList(hostname)) return false;
+  _sharedTargets.push({ hostname: hostname, os: os || '', notes: notes || '', username: username || '' });
+  sharedSaveTargets();
+  return true;
+}
+
+function sharedRemoveTarget(hostname) {
+  _sharedTargets = _sharedTargets.filter(function(t) {
+    return t.hostname.toLowerCase() !== hostname.toLowerCase();
+  });
+  sharedSaveTargets();
+}
+
+function sharedGetUsername(hostname) {
+  var lc = hostname.toLowerCase();
+  for (var i = 0; i < _sharedTargets.length; i++) {
+    if (_sharedTargets[i].hostname.toLowerCase() === lc) return _sharedTargets[i].username || '';
+  }
+  return '';
+}
+
+function sharedSetUsername(hostname, username) {
+  var lc = hostname.toLowerCase();
+  for (var i = 0; i < _sharedTargets.length; i++) {
+    if (_sharedTargets[i].hostname.toLowerCase() === lc) {
+      _sharedTargets[i].username = username;
+      sharedSaveTargets();
+      return;
+    }
+  }
+}
+
+function sharedImportCSV(text) {
+  var lines = text.split(/\r?\n/);
+  var added = 0, dupes = 0, invalid = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line || line.charAt(0) === '#') continue;
+    var hostname = '', os = '', notes = '', username = '';
+    var commaIdx = line.indexOf(',');
+    if (commaIdx > 0) {
+      var parts = line.split(',');
+      hostname = parts[0].trim();
+      os = (parts[1] || '').trim();
+      notes = (parts[2] || '').trim();
+      username = (parts[3] || '').trim();
+    } else {
+      hostname = line;
+    }
+    if (hostname.toLowerCase() === 'hostname') continue;
+    if (/[\s<>"';&|]/.test(hostname) || !hostname) {
+      invalid.push({ line: i + 1, text: line });
+      continue;
+    }
+    if (sharedIsHostInList(hostname) || _sharedCheckCollected(hostname)) {
+      dupes++; continue;
+    }
+    sharedAddTarget(hostname, os, notes, username);
+    added++;
+  }
+  return { added: added, dupes: dupes, invalid: invalid };
+}
+
 // Placeholder will be hidden once files load; auto-trigger picker on init
 window.addEventListener('load', () => {
   setTimeout(() => {
@@ -3051,14 +3157,12 @@ function buildUserExpand(u) {
 // ║  Execute tab, host status panel      ║
 // ║  with memory/disk checkboxes, queue  ║
 // ║  preview dialog, tool dropdown from  ║
-// ║  tools.json, quickair:// URI gen,     ║
-// ║  manual target entry + CSV import    ║
+// ║  tools.json, quickair:// URI gen.     ║
+// ║  Uses shared target list from core.  ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : fleetIndex, tools.json,   ║
-// ║             sessionStorage             ║
-// ║  Writes   : _bulkSel, _toolsManifest,║
-// ║             _manualTargets,            ║
-// ║             sessionStorage             ║
+// ║  Reads    : _sharedTargets,           ║
+// ║             tools.json, state.hosts   ║
+// ║  Writes   : _bulkSel, _toolsManifest ║
 // ║  Functions: renderExecute, execBulk-  ║
 // ║    AddToQueue, execBulkMemCheck,      ║
 // ║    execBulkDiskCheck, execBulkToggle- ║
@@ -3070,7 +3174,7 @@ function buildUserExpand(u) {
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.50                      ║
+// ║  Version  : 4.00                      ║
 // ╚══════════════════════════════════════╝
 
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
@@ -3124,7 +3228,8 @@ function buildUserExpand(u) {
     '.exec-tooltip-wrap{position:relative;display:inline-block}',
     '.exec-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
     '.exec-tooltip-wrap:hover .exec-tooltip{display:block}',
-    '.exec-status-notcollected{color:var(--muted);font-style:italic}'
+    '.exec-status-notcollected{color:var(--muted);font-style:italic}',
+    '.exec-user-input{width:120px;padding:2px 6px;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;box-sizing:border-box}'
   ].join('');
   document.head.appendChild(s);
 })();
@@ -3133,20 +3238,7 @@ var _bulkSel = {};          // { hostname: { mem, disk } }
 var _toolsManifest       = null;   // cached tools.json data
 var _toolsManifestLoaded = false;  // true once fetch attempt completed
 var _qmRemoteDestModified = false; // legacy — kept for _execTabRemoteDestModified compat
-var _manualTargets = [];    // [ { hostname, os, notes } ]
 var _execRemovedHosts = {}; // collected hosts removed from table by user
-
-function _execLoadManualTargets() {
-  try {
-    var raw = sessionStorage.getItem('quickair_manual_targets');
-    if (raw) _manualTargets = JSON.parse(raw);
-  } catch(e) { _manualTargets = []; }
-}
-
-function _execSaveManualTargets() {
-  try { sessionStorage.setItem('quickair_manual_targets', JSON.stringify(_manualTargets)); }
-  catch(e) {}
-}
 
 function _loadToolsManifest(callback) {
   if (!_toolsManifestLoaded) {
@@ -3232,11 +3324,11 @@ function renderExecute() {
   var panel = el('panel-execute');
   if (!panel) return;
 
-  _execLoadManualTargets();
+  sharedLoadTargets();
 
   // ── Build unified host list ───────────────────────────────────────────────
   var collectedHosts = Object.keys(state.hosts).filter(function(h) { return !_execRemovedHosts[h]; });
-  var manualHostnames = _manualTargets.map(function(t) { return t.hostname; });
+  var manualHostnames = _sharedTargets.map(function(t) { return t.hostname; });
   var allHosts = collectedHosts.concat(manualHostnames);
 
   // Initialise bulk-selection state for all hosts
@@ -3262,7 +3354,7 @@ function renderExecute() {
           '<span style="margin-left:12px">' +
             '<div class="exec-tooltip-wrap">' +
               '<button class="exec-add-btn" onclick="document.getElementById(\'exec-csv-input\').click()">Import CSV</button>' +
-              '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes columns\nLines starting with # are ignored</div>' +
+              '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
             '</div>' +
           '</span>' +
           '<input type="file" id="exec-csv-input" accept=".csv,.txt" style="display:none" onchange="execImportManualCSV(this.files)">' +
@@ -3290,6 +3382,7 @@ function renderExecute() {
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
+      var jsonUser = sharedGetUsername(h);
       rows += '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td><span class="exec-src-badge exec-src-json">JSON</span></td>' +
@@ -3298,13 +3391,14 @@ function renderExecute() {
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
+        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(jsonUser) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(h) + '\',this.value)"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',false)" title="Remove">&times;</button></td>' +
         '</tr>';
     });
     // Manual host rows
-    _manualTargets.forEach(function(t) {
+    _sharedTargets.forEach(function(t) {
       var h = t.hostname;
       var bs = _bulkSel[h];
       rows += '<tr id="exec-row-' + cssId(h) + '">' +
@@ -3315,6 +3409,7 @@ function renderExecute() {
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
+        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(t.username || '') + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(h) + '\',this.value)"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
         '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',true)" title="Remove">&times;</button></td>' +
@@ -3323,7 +3418,7 @@ function renderExecute() {
     sec1HTML = addSectionHTML +
       '<table class="exec-host-tbl">' +
       '<thead><tr>' +
-        '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th>' +
+        '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th><th>Username</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
         '<th></th>' +
@@ -3678,7 +3773,8 @@ function _queueModalLaunch() {
       arguments:  (el('qm-args-' + idx) || {}).value || '',
       method:     (el('qm-method-' + idx) || {}).value || 'Auto',
       remoteShare: (el('qm-smb-' + idx) || {}).value || '',
-      aliveCheck: parseInt((el('qm-alive-' + idx) || {}).value || '30', 10) || 30
+      aliveCheck: parseInt((el('qm-alive-' + idx) || {}).value || '30', 10) || 30,
+      username:   sharedGetUsername(j.target)
     };
   });
   var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
@@ -3700,19 +3796,7 @@ function _queueModalLaunch() {
   if (actions) actions.innerHTML = '<button onclick="_closeQueueModal()">Close</button>';
 }
 
-// ── MANUAL TARGET ENTRY ──────────────────────────────────────────────────────
-
-function _execIsHostInTable(hostname) {
-  var lc = hostname.toLowerCase();
-  var collectedHosts = Object.keys(state.hosts).filter(function(h) { return !_execRemovedHosts[h]; });
-  for (var i = 0; i < collectedHosts.length; i++) {
-    if (collectedHosts[i].toLowerCase() === lc) return true;
-  }
-  for (var j = 0; j < _manualTargets.length; j++) {
-    if (_manualTargets[j].hostname.toLowerCase() === lc) return true;
-  }
-  return false;
-}
+// ── MANUAL TARGET ENTRY (delegates to shared target list in 03_core.js) ─────
 
 function execAddManualTarget() {
   var inp = el('exec-manual-input');
@@ -3720,28 +3804,19 @@ function execAddManualTarget() {
   var val = inp.value.trim();
   var msgEl = el('exec-manual-msg');
   if (!val) return;
-  // Validate format: no spaces, no invalid chars
   if (/[\s<>"';&|]/.test(val)) {
     if (msgEl) msgEl.innerHTML = '<div class="exec-msg exec-msg-warn">Invalid format \u2014 no spaces or special characters allowed.</div>';
     return;
   }
-  // Check duplicate
-  if (_execIsHostInTable(val)) {
+  if (sharedIsHostInList(val) || _sharedCheckCollected(val)) {
     if (msgEl) msgEl.innerHTML = '<div class="exec-msg exec-msg-warn">Already in list.</div>';
     return;
   }
-  _manualTargets.push({ hostname: val, os: '', notes: '' });
-  _execSaveManualTargets();
+  sharedAddTarget(val);
   inp.value = '';
   if (msgEl) msgEl.innerHTML = '';
   renderExecute();
-  // Re-expand the add section and focus input
-  var addBody = el('exec-add-body');
-  if (addBody && addBody.classList.contains('collapsed')) {
-    addBody.classList.remove('collapsed');
-    var arrow = el('exec-add-arrow');
-    if (arrow) arrow.innerHTML = '&#9660;';
-  }
+  _execExpandAddSection();
   var ri = el('exec-manual-input');
   if (ri) ri.focus();
 }
@@ -3750,75 +3825,39 @@ function execImportManualCSV(files) {
   if (!files || !files.length) return;
   var reader = new FileReader();
   reader.onload = function(e) {
-    var text = e.target.result;
-    var lines = text.split(/\r?\n/);
-    var added = 0, dupes = 0, invalid = [];
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (!line || line.charAt(0) === '#') continue;
-
-      var hostname = '', os = '', notes = '';
-      var commaIdx = line.indexOf(',');
-      if (commaIdx > 0) {
-        var parts = line.split(',');
-        hostname = parts[0].trim();
-        os = (parts[1] || '').trim();
-        notes = (parts[2] || '').trim();
-      } else {
-        hostname = line;
-      }
-
-      // Skip header row
-      if (hostname.toLowerCase() === 'hostname') continue;
-
-      // Validate
-      if (/[\s<>"';&|]/.test(hostname) || !hostname) {
-        invalid.push({ line: i + 1, text: line });
-        continue;
-      }
-
-      // Deduplicate
-      if (_execIsHostInTable(hostname)) { dupes++; continue; }
-
-      _manualTargets.push({ hostname: hostname, os: os, notes: notes });
-      added++;
-    }
-
-    _execSaveManualTargets();
+    var result = sharedImportCSV(e.target.result);
     renderExecute();
-
-    // Re-expand add section to show message
-    var addBody = el('exec-add-body');
-    if (addBody && addBody.classList.contains('collapsed')) {
-      addBody.classList.remove('collapsed');
-      var arrow = el('exec-add-arrow');
-      if (arrow) arrow.innerHTML = '&#9660;';
-    }
+    _execExpandAddSection();
 
     var msgEl = el('exec-manual-msg');
     if (msgEl) {
       var parts = [];
-      if (added > 0) parts.push(added + ' target' + (added !== 1 ? 's' : '') + ' added');
-      if (dupes > 0) parts.push(dupes + ' skipped (duplicate' + (dupes !== 1 ? 's' : '') + ')');
+      if (result.added > 0) parts.push(result.added + ' target' + (result.added !== 1 ? 's' : '') + ' added');
+      if (result.dupes > 0) parts.push(result.dupes + ' skipped (duplicate' + (result.dupes !== 1 ? 's' : '') + ')');
       var html = '';
       if (parts.length > 0) html += '<div class="exec-msg exec-msg-success">' + parts.join(', ') + '.</div>';
-      if (invalid.length > 0) html += '<div class="exec-msg exec-msg-warn">Parse error on line' + (invalid.length !== 1 ? 's' : '') + ' ' +
-        invalid.map(function(e) { return e.line; }).join(', ') + '.</div>';
+      if (result.invalid.length > 0) html += '<div class="exec-msg exec-msg-warn">Parse error on line' + (result.invalid.length !== 1 ? 's' : '') + ' ' +
+        result.invalid.map(function(e) { return e.line; }).join(', ') + '.</div>';
       msgEl.innerHTML = html;
     }
-
-    // Reset file input
     var fi = el('exec-csv-input');
     if (fi) fi.value = '';
   };
   reader.readAsText(files[0]);
 }
 
+function _execExpandAddSection() {
+  var addBody = el('exec-add-body');
+  if (addBody && addBody.classList.contains('collapsed')) {
+    addBody.classList.remove('collapsed');
+    var arrow = el('exec-add-arrow');
+    if (arrow) arrow.innerHTML = '&#9660;';
+  }
+}
+
 function execRemoveHost(hostname, isManual) {
   if (isManual) {
-    _manualTargets = _manualTargets.filter(function(t) { return t.hostname !== hostname; });
-    _execSaveManualTargets();
+    sharedRemoveTarget(hostname);
   } else {
     _execRemovedHosts[hostname] = true;
   }
@@ -3859,20 +3898,20 @@ function renderFleetExecBanners() {
 }
 // ╔══════════════════════════════════════╗
 // ║  QuickAiR — 09c_collect.js           ║
-// ║  Collect tab — target entry (manual ║
-// ║  + CSV), plugin selection, output   ║
-// ║  path config, quickair-collect://   ║
-// ║  URI generation                     ║
+// ║  Collect tab — shared target list,  ║
+// ║  plugin selection, output path      ║
+// ║  config, quickair-collect:// URI    ║
+// ║  generation                          ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : nothing                  ║
-// ║  Writes   : _colTargets              ║
+// ║  Reads    : _sharedTargets, state    ║
+// ║  Writes   : nothing (shared targets ║
+// ║             managed by 03_core.js)   ║
 // ║  Functions: renderCollect,           ║
 // ║    colAddTarget, colRemoveTarget,    ║
 // ║    colClearTargets, colImportCSV,    ║
-// ║    colCollect, colToggleSection,     ║
-// ║    colUpdateOutputPath              ║
+// ║    colCollect, colToggleSection      ║
 // ║  Depends  : 03_core.js              ║
-// ║  Version  : 1.01                     ║
+// ║  Version  : 2.00                     ║
 // ╚══════════════════════════════════════╝
 
 // ── COLLECT TAB ─────────────────────────────────────────────────────────────────
@@ -3918,12 +3957,12 @@ function renderFleetExecBanners() {
     '.col-tooltip-wrap{position:relative;display:inline-block}',
     '.col-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.3)}',
     '.col-tooltip-wrap:hover .col-tooltip{display:block}',
-    '.col-empty{color:var(--muted);font-style:italic;padding:8px 0;font-size:12px}'
+    '.col-empty{color:var(--muted);font-style:italic;padding:8px 0;font-size:12px}',
+    '.col-user-input{width:120px;padding:2px 6px;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;box-sizing:border-box}'
   ].join('');
   document.head.appendChild(s);
 })();
 
-var _colTargets = [];
 var _colDefaultOutput = '.\\DFIROutput\\';
 var _colPlugins = ['Processes', 'Network', 'DLLs', 'Users'];
 
@@ -3931,17 +3970,33 @@ function renderCollect() {
   var panel = el('panel-collect');
   if (!panel) return;
 
+  sharedLoadTargets();
+
   var bannerHtml = renderSetupBanner('collect');
 
+  // Build unified target list: shared manual targets + collected hosts
+  var allTargets = [];
+  _sharedTargets.forEach(function(t) {
+    allTargets.push({ hostname: t.hostname, username: t.username || '', source: 'manual' });
+  });
+  Object.keys(state.hosts || {}).forEach(function(h) {
+    allTargets.push({ hostname: h, username: sharedGetUsername(h), source: 'json' });
+  });
+
   var targetRows = '';
-  if (_colTargets.length === 0) {
-    targetRows = '<tr><td colspan="3" class="col-empty">No targets added yet.</td></tr>';
+  if (allTargets.length === 0) {
+    targetRows = '<tr><td colspan="5" class="col-empty">No targets added yet. Add targets here or on the Execute tab.</td></tr>';
   } else {
-    for (var i = 0; i < _colTargets.length; i++) {
+    for (var i = 0; i < allTargets.length; i++) {
+      var t = allTargets[i];
+      var srcBadge = t.source === 'json'
+        ? '<span class="exec-src-badge exec-src-json">JSON</span>'
+        : '<span class="exec-src-badge exec-src-manual">Manual</span>';
       targetRows += '<tr>' +
-        '<td>' + esc(_colTargets[i].hostname) + '</td>' +
-        '<td><input type="text" id="col-op-' + i + '" value="' + esc(_colTargets[i].outputPath) + '" onchange="colUpdateOutputPath(' + i + ',this.value)"></td>' +
-        '<td><button class="col-remove-btn" onclick="colRemoveTarget(' + i + ')" title="Remove">&times;</button></td>' +
+        '<td>' + esc(t.hostname) + '</td>' +
+        '<td>' + srcBadge + '</td>' +
+        '<td><input type="text" class="col-user-input" value="' + esc(t.username) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(t.hostname) + '\',this.value)"></td>' +
+        '<td><button class="col-remove-btn" onclick="colRemoveTarget(\'' + esc(t.hostname) + '\',\'' + t.source + '\')" title="Remove">&times;</button></td>' +
         '</tr>';
     }
   }
@@ -3951,14 +4006,14 @@ function renderCollect() {
     pluginChecks += '<li><input type="checkbox" id="col-plug-' + p + '" checked> ' + esc(_colPlugins[p]) + '</li>';
   }
 
-  var collectDisabled = _colTargets.length === 0 ? ' disabled' : '';
+  var collectDisabled = allTargets.length === 0 ? ' disabled' : '';
 
   panel.innerHTML = bannerHtml +
-    // ── Section 1: Add Targets ──
+    // ── Section 1: Targets ──
     '<div class="col-section">' +
       '<div class="col-section-hdr" onclick="colToggleSection(\'col-sec1-body\',\'col-sec1-arrow\')">' +
-        '<span class="col-sec-arrow" id="col-sec1-arrow">&#9660;</span>Add Targets' +
-        '<span class="col-count">(' + _colTargets.length + ' target' + (_colTargets.length !== 1 ? 's' : '') + ')</span>' +
+        '<span class="col-sec-arrow" id="col-sec1-arrow">&#9660;</span>Targets' +
+        '<span class="col-count">(' + allTargets.length + ' target' + (allTargets.length !== 1 ? 's' : '') + ')</span>' +
       '</div>' +
       '<div class="col-section-body" id="col-sec1-body">' +
         '<div class="col-input-row">' +
@@ -3967,17 +4022,17 @@ function renderCollect() {
           '<span style="margin-left:12px">' +
             '<div class="col-tooltip-wrap">' +
               '<button class="col-btn" onclick="document.getElementById(\'col-csv-input\').click()">Import CSV</button>' +
-              '<div class="col-tooltip">CSV format:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OutputPath columns\nLines starting with # are ignored</div>' +
+              '<div class="col-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
             '</div>' +
           '</span>' +
           '<input type="file" id="col-csv-input" accept=".csv,.txt" style="display:none" onchange="colImportCSV(this.files)">' +
         '</div>' +
         '<div id="col-import-msg"></div>' +
         '<table class="col-target-tbl">' +
-          '<thead><tr><th>Hostname / IP</th><th>Output Path</th><th></th></tr></thead>' +
+          '<thead><tr><th>Hostname / IP</th><th>Source</th><th>Username</th><th></th></tr></thead>' +
           '<tbody>' + targetRows + '</tbody>' +
         '</table>' +
-        (_colTargets.length > 0 ? '<div style="margin-top:6px"><button class="col-btn col-btn-danger" onclick="colClearTargets()">Clear All</button></div>' : '') +
+        (allTargets.length > 0 ? '<div style="margin-top:6px"><button class="col-btn col-btn-danger" onclick="colClearTargets()">Clear Manual Targets</button></div>' : '') +
       '</div>' +
     '</div>' +
 
@@ -4017,18 +4072,15 @@ function colAddTarget() {
   var val = inp.value.trim();
   if (!val) return;
   var msgEl = el('col-import-msg');
-  if (/\s/.test(val)) {
-    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Invalid: hostname cannot contain spaces.</div>';
+  if (/[\s<>"';&|]/.test(val)) {
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Invalid format \u2014 no spaces or special characters allowed.</div>';
     return;
   }
-  // Deduplicate
-  for (var i = 0; i < _colTargets.length; i++) {
-    if (_colTargets[i].hostname.toLowerCase() === val.toLowerCase()) {
-      if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
-      return;
-    }
+  if (sharedIsHostInList(val) || _sharedCheckCollected(val)) {
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
+    return;
   }
-  _colTargets.push({ hostname: val, outputPath: _colDefaultOutput });
+  sharedAddTarget(val);
   inp.value = '';
   if (msgEl) msgEl.innerHTML = '';
   renderCollect();
@@ -4036,86 +4088,40 @@ function colAddTarget() {
   if (ri) ri.focus();
 }
 
-function colRemoveTarget(idx) {
-  _colTargets.splice(idx, 1);
+function colRemoveTarget(hostname, source) {
+  if (source === 'manual') {
+    sharedRemoveTarget(hostname);
+  }
+  // JSON hosts: just re-render without them (they stay in state.hosts)
   renderCollect();
 }
 
 function colClearTargets() {
-  _colTargets = [];
+  _sharedTargets = [];
+  sharedSaveTargets();
   renderCollect();
-}
-
-function colUpdateOutputPath(idx, val) {
-  if (_colTargets[idx]) _colTargets[idx].outputPath = val;
 }
 
 function colImportCSV(files) {
   if (!files || !files.length) return;
   var reader = new FileReader();
   reader.onload = function(e) {
-    var text = e.target.result;
-    var lines = text.split(/\r?\n/);
-    var added = 0;
-    var invalid = [];
-    var dupes = 0;
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (!line || line.charAt(0) === '#') continue;
-
-      var hostname = '';
-      var outPath = _colDefaultOutput;
-
-      // Check for CSV with comma
-      var commaIdx = line.indexOf(',');
-      if (commaIdx > 0) {
-        hostname = line.substring(0, commaIdx).trim();
-        var rest = line.substring(commaIdx + 1).trim();
-        if (rest) outPath = rest;
-      } else {
-        hostname = line;
-      }
-
-      // Skip header row
-      if (hostname.toLowerCase() === 'hostname') continue;
-
-      // Validate
-      if (/\s/.test(hostname) || !hostname) {
-        invalid.push(line);
-        continue;
-      }
-
-      // Deduplicate
-      var exists = false;
-      for (var j = 0; j < _colTargets.length; j++) {
-        if (_colTargets[j].hostname.toLowerCase() === hostname.toLowerCase()) {
-          exists = true;
-          dupes++;
-          break;
-        }
-      }
-      if (!exists) {
-        _colTargets.push({ hostname: hostname, outputPath: outPath });
-        added++;
-      }
-    }
-
-    var msgParts = [];
-    if (added > 0) msgParts.push(added + ' target' + (added !== 1 ? 's' : '') + ' imported');
-    if (dupes > 0) msgParts.push(dupes + ' duplicate' + (dupes !== 1 ? 's' : '') + ' skipped');
+    var result = sharedImportCSV(e.target.result);
 
     renderCollect();
 
     var msgEl = el('col-import-msg');
     if (msgEl) {
+      var parts = [];
+      if (result.added > 0) parts.push(result.added + ' target' + (result.added !== 1 ? 's' : '') + ' imported');
+      if (result.dupes > 0) parts.push(result.dupes + ' duplicate' + (result.dupes !== 1 ? 's' : '') + ' skipped');
       var html = '';
-      if (msgParts.length > 0) html += '<div class="col-msg col-msg-success">' + msgParts.join(', ') + '.</div>';
-      if (invalid.length > 0) html += '<div class="col-msg col-msg-warn">Invalid entries (' + invalid.length + '): ' + invalid.map(function(l) { return esc(l); }).join(', ') + '</div>';
+      if (parts.length > 0) html += '<div class="col-msg col-msg-success">' + parts.join(', ') + '.</div>';
+      if (result.invalid.length > 0) html += '<div class="col-msg col-msg-warn">Invalid entries (' + result.invalid.length + '): lines ' +
+        result.invalid.map(function(e) { return e.line; }).join(', ') + '</div>';
       msgEl.innerHTML = html;
     }
 
-    // Reset file input so same file can be re-imported
     var fi = el('col-csv-input');
     if (fi) fi.value = '';
   };
@@ -4137,11 +4143,19 @@ function colCollect() {
 
   var globalOut = (el('col-global-output') || {}).value || _colDefaultOutput;
 
-  var targets = _colTargets.map(function(t) {
+  // Build targets from both shared + collected hosts
+  var allHostnames = [];
+  _sharedTargets.forEach(function(t) { allHostnames.push(t.hostname); });
+  Object.keys(state.hosts || {}).forEach(function(h) {
+    if (allHostnames.indexOf(h) === -1) allHostnames.push(h);
+  });
+
+  var targets = allHostnames.map(function(h) {
     return {
-      hostname: t.hostname,
-      outputPath: t.outputPath || globalOut,
-      plugins: selectedPlugins
+      hostname: h,
+      outputPath: globalOut,
+      plugins: selectedPlugins,
+      username: sharedGetUsername(h)
     };
   });
 

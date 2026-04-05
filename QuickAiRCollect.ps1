@@ -314,7 +314,10 @@ function Test-AuthError {
 
 #region ── Credential handling ──────────────────────────────────
 function Show-CredentialDialog {
-    param([string]$hostname)
+    param(
+        [string]$hostname,
+        [string]$prefillUser = ''
+    )
 
     $dlg = [System.Windows.Forms.Form]::new()
     $dlg.Text            = 'Credentials Required'
@@ -345,6 +348,7 @@ function Show-CredentialDialog {
     $lbl0   = MkLabel "Enter credentials for: $hostname" 10
     $lblU   = MkLabel 'Username (DOMAIN\user or user):' 40
     $txtU   = MkBox 58 $false
+    if ($prefillUser) { $txtU.Text = $prefillUser }
     $lblP   = MkLabel 'Password:' 88
     $txtP   = MkBox 106 $true
 
@@ -363,6 +367,8 @@ function Show-CredentialDialog {
     $dlg.Controls.AddRange(@($lbl0, $lblU, $txtU, $lblP, $txtP, $btnOK, $btnCancel))
     $dlg.AcceptButton = $btnOK
     $dlg.CancelButton = $btnCancel
+    # Focus password field if username pre-filled, else username field
+    if ($prefillUser) { $dlg.Add_Shown({ $txtP.Focus() }) }
 
     $r = $dlg.ShowDialog($script:Form)
     $user = $txtU.Text.Trim()
@@ -390,7 +396,9 @@ function Resolve-Credential {
     $key = $target.Hostname.ToLower()
     if ($script:CredCache.ContainsKey($key)) { return $script:CredCache[$key] }
 
-    $cred = Show-CredentialDialog $target.Hostname
+    # Pre-fill username from payload if available
+    $prefillUser = if ($target.username) { $target.username } else { '' }
+    $cred = Show-CredentialDialog $target.Hostname $prefillUser
     if ($null -eq $cred) { return 'CANCELLED' }
 
     $domKey = if ($cred.UserName -match '^([^\\]+)\\') { $Matches[1].ToLower() } else { $key }
@@ -417,7 +425,8 @@ function Resolve-AllCredentials {
         $key = $h.ToLower()
         if ($script:CredCache.ContainsKey($key)) { continue }
 
-        $cred = Show-CredentialDialog $h
+        $prefillUser = if ($pr.Username) { $pr.Username } else { '' }
+        $cred = Show-CredentialDialog $h $prefillUser
         if ($null -eq $cred) {
             foreach ($pr2 in $snap) {
                 if ($pr2.Hostname -eq $h -and -not $pr2.IsDone) {
@@ -594,7 +603,8 @@ function Invoke-Schedule {
             if ($script:CredCache.ContainsKey($key)) {
                 $cred = $script:CredCache[$key]
             } else {
-                $cred = Show-CredentialDialog $nextRow.Hostname
+                $pfUser = if ($nextRow.Username) { $nextRow.Username } else { '' }
+                $cred = Show-CredentialDialog $nextRow.Hostname $pfUser
                 if ($null -eq $cred) {
                     $nextRow.Status = 'Failed'; $nextRow.Detail = 'Credential cancelled by analyst. Re-run collection to retry.'
                     $nextRow.IsDone = $true; $nextRow.EndTime = [DateTime]::UtcNow
@@ -974,7 +984,8 @@ function Build-UI {
             }
 
             # Prompt fresh credential on UI thread
-            $cred = Show-CredentialDialog $pr.Hostname
+            $pfUser = if ($pr.Username) { $pr.Username } else { '' }
+            $cred = Show-CredentialDialog $pr.Hostname $pfUser
             if ($null -eq $cred) { continue }   # Cancelled -- rows stay Failed, Retry stays visible
 
             # Store new credential in cache

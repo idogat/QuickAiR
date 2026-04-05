@@ -1,19 +1,19 @@
 // ╔══════════════════════════════════════╗
 // ║  QuickAiR — 09c_collect.js           ║
-// ║  Collect tab — target entry (manual ║
-// ║  + CSV), plugin selection, output   ║
-// ║  path config, quickair-collect://   ║
-// ║  URI generation                     ║
+// ║  Collect tab — shared target list,  ║
+// ║  plugin selection, output path      ║
+// ║  config, quickair-collect:// URI    ║
+// ║  generation                          ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : nothing                  ║
-// ║  Writes   : _colTargets              ║
+// ║  Reads    : _sharedTargets, state    ║
+// ║  Writes   : nothing (shared targets ║
+// ║             managed by 03_core.js)   ║
 // ║  Functions: renderCollect,           ║
 // ║    colAddTarget, colRemoveTarget,    ║
 // ║    colClearTargets, colImportCSV,    ║
-// ║    colCollect, colToggleSection,     ║
-// ║    colUpdateOutputPath              ║
+// ║    colCollect, colToggleSection      ║
 // ║  Depends  : 03_core.js              ║
-// ║  Version  : 1.01                     ║
+// ║  Version  : 2.00                     ║
 // ╚══════════════════════════════════════╝
 
 // ── COLLECT TAB ─────────────────────────────────────────────────────────────────
@@ -59,12 +59,12 @@
     '.col-tooltip-wrap{position:relative;display:inline-block}',
     '.col-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.3)}',
     '.col-tooltip-wrap:hover .col-tooltip{display:block}',
-    '.col-empty{color:var(--muted);font-style:italic;padding:8px 0;font-size:12px}'
+    '.col-empty{color:var(--muted);font-style:italic;padding:8px 0;font-size:12px}',
+    '.col-user-input{width:120px;padding:2px 6px;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;box-sizing:border-box}'
   ].join('');
   document.head.appendChild(s);
 })();
 
-var _colTargets = [];
 var _colDefaultOutput = '.\\DFIROutput\\';
 var _colPlugins = ['Processes', 'Network', 'DLLs', 'Users'];
 
@@ -72,17 +72,33 @@ function renderCollect() {
   var panel = el('panel-collect');
   if (!panel) return;
 
+  sharedLoadTargets();
+
   var bannerHtml = renderSetupBanner('collect');
 
+  // Build unified target list: shared manual targets + collected hosts
+  var allTargets = [];
+  _sharedTargets.forEach(function(t) {
+    allTargets.push({ hostname: t.hostname, username: t.username || '', source: 'manual' });
+  });
+  Object.keys(state.hosts || {}).forEach(function(h) {
+    allTargets.push({ hostname: h, username: sharedGetUsername(h), source: 'json' });
+  });
+
   var targetRows = '';
-  if (_colTargets.length === 0) {
-    targetRows = '<tr><td colspan="3" class="col-empty">No targets added yet.</td></tr>';
+  if (allTargets.length === 0) {
+    targetRows = '<tr><td colspan="5" class="col-empty">No targets added yet. Add targets here or on the Execute tab.</td></tr>';
   } else {
-    for (var i = 0; i < _colTargets.length; i++) {
+    for (var i = 0; i < allTargets.length; i++) {
+      var t = allTargets[i];
+      var srcBadge = t.source === 'json'
+        ? '<span class="exec-src-badge exec-src-json">JSON</span>'
+        : '<span class="exec-src-badge exec-src-manual">Manual</span>';
       targetRows += '<tr>' +
-        '<td>' + esc(_colTargets[i].hostname) + '</td>' +
-        '<td><input type="text" id="col-op-' + i + '" value="' + esc(_colTargets[i].outputPath) + '" onchange="colUpdateOutputPath(' + i + ',this.value)"></td>' +
-        '<td><button class="col-remove-btn" onclick="colRemoveTarget(' + i + ')" title="Remove">&times;</button></td>' +
+        '<td>' + esc(t.hostname) + '</td>' +
+        '<td>' + srcBadge + '</td>' +
+        '<td><input type="text" class="col-user-input" value="' + esc(t.username) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(t.hostname) + '\',this.value)"></td>' +
+        '<td><button class="col-remove-btn" onclick="colRemoveTarget(\'' + esc(t.hostname) + '\',\'' + t.source + '\')" title="Remove">&times;</button></td>' +
         '</tr>';
     }
   }
@@ -92,14 +108,14 @@ function renderCollect() {
     pluginChecks += '<li><input type="checkbox" id="col-plug-' + p + '" checked> ' + esc(_colPlugins[p]) + '</li>';
   }
 
-  var collectDisabled = _colTargets.length === 0 ? ' disabled' : '';
+  var collectDisabled = allTargets.length === 0 ? ' disabled' : '';
 
   panel.innerHTML = bannerHtml +
-    // ── Section 1: Add Targets ──
+    // ── Section 1: Targets ──
     '<div class="col-section">' +
       '<div class="col-section-hdr" onclick="colToggleSection(\'col-sec1-body\',\'col-sec1-arrow\')">' +
-        '<span class="col-sec-arrow" id="col-sec1-arrow">&#9660;</span>Add Targets' +
-        '<span class="col-count">(' + _colTargets.length + ' target' + (_colTargets.length !== 1 ? 's' : '') + ')</span>' +
+        '<span class="col-sec-arrow" id="col-sec1-arrow">&#9660;</span>Targets' +
+        '<span class="col-count">(' + allTargets.length + ' target' + (allTargets.length !== 1 ? 's' : '') + ')</span>' +
       '</div>' +
       '<div class="col-section-body" id="col-sec1-body">' +
         '<div class="col-input-row">' +
@@ -108,17 +124,17 @@ function renderCollect() {
           '<span style="margin-left:12px">' +
             '<div class="col-tooltip-wrap">' +
               '<button class="col-btn" onclick="document.getElementById(\'col-csv-input\').click()">Import CSV</button>' +
-              '<div class="col-tooltip">CSV format:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OutputPath columns\nLines starting with # are ignored</div>' +
+              '<div class="col-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
             '</div>' +
           '</span>' +
           '<input type="file" id="col-csv-input" accept=".csv,.txt" style="display:none" onchange="colImportCSV(this.files)">' +
         '</div>' +
         '<div id="col-import-msg"></div>' +
         '<table class="col-target-tbl">' +
-          '<thead><tr><th>Hostname / IP</th><th>Output Path</th><th></th></tr></thead>' +
+          '<thead><tr><th>Hostname / IP</th><th>Source</th><th>Username</th><th></th></tr></thead>' +
           '<tbody>' + targetRows + '</tbody>' +
         '</table>' +
-        (_colTargets.length > 0 ? '<div style="margin-top:6px"><button class="col-btn col-btn-danger" onclick="colClearTargets()">Clear All</button></div>' : '') +
+        (allTargets.length > 0 ? '<div style="margin-top:6px"><button class="col-btn col-btn-danger" onclick="colClearTargets()">Clear Manual Targets</button></div>' : '') +
       '</div>' +
     '</div>' +
 
@@ -158,18 +174,15 @@ function colAddTarget() {
   var val = inp.value.trim();
   if (!val) return;
   var msgEl = el('col-import-msg');
-  if (/\s/.test(val)) {
-    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Invalid: hostname cannot contain spaces.</div>';
+  if (/[\s<>"';&|]/.test(val)) {
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Invalid format \u2014 no spaces or special characters allowed.</div>';
     return;
   }
-  // Deduplicate
-  for (var i = 0; i < _colTargets.length; i++) {
-    if (_colTargets[i].hostname.toLowerCase() === val.toLowerCase()) {
-      if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
-      return;
-    }
+  if (sharedIsHostInList(val) || _sharedCheckCollected(val)) {
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">"' + esc(val) + '" is already in the list.</div>';
+    return;
   }
-  _colTargets.push({ hostname: val, outputPath: _colDefaultOutput });
+  sharedAddTarget(val);
   inp.value = '';
   if (msgEl) msgEl.innerHTML = '';
   renderCollect();
@@ -177,86 +190,40 @@ function colAddTarget() {
   if (ri) ri.focus();
 }
 
-function colRemoveTarget(idx) {
-  _colTargets.splice(idx, 1);
+function colRemoveTarget(hostname, source) {
+  if (source === 'manual') {
+    sharedRemoveTarget(hostname);
+  }
+  // JSON hosts: just re-render without them (they stay in state.hosts)
   renderCollect();
 }
 
 function colClearTargets() {
-  _colTargets = [];
+  _sharedTargets = [];
+  sharedSaveTargets();
   renderCollect();
-}
-
-function colUpdateOutputPath(idx, val) {
-  if (_colTargets[idx]) _colTargets[idx].outputPath = val;
 }
 
 function colImportCSV(files) {
   if (!files || !files.length) return;
   var reader = new FileReader();
   reader.onload = function(e) {
-    var text = e.target.result;
-    var lines = text.split(/\r?\n/);
-    var added = 0;
-    var invalid = [];
-    var dupes = 0;
-
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      if (!line || line.charAt(0) === '#') continue;
-
-      var hostname = '';
-      var outPath = _colDefaultOutput;
-
-      // Check for CSV with comma
-      var commaIdx = line.indexOf(',');
-      if (commaIdx > 0) {
-        hostname = line.substring(0, commaIdx).trim();
-        var rest = line.substring(commaIdx + 1).trim();
-        if (rest) outPath = rest;
-      } else {
-        hostname = line;
-      }
-
-      // Skip header row
-      if (hostname.toLowerCase() === 'hostname') continue;
-
-      // Validate
-      if (/\s/.test(hostname) || !hostname) {
-        invalid.push(line);
-        continue;
-      }
-
-      // Deduplicate
-      var exists = false;
-      for (var j = 0; j < _colTargets.length; j++) {
-        if (_colTargets[j].hostname.toLowerCase() === hostname.toLowerCase()) {
-          exists = true;
-          dupes++;
-          break;
-        }
-      }
-      if (!exists) {
-        _colTargets.push({ hostname: hostname, outputPath: outPath });
-        added++;
-      }
-    }
-
-    var msgParts = [];
-    if (added > 0) msgParts.push(added + ' target' + (added !== 1 ? 's' : '') + ' imported');
-    if (dupes > 0) msgParts.push(dupes + ' duplicate' + (dupes !== 1 ? 's' : '') + ' skipped');
+    var result = sharedImportCSV(e.target.result);
 
     renderCollect();
 
     var msgEl = el('col-import-msg');
     if (msgEl) {
+      var parts = [];
+      if (result.added > 0) parts.push(result.added + ' target' + (result.added !== 1 ? 's' : '') + ' imported');
+      if (result.dupes > 0) parts.push(result.dupes + ' duplicate' + (result.dupes !== 1 ? 's' : '') + ' skipped');
       var html = '';
-      if (msgParts.length > 0) html += '<div class="col-msg col-msg-success">' + msgParts.join(', ') + '.</div>';
-      if (invalid.length > 0) html += '<div class="col-msg col-msg-warn">Invalid entries (' + invalid.length + '): ' + invalid.map(function(l) { return esc(l); }).join(', ') + '</div>';
+      if (parts.length > 0) html += '<div class="col-msg col-msg-success">' + parts.join(', ') + '.</div>';
+      if (result.invalid.length > 0) html += '<div class="col-msg col-msg-warn">Invalid entries (' + result.invalid.length + '): lines ' +
+        result.invalid.map(function(e) { return e.line; }).join(', ') + '</div>';
       msgEl.innerHTML = html;
     }
 
-    // Reset file input so same file can be re-imported
     var fi = el('col-csv-input');
     if (fi) fi.value = '';
   };
@@ -278,11 +245,19 @@ function colCollect() {
 
   var globalOut = (el('col-global-output') || {}).value || _colDefaultOutput;
 
-  var targets = _colTargets.map(function(t) {
+  // Build targets from both shared + collected hosts
+  var allHostnames = [];
+  _sharedTargets.forEach(function(t) { allHostnames.push(t.hostname); });
+  Object.keys(state.hosts || {}).forEach(function(h) {
+    if (allHostnames.indexOf(h) === -1) allHostnames.push(h);
+  });
+
+  var targets = allHostnames.map(function(h) {
     return {
-      hostname: t.hostname,
-      outputPath: t.outputPath || globalOut,
-      plugins: selectedPlugins
+      hostname: h,
+      outputPath: globalOut,
+      plugins: selectedPlugins,
+      username: sharedGetUsername(h)
     };
   });
 

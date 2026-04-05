@@ -887,6 +887,112 @@ function renderSetupBanner(panelId) {
   '</div>';
 }
 
+// ── SHARED TARGET LIST ──────────────────────────────────────────────────────
+// Shared between Execute and Collect tabs. Persisted in sessionStorage.
+// Passwords NEVER stored — only optional usernames for credential pre-fill.
+var _sharedTargets = [];  // [{hostname, os, notes, username}]
+
+function sharedLoadTargets() {
+  try {
+    var raw = sessionStorage.getItem('quickair_targets');
+    if (raw) { _sharedTargets = JSON.parse(raw); return; }
+    // Migration: read old key from previous version
+    var old = sessionStorage.getItem('quickair_manual_targets');
+    if (old) {
+      _sharedTargets = JSON.parse(old);
+      _sharedTargets.forEach(function(t) { if (!t.username) t.username = ''; });
+      sharedSaveTargets();
+      sessionStorage.removeItem('quickair_manual_targets');
+    }
+  } catch(e) { _sharedTargets = []; }
+}
+
+function sharedSaveTargets() {
+  try { sessionStorage.setItem('quickair_targets', JSON.stringify(_sharedTargets)); }
+  catch(e) {}
+}
+
+function sharedIsHostInList(hostname) {
+  var lc = hostname.toLowerCase();
+  for (var i = 0; i < _sharedTargets.length; i++) {
+    if (_sharedTargets[i].hostname.toLowerCase() === lc) return true;
+  }
+  return false;
+}
+
+function _sharedCheckCollected(hostname) {
+  var lc = hostname.toLowerCase();
+  var hosts = Object.keys(state.hosts || {});
+  for (var i = 0; i < hosts.length; i++) {
+    if (hosts[i].toLowerCase() === lc) return true;
+  }
+  return false;
+}
+
+function sharedAddTarget(hostname, os, notes, username) {
+  if (sharedIsHostInList(hostname)) return false;
+  _sharedTargets.push({ hostname: hostname, os: os || '', notes: notes || '', username: username || '' });
+  sharedSaveTargets();
+  return true;
+}
+
+function sharedRemoveTarget(hostname) {
+  _sharedTargets = _sharedTargets.filter(function(t) {
+    return t.hostname.toLowerCase() !== hostname.toLowerCase();
+  });
+  sharedSaveTargets();
+}
+
+function sharedGetUsername(hostname) {
+  var lc = hostname.toLowerCase();
+  for (var i = 0; i < _sharedTargets.length; i++) {
+    if (_sharedTargets[i].hostname.toLowerCase() === lc) return _sharedTargets[i].username || '';
+  }
+  return '';
+}
+
+function sharedSetUsername(hostname, username) {
+  var lc = hostname.toLowerCase();
+  for (var i = 0; i < _sharedTargets.length; i++) {
+    if (_sharedTargets[i].hostname.toLowerCase() === lc) {
+      _sharedTargets[i].username = username;
+      sharedSaveTargets();
+      return;
+    }
+  }
+}
+
+function sharedImportCSV(text) {
+  var lines = text.split(/\r?\n/);
+  var added = 0, dupes = 0, invalid = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line || line.charAt(0) === '#') continue;
+    var hostname = '', os = '', notes = '', username = '';
+    var commaIdx = line.indexOf(',');
+    if (commaIdx > 0) {
+      var parts = line.split(',');
+      hostname = parts[0].trim();
+      os = (parts[1] || '').trim();
+      notes = (parts[2] || '').trim();
+      username = (parts[3] || '').trim();
+    } else {
+      hostname = line;
+    }
+    if (hostname.toLowerCase() === 'hostname') continue;
+    if (/[\s<>"';&|]/.test(hostname) || !hostname) {
+      invalid.push({ line: i + 1, text: line });
+      continue;
+    }
+    if (sharedIsHostInList(hostname) || _sharedCheckCollected(hostname)) {
+      dupes++; continue;
+    }
+    sharedAddTarget(hostname, os, notes, username);
+    added++;
+  }
+  return { added: added, dupes: dupes, invalid: invalid };
+}
+
 // Placeholder will be hidden once files load; auto-trigger picker on init
 window.addEventListener('load', () => {
   setTimeout(() => {
