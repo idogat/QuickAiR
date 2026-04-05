@@ -3,19 +3,26 @@
 // ║  Execute tab, host status panel      ║
 // ║  with memory/disk checkboxes, queue  ║
 // ║  preview dialog, tool dropdown from  ║
-// ║  tools.json, quickair:// URI gen      ║
+// ║  tools.json, quickair:// URI gen,     ║
+// ║  manual target entry + CSV import    ║
 // ╠══════════════════════════════════════╣
-// ║  Reads    : fleetIndex, tools.json    ║
-// ║  Writes   : _bulkSel, _toolsManifest ║
+// ║  Reads    : fleetIndex, tools.json,   ║
+// ║             sessionStorage             ║
+// ║  Writes   : _bulkSel, _toolsManifest,║
+// ║             _manualTargets,            ║
+// ║             sessionStorage             ║
 // ║  Functions: renderExecute, execBulk-  ║
 // ║    AddToQueue, execBulkMemCheck,      ║
 // ║    execBulkDiskCheck, execBulkToggle- ║
 // ║    Mem, execBulkToggleDisk,           ║
+// ║    execAddManualTarget,               ║
+// ║    execImportManualCSV,               ║
+// ║    execRemoveHost,                    ║
 // ║    updateExecuteBadge,                ║
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.41                      ║
+// ║  Version  : 3.50                      ║
 // ╚══════════════════════════════════════╝
 
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
@@ -48,7 +55,28 @@
     '.tab-badge{display:inline-block;background:var(--amber);color:#0d1117;font-size:10px;font-weight:bold;border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle;line-height:14px}',
     '.tab-badge.red{background:var(--red);color:#fff}',
     '.qm-bin-wrap{display:flex;flex-direction:column;gap:4px}',
-    '.exec-setup-banner{background:rgba(100,120,150,.08);border:1px solid var(--border);border-radius:4px;padding:7px 14px;margin-bottom:10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}'
+    '.exec-setup-banner{background:rgba(100,120,150,.08);border:1px solid var(--border);border-radius:4px;padding:7px 14px;margin-bottom:10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}',
+    '.exec-src-badge{display:inline-block;font-size:10px;font-weight:bold;padding:1px 6px;border-radius:3px;letter-spacing:.3px}',
+    '.exec-src-json{background:rgba(88,166,255,.15);color:var(--accent)}',
+    '.exec-src-manual{background:rgba(210,153,34,.15);color:var(--amber)}',
+    '.exec-add-section{margin-bottom:12px;border:1px solid var(--border);border-radius:4px;overflow:hidden}',
+    '.exec-add-hdr{font-size:12px;color:var(--muted);padding:6px 10px;cursor:pointer;user-select:none;display:flex;align-items:center;gap:6px;background:var(--surface)}',
+    '.exec-add-hdr:hover{color:var(--accent)}',
+    '.exec-add-body{overflow:hidden;transition:max-height 0.3s ease;max-height:400px;padding:8px 10px}',
+    '.exec-add-body.collapsed{max-height:0;padding:0 10px}',
+    '.exec-input-row{display:flex;gap:8px;align-items:center;margin-bottom:6px}',
+    '.exec-input-row input[type="text"]{flex:1;max-width:280px;padding:4px 8px;font-size:12px}',
+    '.exec-add-btn{font-size:11px;padding:3px 10px;cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--border);border-radius:3px}',
+    '.exec-add-btn:hover{border-color:var(--accent);color:var(--accent)}',
+    '.exec-msg{font-size:12px;padding:5px 10px;margin:6px 0;border-radius:3px}',
+    '.exec-msg-warn{color:var(--amber);background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2)}',
+    '.exec-msg-success{color:var(--green);background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2)}',
+    '.exec-remove-btn{cursor:pointer;color:var(--red);font-size:14px;border:none;background:none;padding:2px 6px}',
+    '.exec-remove-btn:hover{color:#fff;background:var(--red);border-radius:3px}',
+    '.exec-tooltip-wrap{position:relative;display:inline-block}',
+    '.exec-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
+    '.exec-tooltip-wrap:hover .exec-tooltip{display:block}',
+    '.exec-status-notcollected{color:var(--muted);font-style:italic}'
   ].join('');
   document.head.appendChild(s);
 })();
@@ -57,6 +85,20 @@ var _bulkSel = {};          // { hostname: { mem, disk } }
 var _toolsManifest       = null;   // cached tools.json data
 var _toolsManifestLoaded = false;  // true once fetch attempt completed
 var _qmRemoteDestModified = false; // legacy — kept for _execTabRemoteDestModified compat
+var _manualTargets = [];    // [ { hostname, os, notes } ]
+var _execRemovedHosts = {}; // collected hosts removed from table by user
+
+function _execLoadManualTargets() {
+  try {
+    var raw = sessionStorage.getItem('quickair_manual_targets');
+    if (raw) _manualTargets = JSON.parse(raw);
+  } catch(e) { _manualTargets = []; }
+}
+
+function _execSaveManualTargets() {
+  try { sessionStorage.setItem('quickair_manual_targets', JSON.stringify(_manualTargets)); }
+  catch(e) {}
+}
 
 function _loadToolsManifest(callback) {
   if (!_toolsManifestLoaded) {
@@ -141,42 +183,102 @@ function updateExecuteBadge() {
 function renderExecute() {
   var panel = el('panel-execute');
   if (!panel) return;
-  var hosts = Object.keys(state.hosts);
 
-  // ── Section 1: Host Status ────────────────────────────────────────────────
+  _execLoadManualTargets();
+
+  // ── Build unified host list ───────────────────────────────────────────────
+  var collectedHosts = Object.keys(state.hosts).filter(function(h) { return !_execRemovedHosts[h]; });
+  var manualHostnames = _manualTargets.map(function(t) { return t.hostname; });
+  var allHosts = collectedHosts.concat(manualHostnames);
+
+  // Initialise bulk-selection state for all hosts
+  allHosts.forEach(function(h) {
+    if (!_bulkSel[h]) _bulkSel[h] = { mem: false, disk: false };
+  });
+  // Clean up stale _bulkSel entries
+  Object.keys(_bulkSel).forEach(function(h) {
+    if (allHosts.indexOf(h) === -1) delete _bulkSel[h];
+  });
+
+  // ── Add Targets section (collapsible, collapsed by default) ───────────────
+  var addSectionHTML =
+    '<div class="exec-add-section">' +
+      '<div class="exec-add-hdr" onclick="execToggleSection(\'exec-add-body\',\'exec-add-arrow\')">' +
+        '<span class="exec-sec-arrow" id="exec-add-arrow">&#9654;</span>' +
+        '<span>&#10133; Add Targets Manually</span>' +
+      '</div>' +
+      '<div class="exec-add-body collapsed" id="exec-add-body">' +
+        '<div class="exec-input-row">' +
+          '<input type="text" id="exec-manual-input" placeholder="Hostname or IP" onkeydown="if(event.key===\'Enter\')execAddManualTarget()">' +
+          '<button class="exec-add-btn" onclick="execAddManualTarget()">+ Add</button>' +
+          '<span style="margin-left:12px">' +
+            '<div class="exec-tooltip-wrap">' +
+              '<button class="exec-add-btn" onclick="document.getElementById(\'exec-csv-input\').click()">Import CSV</button>' +
+              '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes columns\nLines starting with # are ignored</div>' +
+            '</div>' +
+          '</span>' +
+          '<input type="file" id="exec-csv-input" accept=".csv,.txt" style="display:none" onchange="execImportManualCSV(this.files)">' +
+        '</div>' +
+        '<div id="exec-manual-msg"></div>' +
+      '</div>' +
+    '</div>';
+
+  // ── Section 1: Host Table ─────────────────────────────────────────────────
   var sec1HTML;
-  if (hosts.length === 0) {
-    sec1HTML = '<div class="exec-no-hosts">Load a JSON file to see host status.</div>';
+  if (allHosts.length === 0) {
+    sec1HTML = addSectionHTML +
+      '<div class="exec-no-hosts">No hosts loaded. Load a JSON file or add targets manually.</div>';
   } else {
-    // Initialise bulk-selection state for any new hosts
-    hosts.forEach(function(h) {
-      if (!_bulkSel[h]) _bulkSel[h] = { mem: false, disk: false };
-    });
-    var rows = hosts.map(function(h) {
+    var rows = '';
+    // Collected host rows
+    collectedHosts.forEach(function(h) {
       var d  = state.hosts[h];
       var m  = (d && d.manifest) || {};
       var ws   = _getWinRMStatus(h);
       var wmis = _getWmiStatus(h);
       var smbs = _getSmbStatus(h);
+      var cs   = _getCollectionStatus(h);
       var bs   = _bulkSel[h];
       var winrmNotice = (ws.status === 'unreachable')
         ? '<div class="exec-winrm-notice">WinRM unreachable during collection. Execution may still be possible with different credentials or method.</div>'
         : (ws.status === 'unknown' ? '<div class="exec-winrm-notice">WinRM status unknown.</div>' : '');
-      return '<tr id="exec-row-' + cssId(h) + '">' +
+      rows += '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +
+        '<td><span class="exec-src-badge exec-src-json">JSON</span></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
+        '<td><span class="' + cs.cls + '">' + esc(cs.label) + '</span></td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
         '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + esc(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
+        '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',false)" title="Remove">&times;</button></td>' +
         '</tr>';
-    }).join('');
-    sec1HTML = '<table class="exec-host-tbl">' +
+    });
+    // Manual host rows
+    _manualTargets.forEach(function(t) {
+      var h = t.hostname;
+      var bs = _bulkSel[h];
+      rows += '<tr id="exec-row-' + cssId(h) + '">' +
+        '<td><strong>' + esc(h) + '</strong></td>' +
+        '<td><span class="exec-src-badge exec-src-manual">Manual</span></td>' +
+        '<td class="dim">' + esc(t.os || '\u2014') + '</td>' +
+        '<td><span class="exec-status-notcollected">Not collected</span></td>' +
+        '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
+        '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
+        '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
+        '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',true)" title="Remove">&times;</button></td>' +
+        '</tr>';
+    });
+    sec1HTML = addSectionHTML +
+      '<table class="exec-host-tbl">' +
       '<thead><tr>' +
-        '<th>Hostname</th><th>OS</th><th>WinRM</th><th>WMI</th><th>SMB Share</th>' +
+        '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
         '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
+        '<th></th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
       '</table>' +
@@ -192,7 +294,7 @@ function renderExecute() {
 
   panel.innerHTML = bannerHtml +
     '<div class="exec-section">' +
-      '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\')">' +
+      '<div class="exec-section-hdr" onclick="execToggleSection(\'exec-sec1-body\',\'exec-sec1-arrow\')">' +
         '<span class="exec-sec-arrow" id="exec-sec1-arrow">&#9660;</span>Select Hosts' +
       '</div>' +
       '<div class="exec-section-body" id="exec-sec1-body">' + sec1HTML + '</div>' +
@@ -217,7 +319,7 @@ function execBulkMemCheck(hostname) {
 }
 
 function execBulkDiskCheck(hostname) {
-  var cb = el('exc-dsk-' + hostname);
+  var cb = el('exc-dsk-' + cssId(hostname));
   if (!cb || !_bulkSel[hostname]) return;
   _bulkSel[hostname].disk = cb.checked;
   _execUpdateSelCounter();
@@ -241,7 +343,7 @@ function execBulkToggleDisk() {
   var allOn = hosts.every(function(h) { return _bulkSel[h].disk; });
   hosts.forEach(function(h) {
     _bulkSel[h].disk = !allOn;
-    var cb = el('exc-dsk-' + h);
+    var cb = el('exc-dsk-' + cssId(h));
     if (cb) cb.checked = !allOn;
   });
   _execUpdateSelCounter();
@@ -473,7 +575,7 @@ function _execBuildQueueModalBody(jobs, hasMemJobs, hasDiskJobs, manifest) {
     var meth  = isMem ? memMethodDef   : diskMethodDef;
     var alive = isMem ? memAliveDef    : diskAliveDef;
     return '<tr>' +
-      '<td class="qm-cell-host">' + esc(j.target) + '</td>' +
+      '<td class="qm-cell-host">' + esc(j.target) + (!state.hosts[j.target] ? ' <span class="exec-src-badge exec-src-manual">Manual</span>' : '') + '</td>' +
       '<td class="qm-cell-type">' + (isMem ? 'Memory' : 'Disk') + '</td>' +
       '<td><input id="qm-rd-' + idx + '" value="' + esc(rd) + '" ' +
         'oninput="_qmRowRdModified[' + idx + ']=true" placeholder="C:\\Windows\\Temp\\tool.exe"></td>' +
@@ -550,11 +652,137 @@ function _queueModalLaunch() {
   if (actions) actions.innerHTML = '<button onclick="_closeQueueModal()">Close</button>';
 }
 
-function execToggleSection(bodyId) {
+// ── MANUAL TARGET ENTRY ──────────────────────────────────────────────────────
+
+function _execIsHostInTable(hostname) {
+  var lc = hostname.toLowerCase();
+  var collectedHosts = Object.keys(state.hosts).filter(function(h) { return !_execRemovedHosts[h]; });
+  for (var i = 0; i < collectedHosts.length; i++) {
+    if (collectedHosts[i].toLowerCase() === lc) return true;
+  }
+  for (var j = 0; j < _manualTargets.length; j++) {
+    if (_manualTargets[j].hostname.toLowerCase() === lc) return true;
+  }
+  return false;
+}
+
+function execAddManualTarget() {
+  var inp = el('exec-manual-input');
+  if (!inp) return;
+  var val = inp.value.trim();
+  var msgEl = el('exec-manual-msg');
+  if (!val) return;
+  // Validate format: no spaces, no invalid chars
+  if (/[\s<>"';&|]/.test(val)) {
+    if (msgEl) msgEl.innerHTML = '<div class="exec-msg exec-msg-warn">Invalid format \u2014 no spaces or special characters allowed.</div>';
+    return;
+  }
+  // Check duplicate
+  if (_execIsHostInTable(val)) {
+    if (msgEl) msgEl.innerHTML = '<div class="exec-msg exec-msg-warn">Already in list.</div>';
+    return;
+  }
+  _manualTargets.push({ hostname: val, os: '', notes: '' });
+  _execSaveManualTargets();
+  inp.value = '';
+  if (msgEl) msgEl.innerHTML = '';
+  renderExecute();
+  // Re-expand the add section and focus input
+  var addBody = el('exec-add-body');
+  if (addBody && addBody.classList.contains('collapsed')) {
+    addBody.classList.remove('collapsed');
+    var arrow = el('exec-add-arrow');
+    if (arrow) arrow.innerHTML = '&#9660;';
+  }
+  var ri = el('exec-manual-input');
+  if (ri) ri.focus();
+}
+
+function execImportManualCSV(files) {
+  if (!files || !files.length) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result;
+    var lines = text.split(/\r?\n/);
+    var added = 0, dupes = 0, invalid = [];
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].trim();
+      if (!line || line.charAt(0) === '#') continue;
+
+      var hostname = '', os = '', notes = '';
+      var commaIdx = line.indexOf(',');
+      if (commaIdx > 0) {
+        var parts = line.split(',');
+        hostname = parts[0].trim();
+        os = (parts[1] || '').trim();
+        notes = (parts[2] || '').trim();
+      } else {
+        hostname = line;
+      }
+
+      // Skip header row
+      if (hostname.toLowerCase() === 'hostname') continue;
+
+      // Validate
+      if (/[\s<>"';&|]/.test(hostname) || !hostname) {
+        invalid.push({ line: i + 1, text: line });
+        continue;
+      }
+
+      // Deduplicate
+      if (_execIsHostInTable(hostname)) { dupes++; continue; }
+
+      _manualTargets.push({ hostname: hostname, os: os, notes: notes });
+      added++;
+    }
+
+    _execSaveManualTargets();
+    renderExecute();
+
+    // Re-expand add section to show message
+    var addBody = el('exec-add-body');
+    if (addBody && addBody.classList.contains('collapsed')) {
+      addBody.classList.remove('collapsed');
+      var arrow = el('exec-add-arrow');
+      if (arrow) arrow.innerHTML = '&#9660;';
+    }
+
+    var msgEl = el('exec-manual-msg');
+    if (msgEl) {
+      var parts = [];
+      if (added > 0) parts.push(added + ' target' + (added !== 1 ? 's' : '') + ' added');
+      if (dupes > 0) parts.push(dupes + ' skipped (duplicate' + (dupes !== 1 ? 's' : '') + ')');
+      var html = '';
+      if (parts.length > 0) html += '<div class="exec-msg exec-msg-success">' + parts.join(', ') + '.</div>';
+      if (invalid.length > 0) html += '<div class="exec-msg exec-msg-warn">Parse error on line' + (invalid.length !== 1 ? 's' : '') + ' ' +
+        invalid.map(function(e) { return e.line; }).join(', ') + '.</div>';
+      msgEl.innerHTML = html;
+    }
+
+    // Reset file input
+    var fi = el('exec-csv-input');
+    if (fi) fi.value = '';
+  };
+  reader.readAsText(files[0]);
+}
+
+function execRemoveHost(hostname, isManual) {
+  if (isManual) {
+    _manualTargets = _manualTargets.filter(function(t) { return t.hostname !== hostname; });
+    _execSaveManualTargets();
+  } else {
+    _execRemovedHosts[hostname] = true;
+  }
+  delete _bulkSel[hostname];
+  renderExecute();
+}
+
+function execToggleSection(bodyId, arrowId) {
   var body = el(bodyId);
   if (!body) return;
   var nowCollapsed = body.classList.toggle('collapsed');
-  var arrow = el('exec-sec1-arrow');
+  var arrow = arrowId ? el(arrowId) : null;
   if (arrow) arrow.innerHTML = nowCollapsed ? '&#9654;' : '&#9660;';
 }
 
