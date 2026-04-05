@@ -773,6 +773,7 @@ document.addEventListener('click', e => {
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function str(v) { return v == null ? '' : String(v).toLowerCase(); }
 function cssId(s) { return String(s||'').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function trunc(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
@@ -979,7 +980,7 @@ function sharedImportCSV(text) {
     } else {
       hostname = line;
     }
-    if (hostname.toLowerCase() === 'hostname') continue;
+    if (/^hostname/i.test(hostname)) continue;
     if (/[\s<>"';&|]/.test(hostname) || !hostname) {
       invalid.push({ line: i + 1, text: line });
       continue;

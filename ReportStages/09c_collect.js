@@ -97,8 +97,8 @@ function renderCollect() {
       targetRows += '<tr>' +
         '<td>' + esc(t.hostname) + '</td>' +
         '<td>' + srcBadge + '</td>' +
-        '<td><input type="text" class="col-user-input" value="' + esc(t.username) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(t.hostname) + '\',this.value)"></td>' +
-        '<td><button class="col-remove-btn" onclick="colRemoveTarget(\'' + esc(t.hostname) + '\',\'' + t.source + '\')" title="Remove">&times;</button></td>' +
+        '<td><input type="text" class="col-user-input" value="' + esc(t.username) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + escJs(t.hostname) + '\',this.value)"></td>' +
+        '<td><button class="col-remove-btn" onclick="colRemoveTarget(\'' + escJs(t.hostname) + '\',\'' + t.source + '\')" title="Remove">&times;</button></td>' +
         '</tr>';
     }
   }

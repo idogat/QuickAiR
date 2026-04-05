@@ -237,10 +237,10 @@ function renderExecute() {
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
-        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(jsonUser) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(h) + '\',this.value)"></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
-        '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',false)" title="Remove">&times;</button></td>' +
+        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(jsonUser) + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + escJs(h) + '\',this.value)"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + escJs(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + escJs(h) + '\')"></td>' +
+        '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + escJs(h) + '\',false)" title="Remove">&times;</button></td>' +
         '</tr>';
     });
     // Manual host rows
@@ -255,10 +255,10 @@ function renderExecute() {
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
         '<td><span class="exec-winrm-unknown">Unknown</span></td>' +
-        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(t.username || '') + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + esc(h) + '\',this.value)"></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + esc(h) + '\')"></td>' +
-        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + esc(h) + '\')"></td>' +
-        '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + esc(h) + '\',true)" title="Remove">&times;</button></td>' +
+        '<td><input type="text" class="exec-user-input" id="exc-user-' + cssId(h) + '" value="' + esc(t.username || '') + '" placeholder="DOMAIN\\user" onchange="sharedSetUsername(\'' + escJs(h) + '\',this.value)"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-mem-' + cssId(h) + '"' + (bs.mem ? ' checked' : '') + ' onchange="execBulkMemCheck(\'' + escJs(h) + '\')"></td>' +
+        '<td class="exec-type-col"><input type="checkbox" id="exc-dsk-' + cssId(h) + '"' + (bs.disk ? ' checked' : '') + ' onchange="execBulkDiskCheck(\'' + escJs(h) + '\')"></td>' +
+        '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + escJs(h) + '\',true)" title="Remove">&times;</button></td>' +
         '</tr>';
     });
     sec1HTML = addSectionHTML +
