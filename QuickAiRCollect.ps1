@@ -234,7 +234,7 @@ function Add-Targets {
 
         # One row per host (not per plugin)
         $script:RowCounter++
-        $uname = if ($t.username) { [string]$t.username } else { '' }
+        $uname = if ($raw.username) { [string]$raw.username } else { '' }
         $row = [PSCustomObject]@{
             RowNumber    = $script:RowCounter
             TargetId     = $tid
