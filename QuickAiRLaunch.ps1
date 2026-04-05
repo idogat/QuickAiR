@@ -367,7 +367,7 @@ function Resolve-Credential {
     if ($script:CredCache.ContainsKey($key)) { return $script:CredCache[$key] }
 
     # Pre-fill username from payload if available
-    $prefillUser = if ($job.username) { $job.username } else { '' }
+    $prefillUser = if ($job.Username) { $job.Username } else { '' }
     $cred = Show-CredentialDialog $job.Target $prefillUser
     if ($null -eq $cred) { return 'CANCELLED' }
 

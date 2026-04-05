@@ -89,6 +89,7 @@ function New-JobEntry {
         Method        = if ($raw.method)     { [string]$raw.method }     else { 'Auto' }
         RemoteShare   = if ($raw.remoteShare) { ([string]$raw.remoteShare).Trim() } elseif ($raw.smbShare) { ([string]$raw.smbShare).Trim() } else { '' }
         AliveCheck    = $ac
+        Username      = if ($raw.username) { ([string]$raw.username).Trim() } else { '' }
         Status        = 'Queued'
         Detail        = ''
         DisplayMethod = ''
@@ -120,6 +121,7 @@ function New-FailedEntry {
         Method        = ''
         RemoteShare   = ''
         AliveCheck    = 10
+        Username      = if ($raw.username) { ([string]$raw.username).Trim() } else { '' }
         Status        = 'VALIDATION_FAILED'
         Detail        = $detail
         DisplayMethod = ''

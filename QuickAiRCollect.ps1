@@ -234,10 +234,12 @@ function Add-Targets {
 
         # One row per host (not per plugin)
         $script:RowCounter++
+        $uname = if ($t.username) { [string]$t.username } else { '' }
         $row = [PSCustomObject]@{
             RowNumber    = $script:RowCounter
             TargetId     = $tid
             Hostname     = $host_
+            Username     = $uname
             Plugins      = $plugins
             PluginCount  = $plugins.Count
             OutputPath   = $outPath
@@ -397,7 +399,7 @@ function Resolve-Credential {
     if ($script:CredCache.ContainsKey($key)) { return $script:CredCache[$key] }
 
     # Pre-fill username from payload if available
-    $prefillUser = if ($target.username) { $target.username } else { '' }
+    $prefillUser = if ($target.Username) { $target.Username } else { '' }
     $cred = Show-CredentialDialog $target.Hostname $prefillUser
     if ($null -eq $cred) { return 'CANCELLED' }
 
@@ -425,8 +427,8 @@ function Resolve-AllCredentials {
         $key = $h.ToLower()
         if ($script:CredCache.ContainsKey($key)) { continue }
 
-        $prefillUser = if ($pr.Username) { $pr.Username } else { '' }
-        $cred = Show-CredentialDialog $h $prefillUser
+        $pfUser = if ($pr.Username) { $pr.Username } else { '' }
+        $cred = Show-CredentialDialog $h $pfUser
         if ($null -eq $cred) {
             foreach ($pr2 in $snap) {
                 if ($pr2.Hostname -eq $h -and -not $pr2.IsDone) {
