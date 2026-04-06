@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -129,9 +129,6 @@ function Invoke-Executor {
 
         $launchPID = $null
         try {
-            $wmiScopeParams = @{ ComputerName = $ComputerName }
-            if ($Credential) { $wmiScopeParams['Credential'] = $Credential }
-
             $scope = New-Object System.Management.ManagementScope("\\$ComputerName\root\cimv2")
             $scope.Options.Timeout = [TimeSpan]::FromSeconds(60)
             if ($Credential) {
@@ -170,6 +167,9 @@ function Invoke-Executor {
             $result.Error = $_.Exception.Message
             $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
             return [PSCustomObject]$result
+        } finally {
+            if ($classObj) { try { $classObj.Dispose() } catch {} }
+            if ($scope)    { try { $scope.Dispose() }    catch {} }
         }
 
         $result.PID = $launchPID

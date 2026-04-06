@@ -22,7 +22,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -109,9 +109,10 @@ if ($Help) {
     Write-Host "  CLEANUP_FAILED      Could not remove transferred binary after failure"
     Write-Host ""
     Write-Host "CLEANUP NOTE" -ForegroundColor Yellow
-    Write-Host "  The transferred binary is NOT automatically deleted from the target"
-    Write-Host "  on failure. The remote path is recorded in the JSON output under"
-    Write-Host "  the 'RemoteDest' field. Cleanup is the analyst's responsibility."
+    Write-Host "  On failure, the executor attempts to delete the transferred binary"
+    Write-Host "  from the target. If cleanup also fails, the state CLEANUP_FAILED is"
+    Write-Host "  recorded. The remote path is in JSON under 'RemoteDest'."
+    Write-Host "  On success, the binary remains on target (the tool is still running)."
     Write-Host ""
     exit 0
 }
@@ -290,6 +291,19 @@ elseif ($Method -eq "WMI") {
 }
 #endregion
 
+# Defense-in-depth: if executor threw an unhandled exception, $result is null
+if (-not $result) {
+    $result = [PSCustomObject][ordered]@{
+        ExecutionId  = $null; ComputerName = $Target; Method = $Method
+        FinalState   = "LAUNCH_FAILED"; PID = $null; BinaryType = $null
+        States       = @(@{ State="LAUNCH_FAILED"; TimeUTC=[DateTime]::UtcNow.ToString("o")
+                           Detail="Invoke-Executor threw an unhandled exception" })
+        Error        = "Internal error: executor returned no result object"
+        StartTimeUTC = [DateTime]::UtcNow.ToString("o")
+        EndTimeUTC   = [DateTime]::UtcNow.ToString("o")
+    }
+}
+
 #region --- Build and write result JSON ---
 $ts        = [System.DateTime]::UtcNow.ToString("yyyyMMdd_HHmmss")
 $jsonFile  = Join-Path $OutputPath "${outHost}_execution_${ts}.json"
@@ -307,7 +321,12 @@ foreach ($k in $result.PSObject.Properties.Name) {
 
 $jsonText = $fullResult | ConvertTo-Json -Depth 10
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($jsonFile, $jsonText, $utf8NoBom)
+try {
+    [System.IO.File]::WriteAllText($jsonFile, $jsonText, $utf8NoBom)
+} catch {
+    Write-Ts "FAILED to write result JSON: $($_.Exception.Message)" "Red"
+    Write-Ts "Result data was displayed above. Copy it manually." "Yellow"
+}
 
 $finalIcon = if ($result.FinalState -match 'FAILED') { "[x]" } else { "[v]" }
 $finalCol  = if ($result.FinalState -match 'FAILED') { "Red" } else { "Green" }
@@ -329,6 +348,10 @@ if ($result.FinalState -eq 'ALIVE') {
     Write-Host "  [~] SFX_ASSUMED -- SFX process exited but exit code unavailable" -ForegroundColor Yellow
     Write-Host "  WMI cannot retrieve exit codes. Extraction may have failed." -ForegroundColor Yellow
     Write-Host "  Verify extracted payload is running on target." -ForegroundColor Yellow
+} elseif ($result.FinalState -eq 'SFX_LAUNCHED') {
+    Write-Host ""
+    Write-Host "  [v] SFX_LAUNCHED -- SFX extracted successfully (exit code 0)" -ForegroundColor Green
+    Write-Host "  Verify extracted payload is running on target." -ForegroundColor Green
 } elseif ($result.FinalState -eq 'LAUNCH_FAILED') {
     $lastDetail = if ($result.States -and $result.States.Count -gt 0) {
         $result.States[-1].Detail

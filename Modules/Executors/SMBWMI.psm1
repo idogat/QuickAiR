@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -157,7 +157,8 @@ function Invoke-Executor {
             if ($shareRoot -notmatch '^\\\\') {
                 $shareRoot = "\\$ComputerName\$shareRoot"
             }
-            # For custom share: UNC path = shareRoot + relative portion of RemoteDestPath
+            # NOTE: -SmbShare must map to the drive root (like admin shares C$, D$).
+            # Shares mapping to subdirectories will produce incorrect UNC paths.
             if ($RemoteDestPath -match '^[A-Za-z]:\\(.*)$') {
                 $uncPath = "$shareRoot\$($Matches[1])"
             } else {

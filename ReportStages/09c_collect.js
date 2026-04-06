@@ -270,6 +270,14 @@ function colCollect() {
   if (maxC < 1) maxC = 1; if (maxC > 20) maxC = 20;
   var uri = 'quickair-collect://collect?targets=' + encoded + '&maxConcurrent=' + maxC;
 
+  if (uri.length > 2000) {
+    var msgEl = el('col-collect-msg');
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn" style="margin-top:10px">' +
+      'URI too long (' + uri.length + ' chars). Reduce the number of targets or shorten the output path.' +
+      '</div>';
+    return;
+  }
+
   // URI log removed — contains sensitive target data
   var ifr = document.createElement('iframe');
   ifr.style.display = 'none';

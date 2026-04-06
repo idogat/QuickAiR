@@ -190,12 +190,12 @@ function renderNetRow(c, i) {
   const protoCls  = c._proto === 'UDP' ? 'amber' : 'dim';
   return `
     <div class="td ${protoCls}" style="font-size:10px;font-weight:bold">${c._proto}</div>
-    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(c._procName)}</div>
-    <div class="td dim">${c.OwningProcess}</div>
+    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${parseInt(c.OwningProcess,10)||0})">${esc(c._procName)}</div>
+    <div class="td dim">${esc(c.OwningProcess)}</div>
     <div class="td mono dim">${esc(c.LocalAddress)}</div>
-    <div class="td dim">${c.LocalPort}</div>
+    <div class="td dim">${esc(c.LocalPort)}</div>
     <div class="td mono">${esc(c.RemoteAddress||'—')}</div>
-    <div class="td">${c.RemotePort != null ? c.RemotePort : '—'}</div>
+    <div class="td">${c.RemotePort != null ? esc(c.RemotePort) : '—'}</div>
     <div class="td ${c.State ? stCls : 'dim'}">${esc(c.State||'—')}</div>
     <div class="td dim">${c.CreationTime ? fmtUTC(c.CreationTime) : '—'}</div>
     <div class="td accent">${esc(c.DnsMatch||'')}</div>
@@ -226,24 +226,24 @@ function onNetRowClick(i, c, rowEl) {
   const sameProcHTML = sameProc.length > 1 ? `
     <h4 style="margin-top:8px">All connections from this process (${sameProcAll.length})${sameProcAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Remote</th><th>Port</th><th>State</th><th>DNS</th></tr>` +
-    sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?x.RemotePort:'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
+    sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?esc(x.RemotePort):'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const sameIPHTML = sameIP.length ? `
     <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIPAll.length})${sameIPAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Process</th><th>PID</th><th>L.Port</th><th>State</th></tr>` +
-    sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
+    sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${esc(x.OwningProcess)}</td><td>${esc(x.LocalPort)}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
     '</table>' : '';
 
   const expand = document.createElement('div');
   expand.innerHTML = `
     <div class="kv-grid">
       <span class="k">Protocol</span>      <span class="v">${c._proto}</span>
-      <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${c.OwningProcess})">${esc(c._procName)} [${c.OwningProcess}]</a></span>
+      <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${parseInt(c.OwningProcess,10)||0})">${esc(c._procName)} [${esc(c.OwningProcess)}]</a></span>
       <span class="k">Executable</span>    <span class="v">${esc(proc ? (proc.ExecutablePath||'—') : '—')}</span>
       <span class="k">CommandLine</span>   <span class="v">${esc(proc ? (proc.CommandLine||'—') : '—')}</span>
-      <span class="k">Local</span>         <span class="v">${esc(c.LocalAddress)}:${c.LocalPort}</span>
-      <span class="k">Remote</span>        <span class="v">${c.RemoteAddress ? esc(c.RemoteAddress)+':'+(c.RemotePort!=null?c.RemotePort:'—') : '—'}</span>
+      <span class="k">Local</span>         <span class="v">${esc(c.LocalAddress)}:${esc(c.LocalPort)}</span>
+      <span class="k">Remote</span>        <span class="v">${c.RemoteAddress ? esc(c.RemoteAddress)+':'+(c.RemotePort!=null?esc(c.RemotePort):'—') : '—'}</span>
       <span class="k">State</span>         <span class="v">${esc(c.State||'—')}</span>
       <span class="k">Created (UTC)</span> <span class="v">${c.CreationTime ? fmtUTC(c.CreationTime) : '—'}</span>
       <span class="k">Interface</span>     <span class="v">${esc(c.InterfaceAlias||'')}</span>

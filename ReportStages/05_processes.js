@@ -185,8 +185,8 @@ function renderProcRow(p, i) {
     : '';
   const nameCls  = isFallback ? 'td amber' : 'td';
   return `
-    <div class="td mono">${p.ProcessId}</div>
-    <div class="td dim">${p.ParentProcessId}</div>
+    <div class="td mono">${esc(p.ProcessId)}</div>
+    <div class="td dim">${esc(p.ParentProcessId)}</div>
     <div class="td dim">${esc(p._parentName)}</div>
     <div class="${nameCls}">${esc(p.Name)}${fbBadge}</div>
     <div class="td dim">${esc(p.ExecutablePath||'')}</div>
@@ -260,8 +260,8 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">CreationDateUTC</span><span class="v">${fmtUTC(p.CreationDateUTC)}</span>
       <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
       <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
-      <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>
-      <span class="k">HandleCount</span>    <span class="v">${p.HandleCount}</span>
+      <span class="k">SessionId</span>      <span class="v">${esc(p.SessionId)}</span>
+      <span class="k">HandleCount</span>    <span class="v">${esc(p.HandleCount)}</span>
       <span class="k">Owner</span>          <span class="v">${esc(p.Owner||'—')}</span>
       <span class="k">IntegrityLevel</span> <span class="v">${esc(p.IntegrityLevel||'—')}</span>
       ${!p.IntegrityLevel && p.IntegrityLevelError ? '<span class="k">IntegrityError</span><span class="v" style="color:var(--amber)">' + esc(p.IntegrityLevelError) + '</span>' : ''}

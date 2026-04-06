@@ -1178,7 +1178,7 @@ document.addEventListener('click', e => {
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function escJs(s) { return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029'); }
 function str(v) { return v == null ? '' : String(v).toLowerCase(); }
 function cssId(s) { return String(s||'').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 function trunc(s, n) { s = String(s||''); return s.length > n ? s.slice(0,n-1)+'…' : s; }
@@ -1853,8 +1853,8 @@ function renderProcRow(p, i) {
     : '';
   const nameCls  = isFallback ? 'td amber' : 'td';
   return `
-    <div class="td mono">${p.ProcessId}</div>
-    <div class="td dim">${p.ParentProcessId}</div>
+    <div class="td mono">${esc(p.ProcessId)}</div>
+    <div class="td dim">${esc(p.ParentProcessId)}</div>
     <div class="td dim">${esc(p._parentName)}</div>
     <div class="${nameCls}">${esc(p.Name)}${fbBadge}</div>
     <div class="td dim">${esc(p.ExecutablePath||'')}</div>
@@ -1928,8 +1928,8 @@ function onProcRowClick(i, p, rowEl) {
       <span class="k">CreationDateUTC</span><span class="v">${fmtUTC(p.CreationDateUTC)}</span>
       <span class="k">WorkingSetSize</span> <span class="v">${fmtBytes(p.WorkingSetSize)}</span>
       <span class="k">VirtualSize</span>    <span class="v">${fmtBytes(p.VirtualSize)}</span>
-      <span class="k">SessionId</span>      <span class="v">${p.SessionId}</span>
-      <span class="k">HandleCount</span>    <span class="v">${p.HandleCount}</span>
+      <span class="k">SessionId</span>      <span class="v">${esc(p.SessionId)}</span>
+      <span class="k">HandleCount</span>    <span class="v">${esc(p.HandleCount)}</span>
       <span class="k">Owner</span>          <span class="v">${esc(p.Owner||'—')}</span>
       <span class="k">IntegrityLevel</span> <span class="v">${esc(p.IntegrityLevel||'—')}</span>
       ${!p.IntegrityLevel && p.IntegrityLevelError ? '<span class="k">IntegrityError</span><span class="v" style="color:var(--amber)">' + esc(p.IntegrityLevelError) + '</span>' : ''}
@@ -2175,12 +2175,12 @@ function renderNetRow(c, i) {
   const protoCls  = c._proto === 'UDP' ? 'amber' : 'dim';
   return `
     <div class="td ${protoCls}" style="font-size:10px;font-weight:bold">${c._proto}</div>
-    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${c.OwningProcess})">${esc(c._procName)}</div>
-    <div class="td dim">${c.OwningProcess}</div>
+    <div class="td link" onclick="event.stopPropagation();gotoProcessPid(${parseInt(c.OwningProcess,10)||0})">${esc(c._procName)}</div>
+    <div class="td dim">${esc(c.OwningProcess)}</div>
     <div class="td mono dim">${esc(c.LocalAddress)}</div>
-    <div class="td dim">${c.LocalPort}</div>
+    <div class="td dim">${esc(c.LocalPort)}</div>
     <div class="td mono">${esc(c.RemoteAddress||'—')}</div>
-    <div class="td">${c.RemotePort != null ? c.RemotePort : '—'}</div>
+    <div class="td">${c.RemotePort != null ? esc(c.RemotePort) : '—'}</div>
     <div class="td ${c.State ? stCls : 'dim'}">${esc(c.State||'—')}</div>
     <div class="td dim">${c.CreationTime ? fmtUTC(c.CreationTime) : '—'}</div>
     <div class="td accent">${esc(c.DnsMatch||'')}</div>
@@ -2211,24 +2211,24 @@ function onNetRowClick(i, c, rowEl) {
   const sameProcHTML = sameProc.length > 1 ? `
     <h4 style="margin-top:8px">All connections from this process (${sameProcAll.length})${sameProcAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Remote</th><th>Port</th><th>State</th><th>DNS</th></tr>` +
-    sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?x.RemotePort:'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
+    sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?esc(x.RemotePort):'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const sameIPHTML = sameIP.length ? `
     <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIPAll.length})${sameIPAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Process</th><th>PID</th><th>L.Port</th><th>State</th></tr>` +
-    sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
+    sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${esc(x.OwningProcess)}</td><td>${esc(x.LocalPort)}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
     '</table>' : '';
 
   const expand = document.createElement('div');
   expand.innerHTML = `
     <div class="kv-grid">
       <span class="k">Protocol</span>      <span class="v">${c._proto}</span>
-      <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${c.OwningProcess})">${esc(c._procName)} [${c.OwningProcess}]</a></span>
+      <span class="k">Process</span>       <span class="v"><a onclick="gotoProcessPid(${parseInt(c.OwningProcess,10)||0})">${esc(c._procName)} [${esc(c.OwningProcess)}]</a></span>
       <span class="k">Executable</span>    <span class="v">${esc(proc ? (proc.ExecutablePath||'—') : '—')}</span>
       <span class="k">CommandLine</span>   <span class="v">${esc(proc ? (proc.CommandLine||'—') : '—')}</span>
-      <span class="k">Local</span>         <span class="v">${esc(c.LocalAddress)}:${c.LocalPort}</span>
-      <span class="k">Remote</span>        <span class="v">${c.RemoteAddress ? esc(c.RemoteAddress)+':'+(c.RemotePort!=null?c.RemotePort:'—') : '—'}</span>
+      <span class="k">Local</span>         <span class="v">${esc(c.LocalAddress)}:${esc(c.LocalPort)}</span>
+      <span class="k">Remote</span>        <span class="v">${c.RemoteAddress ? esc(c.RemoteAddress)+':'+(c.RemotePort!=null?esc(c.RemotePort):'—') : '—'}</span>
       <span class="k">State</span>         <span class="v">${esc(c.State||'—')}</span>
       <span class="k">Created (UTC)</span> <span class="v">${c.CreationTime ? fmtUTC(c.CreationTime) : '—'}</span>
       <span class="k">Interface</span>     <span class="v">${esc(c.InterfaceAlias||'')}</span>
@@ -2466,8 +2466,8 @@ function renderDllRow(e, i) {
   const signerCo = e._signerCo || (sig ? (sig.SignerCompany || '') : '');
   const pathStr = e.ModulePath ? esc(e.ModulePath) : (e.reason ? '[' + esc(e.reason) + ']' : '');
   return `
-    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')}</div>
-    <div class="td dim">${e.ProcessId != null ? e.ProcessId : ''}</div>
+    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${parseInt(e.ProcessId,10)||0})">${esc(e.ProcessName||'')}</div>
+    <div class="td dim">${e.ProcessId != null ? esc(e.ProcessId) : ''}</div>
     <div class="td mono">${esc(e.ModuleName||'')}</div>
     <div class="td dim mono" title="${esc(e.ModulePath||'')}">${pathStr}</div>
     <div class="td dim">${esc(e.FileVersion||'')}</div>
@@ -2516,7 +2516,7 @@ function onDllRowClick(i, e, rowEl) {
   const expand = document.createElement('div');
   expand.innerHTML = `
     <div class="kv-grid">
-      <span class="k">Process</span>      <span class="v"><a onclick="dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')} [${e.ProcessId}]</a></span>
+      <span class="k">Process</span>      <span class="v"><a onclick="dllGotoProcess(${parseInt(e.ProcessId,10)||0})">${esc(e.ProcessName||'')} [${esc(e.ProcessId)}]</a></span>
       <span class="k">DLL Name</span>     <span class="v mono">${esc(e.ModuleName||'')}</span>
       <span class="k">Full Path</span>    <span class="v mono">${esc(e.ModulePath||'—')}</span>
       <span class="k">FileVersion</span>  <span class="v">${esc(e.FileVersion||'—')}</span>
@@ -2704,7 +2704,7 @@ function applyDnsFilters() {
 function renderDnsRow(e, i) {
   const rowCls = e._isMatched ? 'highlighted' : '';
   const matchLink = e._matchedPid
-    ? `<a onclick="event.stopPropagation();gotoProcessPid(${e._matchedPid})">${esc(e._matchedProcess)}</a>`
+    ? `<a onclick="event.stopPropagation();gotoProcessPid(${parseInt(e._matchedPid,10)||0})">${esc(e._matchedProcess)}</a>`
     : '';
   // Row class must be set after creation; we use a data attribute trick instead
   return `
@@ -4194,6 +4194,14 @@ function colCollect() {
   var maxC = parseInt((el('col-max-concurrent') || {}).value, 10) || 5;
   if (maxC < 1) maxC = 1; if (maxC > 20) maxC = 20;
   var uri = 'quickair-collect://collect?targets=' + encoded + '&maxConcurrent=' + maxC;
+
+  if (uri.length > 2000) {
+    var msgEl = el('col-collect-msg');
+    if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn" style="margin-top:10px">' +
+      'URI too long (' + uri.length + ' chars). Reduce the number of targets or shorten the output path.' +
+      '</div>';
+    return;
+  }
 
   // URI log removed — contains sensitive target data
   var ifr = document.createElement('iframe');

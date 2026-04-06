@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.8                         ║
+# ║  Version   : 3.9                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -1091,7 +1091,7 @@ function Invoke-Collector {
                     try { $name_ = $p.Name }                 catch {}
                     if ($pid_ -eq $null) { continue }
                     $utc = $null; $cd = $null; $cmdLine = $null; $exePath = $null; $ws = [long]0; $vs = [long]0; $sid = $null; $hc = $null
-                    try { $cd      = $p.CreationDate; $utc = ConvertTo-UtcIso -Value $cd -FallbackOffsetMin $TargetCapabilities.TimezoneOffsetMinutes } catch {}
+                    try { $cd      = $p.CreationDate; $utc = ConvertTo-UtcIso -Value $cd -FallbackOffsetMin $TargetCapabilities.TimezoneOffsetMinutes } catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; field='CreationDateUTC'; message="CreationDate access/parse failed: $($_.Exception.Message)" } }
                     try { $cmdLine = $p.CommandLine }         catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; Name=$name_; message=$_.Exception.Message } }
                     try { $exePath = $p.ExecutablePath }      catch {}
                     try { $ws      = [long]$p.WorkingSetSize } catch {}

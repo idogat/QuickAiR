@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.2                    ║
+# ║  Version   : 3.3                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -355,7 +355,7 @@ function Invoke-Executor {
         # Step 4a -- BinaryType detection
         if ($BinaryTypeOverride -ne $null) {
             $result.BinaryType = $BinaryTypeOverride
-        } else {
+        } elseif (Get-Command Get-BinaryType -ErrorAction SilentlyContinue) {
             $result.BinaryType = Get-BinaryType -Path $LocalBinaryPath
         }
 
@@ -507,6 +507,11 @@ function Invoke-Executor {
             }
         }
 
+    } catch {
+        if (-not $result.FinalState) {
+            Add-State "CONNECTION_FAILED" $_.Exception.Message
+            $result.Error = $_.Exception.Message
+        }
     } finally {
         # EX1: Clean up transferred binary on failure (before closing session)
         if ($result.FinalState -match 'FAILED' -and $RemoteDestPath) {

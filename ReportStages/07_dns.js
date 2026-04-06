@@ -140,7 +140,7 @@ function applyDnsFilters() {
 function renderDnsRow(e, i) {
   const rowCls = e._isMatched ? 'highlighted' : '';
   const matchLink = e._matchedPid
-    ? `<a onclick="event.stopPropagation();gotoProcessPid(${e._matchedPid})">${esc(e._matchedProcess)}</a>`
+    ? `<a onclick="event.stopPropagation();gotoProcessPid(${parseInt(e._matchedPid,10)||0})">${esc(e._matchedProcess)}</a>`
     : '';
   // Row class must be set after creation; we use a data attribute trick instead
   return `

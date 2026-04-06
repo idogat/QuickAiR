@@ -139,8 +139,8 @@ function renderDllRow(e, i) {
   const signerCo = e._signerCo || (sig ? (sig.SignerCompany || '') : '');
   const pathStr = e.ModulePath ? esc(e.ModulePath) : (e.reason ? '[' + esc(e.reason) + ']' : '');
   return `
-    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')}</div>
-    <div class="td dim">${e.ProcessId != null ? e.ProcessId : ''}</div>
+    <div class="td link" onclick="event.stopPropagation();dllGotoProcess(${parseInt(e.ProcessId,10)||0})">${esc(e.ProcessName||'')}</div>
+    <div class="td dim">${e.ProcessId != null ? esc(e.ProcessId) : ''}</div>
     <div class="td mono">${esc(e.ModuleName||'')}</div>
     <div class="td dim mono" title="${esc(e.ModulePath||'')}">${pathStr}</div>
     <div class="td dim">${esc(e.FileVersion||'')}</div>
@@ -189,7 +189,7 @@ function onDllRowClick(i, e, rowEl) {
   const expand = document.createElement('div');
   expand.innerHTML = `
     <div class="kv-grid">
-      <span class="k">Process</span>      <span class="v"><a onclick="dllGotoProcess(${e.ProcessId})">${esc(e.ProcessName||'')} [${e.ProcessId}]</a></span>
+      <span class="k">Process</span>      <span class="v"><a onclick="dllGotoProcess(${parseInt(e.ProcessId,10)||0})">${esc(e.ProcessName||'')} [${esc(e.ProcessId)}]</a></span>
       <span class="k">DLL Name</span>     <span class="v mono">${esc(e.ModuleName||'')}</span>
       <span class="k">Full Path</span>    <span class="v mono">${esc(e.ModulePath||'—')}</span>
       <span class="k">FileVersion</span>  <span class="v">${esc(e.FileVersion||'—')}</span>
