@@ -13,7 +13,7 @@
 // ║    applyDnsFilters, renderDnsRow,     ║
 // ║    onDnsRowClick                      ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
@@ -77,18 +77,24 @@ function applyDnsFilters() {
   const d  = activeData(); if (!d) return;
   const lq = dnsFilters.search.toLowerCase();
 
-  // Build IP -> (process name, pid) map from network_tcp + network_udp
+  // Build IP -> [{name,pid},...] map from network_tcp + network_udp
   const ipToProcMap = {};
   (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
-    if (c.RemoteAddress && !ipToProcMap[c.RemoteAddress]) {
-      ipToProcMap[c.RemoteAddress] = { name: getProcName(c.OwningProcess,d), pid: c.OwningProcess };
+    if (c.RemoteAddress) {
+      if (!ipToProcMap[c.RemoteAddress]) ipToProcMap[c.RemoteAddress] = [];
+      const name = getProcName(c.OwningProcess,d);
+      if (!ipToProcMap[c.RemoteAddress].some(p => p.pid == c.OwningProcess)) {
+        ipToProcMap[c.RemoteAddress].push({ name: name, pid: c.OwningProcess });
+      }
     }
   });
 
   let rows = (d.dns_cache||[]).map(e => {
-    const match = e.Data ? ipToProcMap[e.Data] : null;
+    const matches = e.Data ? (ipToProcMap[e.Data]||[]) : [];
+    const match   = matches.length ? matches[0] : null;
+    const extra   = matches.length > 1 ? ' +' + (matches.length - 1) + ' more' : '';
     return Object.assign({}, e, {
-      _matchedProcess: match ? match.name : '',
+      _matchedProcess: match ? match.name + extra : '',
       _matchedPid:     match ? match.pid  : '',
       _isMatched:      !!match,
     });
@@ -141,7 +147,7 @@ function renderDnsRow(e, i) {
     <div class="td">${esc(e.Entry)}</div>
     <div class="td mono">${esc(e.Data||'')}</div>
     <div class="td dim">${esc(e.Type||'')}</div>
-    <div class="td dim">${esc(e.TTL||'')}</div>
+    <div class="td dim">${e.TTL != null ? esc(String(e.TTL)) : '\u2014'}</div>
     <div class="td accent">${matchLink}</div>
     <div class="td dim">${esc(e._matchedPid||'')}</div>`;
 }

@@ -18,7 +18,7 @@
 // ║    highlightNetworkPid                ║
 // ║  Depends  : 03_core.js (fmtUTC,      ║
 // ║             ifaceColor, createVS)     ║
-// ║  Version  : 4.1                       ║
+// ║  Version  : 4.2                       ║
 // ╚══════════════════════════════════════╝
 
 // ── NETWORK TAB ───────────────────────────────────────────────────────────────
@@ -217,19 +217,20 @@ function onNetRowClick(i, c, rowEl) {
   const d = activeData();
   const proc = (d.processes||[]).find(p => p.ProcessId == c.OwningProcess);
   // M-2: Use already-merged netData instead of re-merging
-  const sameProc = netData.filter(x => x.OwningProcess == c.OwningProcess).slice(0,20);
-  const sameIP   = c.RemoteAddress && c.RemoteAddress !== '0.0.0.0'
-    ? netData.filter(x => x.RemoteAddress === c.RemoteAddress && x.OwningProcess !== c.OwningProcess).slice(0,20)
-    : [];
+  const sameProcAll = netData.filter(x => x.OwningProcess == c.OwningProcess);
+  const sameProc    = sameProcAll.slice(0,20);
+  const sameIPAll   = c.RemoteAddress && c.RemoteAddress !== '0.0.0.0'
+    ? netData.filter(x => x.RemoteAddress === c.RemoteAddress && x.OwningProcess !== c.OwningProcess) : [];
+  const sameIP      = sameIPAll.slice(0,20);
 
   const sameProcHTML = sameProc.length > 1 ? `
-    <h4 style="margin-top:8px">All connections from this process (${sameProc.length})</h4>
+    <h4 style="margin-top:8px">All connections from this process (${sameProcAll.length})${sameProcAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Remote</th><th>Port</th><th>State</th><th>DNS</th></tr>` +
     sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?x.RemotePort:'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const sameIPHTML = sameIP.length ? `
-    <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIP.length})</h4>
+    <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIPAll.length})${sameIPAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Process</th><th>PID</th><th>L.Port</th><th>State</th></tr>` +
     sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
     '</table>' : '';

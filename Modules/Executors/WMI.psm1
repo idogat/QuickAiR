@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.1                    ║
+# ║  Version   : 2.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -185,6 +185,13 @@ function Invoke-Executor {
             while (-not $sfxExited) {
                 Start-Sleep -Seconds 2
                 if ($sfxTimer.Elapsed.TotalSeconds -ge $SfxTimeoutSeconds) {
+                    # Kill timed-out SFX process on target
+                    try {
+                        $killParams = @{ Class='Win32_Process'; ComputerName=$ComputerName; Filter="ProcessId=$launchPID"; ErrorAction='Stop' }
+                        if ($Credential) { $killParams['Credential'] = $Credential }
+                        $killProc = Get-WmiObject @killParams
+                        if ($killProc) { $killProc.Terminate() | Out-Null; Add-State "CLEANUP" "Killed timed-out SFX process PID=$launchPID" }
+                    } catch { Add-State "CLEANUP_FAILED" "Could not kill timed-out SFX: $($_.Exception.Message)" }
                     Add-State "LAUNCH_FAILED" "SFX timed out after ${SfxTimeoutSeconds}s"
                     $result.Error = "SFX timed out after ${SfxTimeoutSeconds}s"
                     $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")

@@ -23,7 +23,7 @@
 // ║    ifaceColor, getProcName, fmtUTC,   ║
 // ║    fmtBytes, trunc                    ║
 // ║  Depends  : 02_shell.html (DOM)       ║
-// ║  Version  : 3.41                      ║
+// ║  Version  : 3.50                      ║
 // ╚══════════════════════════════════════╝
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
@@ -351,7 +351,12 @@ function loadJsonFile(file, onDone) {
         p.DLLCount = hasDlls ? parseInt(dllCountMap[p.ProcessId] || 0, 10) : null;
       });
       // Duplicate detection by hostname — skip if already loaded
-      if (state.hosts[host]) { onDone(); return; }
+      if (state.hosts[host]) {
+        console.warn('Skipped duplicate host: ' + host + ' (already loaded)');
+        var errDiv = document.getElementById('load-errors');
+        if (errDiv) { var t = document.createElement('div'); t.style.cssText = 'background:#ed6c02;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;'; t.textContent = 'Skipped duplicate: ' + host + ' (already loaded)'; errDiv.appendChild(t); setTimeout(function(){ t.remove(); }, 8000); }
+        onDone(); return;
+      }
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
@@ -460,8 +465,8 @@ function rebuildHostSelector() {
   curr.textContent = state.activeHost || hosts[0];
   dd.innerHTML = hosts.map(h => `
     <div class="host-dropdown-item${h === state.activeHost ? ' active' : ''}">
-      <span class="host-name" onclick="selectHostFromDropdown('${esc(h)}')">${esc(h)}</span>
-      <button class="host-rm-btn" onclick="hostDropdownStartRemove(event,'${esc(h)}')" title="Remove host">×</button>
+      <span class="host-name" onclick="selectHostFromDropdown('${esc(escJs(h))}')">${esc(h)}</span>
+      <button class="host-rm-btn" onclick="hostDropdownStartRemove(event,'${esc(escJs(h))}')" title="Remove host">×</button>
     </div>`).join('');
 }
 
@@ -484,8 +489,8 @@ function hostDropdownStartRemove(e, hostname) {
   if (!item) { removeHost(hostname); return; }
   if (item._removeTimer) clearTimeout(item._removeTimer);
   item.innerHTML = `<span class="host-name">${esc(hostname)}</span>
-    <button class="host-rm-confirm" onclick="hostDropdownConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button>
-    <button class="host-rm-cancel" onclick="hostDropdownCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+    <button class="host-rm-confirm" onclick="hostDropdownConfirmRemove(event,'${esc(escJs(hostname))}')">Confirm ×</button>
+    <button class="host-rm-cancel" onclick="hostDropdownCancelRemove(event,'${esc(escJs(hostname))}')">Cancel</button>`;
   item._removeTimer = setTimeout(() => {
     if (item.isConnected) rebuildHostSelector();
   }, 3000);
@@ -602,8 +607,10 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick, tabName) 
   function render() {
     const scrollTop = viewport.scrollTop;
     const visH      = viewport.clientHeight;
-    const start     = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
-    const end       = Math.min(data.length, Math.ceil((scrollTop + visH) / ROW_H) + BUFFER);
+    // Adjust scrollTop for expanded row height so start/end are correct
+    const effScroll = (expandIdx >= 0 && scrollTop > getRowTop(expandIdx)) ? scrollTop - expandHeight : scrollTop;
+    const start     = Math.max(0, Math.floor(effScroll / ROW_H) - BUFFER);
+    const end       = Math.min(data.length, Math.ceil((effScroll + visH + expandHeight) / ROW_H) + BUFFER);
     if (start === lastStart && inner.querySelectorAll('.vrow').length > 0) return;
     lastStart = start;
 
@@ -735,7 +742,7 @@ function onGlobalSearch(q) {
     html += '<div class="gs-section">Network (' + nMatches.length + ')</div>';
     nMatches.forEach(c => {
       const pname = getProcName(c.OwningProcess, d);
-      html += `<div class="gs-row" onclick="gotoNetwork('${esc(c.RemoteAddress)}')">
+      html += `<div class="gs-row" onclick="gotoNetwork('${esc(escJs(c.RemoteAddress))}')">
         <div class="gs-main">${esc(c.RemoteAddress)}:${c.RemotePort} ← ${esc(pname)}</div>
         <div class="gs-sub">${esc(c.State)} ${esc(c.DnsMatch || c.ReverseDns || '')}</div>
       </div>`;
@@ -875,6 +882,11 @@ function dismissSetupBanner() {
   localStorage.setItem('quickair_setup_done', 'true');
   var banners = document.querySelectorAll('.setup-banner');
   banners.forEach(function(b) { b.remove(); });
+}
+
+function resetSetupBanner() {
+  localStorage.removeItem('quickair_setup_done');
+  location.reload();
 }
 
 function renderSetupBanner(panelId) {

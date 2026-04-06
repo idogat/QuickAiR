@@ -13,8 +13,10 @@
 // ║    colClearTargets, colImportCSV,    ║
 // ║    colCollect, colToggleSection      ║
 // ║  Depends  : 03_core.js              ║
-// ║  Version  : 2.00                     ║
+// ║  Version  : 2.01                     ║
 // ╚══════════════════════════════════════╝
+
+var _colRemovedHosts = {};
 
 // ── COLLECT TAB ─────────────────────────────────────────────────────────────────
 (function injectCollectCSS() {
@@ -82,7 +84,7 @@ function renderCollect() {
     allTargets.push({ hostname: t.hostname, username: t.username || '', source: 'manual' });
   });
   Object.keys(state.hosts || {}).forEach(function(h) {
-    allTargets.push({ hostname: h, username: sharedGetUsername(h), source: 'json' });
+    if (!_colRemovedHosts[h]) allTargets.push({ hostname: h, username: sharedGetUsername(h), source: 'json' });
   });
 
   var targetRows = '';
@@ -193,8 +195,9 @@ function colAddTarget() {
 function colRemoveTarget(hostname, source) {
   if (source === 'manual') {
     sharedRemoveTarget(hostname);
+  } else {
+    _colRemovedHosts[hostname] = true;
   }
-  // JSON hosts: just re-render without them (they stay in state.hosts)
   renderCollect();
 }
 
@@ -238,7 +241,7 @@ function colCollect() {
   }
 
   if (selectedPlugins.length === 0) {
-    var msgEl = el('col-import-msg');
+    var msgEl = el('col-collect-msg');
     if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Select at least one plugin before collecting.</div>';
     return;
   }
@@ -261,7 +264,8 @@ function colCollect() {
     };
   });
 
-  var encoded = encodeURIComponent(btoa(JSON.stringify(targets)));
+  var jsonStr = JSON.stringify(targets);
+  var encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
   var maxC = parseInt((el('col-max-concurrent') || {}).value, 10) || 5;
   if (maxC < 1) maxC = 1; if (maxC > 20) maxC = 20;
   var uri = 'quickair-collect://collect?targets=' + encoded + '&maxConcurrent=' + maxC;

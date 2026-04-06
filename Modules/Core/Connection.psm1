@@ -16,7 +16,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : Core\Output.psm1       ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.7                    ║
+# ║  Version   : 2.8                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -97,7 +97,7 @@ function Get-TargetCaps {
     try {
         if ($isLocal) {
             $c.PSVersion = $PSVersionTable.PSVersion.Major
-            $os = Get-WmiObject Win32_OperatingSystem
+            $os = Get-WmiObject Win32_OperatingSystem -ErrorAction Stop
             $c.OSVersion = $os.Version; $c.OSBuild = $os.BuildNumber; $c.OSCaption = $os.Caption
             $tz = Get-WmiObject Win32_TimeZone
             if ($tz) { $c.TimezoneOffsetMinutes = $tz.Bias }
@@ -118,7 +118,7 @@ function Get-TargetCaps {
             try {
                 $r = Invoke-Command -Session $sess -ScriptBlock {
                     $v   = $PSVersionTable.PSVersion.Major
-                    $os  = Get-WmiObject Win32_OperatingSystem
+                    $os  = Get-WmiObject Win32_OperatingSystem -ErrorAction Stop
                     $tz  = Get-WmiObject Win32_TimeZone
                     $tzBias = if ($tz) { $tz.Bias } else { 0 }
                     $hCim = $v -ge 3

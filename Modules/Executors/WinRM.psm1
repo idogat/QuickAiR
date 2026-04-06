@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.1                    ║
+# ║  Version   : 3.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -321,7 +321,7 @@ function Invoke-Executor {
                     # Re-validate session before verification (W-35)
                     if ($session.State -ne 'Opened') {
                         Remove-PSSession $session -ErrorAction SilentlyContinue
-                        $session = New-PSSession -ComputerName $ComputerName -Credential $Credential -ErrorAction Stop
+                        $session = New-PSSession -ComputerName $ComputerName -Credential $Credential -SessionOption $sessionOpt -ErrorAction Stop
                     }
                     $remoteHash2 = Invoke-Command -Session $session -ScriptBlock {
                         param($path)
@@ -524,7 +524,7 @@ function Invoke-Executor {
                         }
                         # Clean up MUI subdirectories
                         $dir = Split-Path -Parent $p
-                        $name = [System.IO.Path]::GetFileNameWithoutExtension($p)
+                        $name = [System.IO.Path]::GetFileName($p)
                         Get-ChildItem -Path $dir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
                             $muiFile = Join-Path $_.FullName "$name.mui"
                             if (Test-Path -LiteralPath $muiFile) {

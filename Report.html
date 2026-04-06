@@ -332,7 +332,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-04-05T09:34:04.4835125Z",
+    "generated":  "2026-04-05T15:34:35.3494304Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -421,7 +421,7 @@ var _toolDefaults = {
 // ║    ifaceColor, getProcName, fmtUTC,   ║
 // ║    fmtBytes, trunc                    ║
 // ║  Depends  : 02_shell.html (DOM)       ║
-// ║  Version  : 3.41                      ║
+// ║  Version  : 3.50                      ║
 // ╚══════════════════════════════════════╝
 
 // ── VERSION ───────────────────────────────────────────────────────────────────
@@ -749,7 +749,12 @@ function loadJsonFile(file, onDone) {
         p.DLLCount = hasDlls ? parseInt(dllCountMap[p.ProcessId] || 0, 10) : null;
       });
       // Duplicate detection by hostname — skip if already loaded
-      if (state.hosts[host]) { onDone(); return; }
+      if (state.hosts[host]) {
+        console.warn('Skipped duplicate host: ' + host + ' (already loaded)');
+        var errDiv = document.getElementById('load-errors');
+        if (errDiv) { var t = document.createElement('div'); t.style.cssText = 'background:#ed6c02;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;'; t.textContent = 'Skipped duplicate: ' + host + ' (already loaded)'; errDiv.appendChild(t); setTimeout(function(){ t.remove(); }, 8000); }
+        onDone(); return;
+      }
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
     } catch(ex) {
@@ -858,8 +863,8 @@ function rebuildHostSelector() {
   curr.textContent = state.activeHost || hosts[0];
   dd.innerHTML = hosts.map(h => `
     <div class="host-dropdown-item${h === state.activeHost ? ' active' : ''}">
-      <span class="host-name" onclick="selectHostFromDropdown('${esc(h)}')">${esc(h)}</span>
-      <button class="host-rm-btn" onclick="hostDropdownStartRemove(event,'${esc(h)}')" title="Remove host">×</button>
+      <span class="host-name" onclick="selectHostFromDropdown('${esc(escJs(h))}')">${esc(h)}</span>
+      <button class="host-rm-btn" onclick="hostDropdownStartRemove(event,'${esc(escJs(h))}')" title="Remove host">×</button>
     </div>`).join('');
 }
 
@@ -882,8 +887,8 @@ function hostDropdownStartRemove(e, hostname) {
   if (!item) { removeHost(hostname); return; }
   if (item._removeTimer) clearTimeout(item._removeTimer);
   item.innerHTML = `<span class="host-name">${esc(hostname)}</span>
-    <button class="host-rm-confirm" onclick="hostDropdownConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button>
-    <button class="host-rm-cancel" onclick="hostDropdownCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+    <button class="host-rm-confirm" onclick="hostDropdownConfirmRemove(event,'${esc(escJs(hostname))}')">Confirm ×</button>
+    <button class="host-rm-cancel" onclick="hostDropdownCancelRemove(event,'${esc(escJs(hostname))}')">Cancel</button>`;
   item._removeTimer = setTimeout(() => {
     if (item.isConnected) rebuildHostSelector();
   }, 3000);
@@ -1000,8 +1005,10 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick, tabName) 
   function render() {
     const scrollTop = viewport.scrollTop;
     const visH      = viewport.clientHeight;
-    const start     = Math.max(0, Math.floor(scrollTop / ROW_H) - BUFFER);
-    const end       = Math.min(data.length, Math.ceil((scrollTop + visH) / ROW_H) + BUFFER);
+    // Adjust scrollTop for expanded row height so start/end are correct
+    const effScroll = (expandIdx >= 0 && scrollTop > getRowTop(expandIdx)) ? scrollTop - expandHeight : scrollTop;
+    const start     = Math.max(0, Math.floor(effScroll / ROW_H) - BUFFER);
+    const end       = Math.min(data.length, Math.ceil((effScroll + visH + expandHeight) / ROW_H) + BUFFER);
     if (start === lastStart && inner.querySelectorAll('.vrow').length > 0) return;
     lastStart = start;
 
@@ -1133,7 +1140,7 @@ function onGlobalSearch(q) {
     html += '<div class="gs-section">Network (' + nMatches.length + ')</div>';
     nMatches.forEach(c => {
       const pname = getProcName(c.OwningProcess, d);
-      html += `<div class="gs-row" onclick="gotoNetwork('${esc(c.RemoteAddress)}')">
+      html += `<div class="gs-row" onclick="gotoNetwork('${esc(escJs(c.RemoteAddress))}')">
         <div class="gs-main">${esc(c.RemoteAddress)}:${c.RemotePort} ← ${esc(pname)}</div>
         <div class="gs-sub">${esc(c.State)} ${esc(c.DnsMatch || c.ReverseDns || '')}</div>
       </div>`;
@@ -1275,6 +1282,11 @@ function dismissSetupBanner() {
   banners.forEach(function(b) { b.remove(); });
 }
 
+function resetSetupBanner() {
+  localStorage.removeItem('quickair_setup_done');
+  location.reload();
+}
+
 function renderSetupBanner(panelId) {
   if (isProtocolSetupDone()) return '';
   return '<div class="setup-banner" id="setup-banner-' + panelId + '">' +
@@ -1412,7 +1424,7 @@ window.addEventListener('load', () => {
 // ║    fleetStartRemove, fleetConfirm-    ║
 // ║    Remove, fleetCancelRemove          ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
@@ -1424,7 +1436,7 @@ function fleetStartRemove(e, hostname) {
   e.stopPropagation();
   const cell = e.currentTarget;
   if (_fleetRemoveTimers[hostname]) clearTimeout(_fleetRemoveTimers[hostname]);
-  cell.innerHTML = `<button class="fleet-rm-confirm" onclick="fleetConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button> <button class="fleet-rm-cancel" onclick="fleetCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+  cell.innerHTML = `<button class="fleet-rm-confirm" onclick="fleetConfirmRemove(event,'${esc(escJs(hostname))}')">Confirm ×</button> <button class="fleet-rm-cancel" onclick="fleetCancelRemove(event,'${esc(escJs(hostname))}')">Cancel</button>`;
   _fleetRemoveTimers[hostname] = setTimeout(() => {
     if (cell.isConnected) cell.innerHTML = '×';
     delete _fleetRemoveTimers[hostname];
@@ -1561,7 +1573,7 @@ function renderFleet() {
       const nicTip = row._adapter_names.length ? row._adapter_names.join('\n') : '';
       const nicColor = row.nic_count >= 2 ? 'accent' : 'dim';
       return `
-      <div class="td fleet-rm-cell" onclick="fleetStartRemove(event,'${esc(row.hostname)}')">×</div>
+      <div class="td fleet-rm-cell" onclick="fleetStartRemove(event,'${esc(escJs(row.hostname))}')">×</div>
       <div class="td">${esc(row.hostname)}</div>
       <div class="td dim">${esc(row.target_os_caption||'')}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
@@ -1672,7 +1684,7 @@ function fleetSortBy(col) {
 // ║    integrityRank, renderIntegrityBadge║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.51                      ║
+// ║  Version  : 3.52                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -1847,7 +1859,7 @@ function renderProcRow(p, i) {
     <div class="${nameCls}">${esc(p.Name)}${fbBadge}</div>
     <div class="td dim">${esc(p.ExecutablePath||'')}</div>
     <div class="td dim">${esc(p.CommandLine||'')}</div>
-    <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
+    <div class="td ${connCls}" onclick="if(${parseInt(p._connCount,10)||0}>0){event.stopPropagation();gotoNetworkPid(${parseInt(p.ProcessId,10)||0})}">${p._connCount||''}</div>
     <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
     <div class="td dim">${esc(p._signerCompany||'')}</div>
@@ -1890,7 +1902,7 @@ function onProcRowClick(i, p, rowEl) {
       const iCol = ifaceColor(ia, adAliases);
       return `<tr>
       <td>${c._proto}</td>
-      <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress||'')}')">${esc(c.RemoteAddress||'—')}</a></td>
+      <td class="mono"><a onclick="gotoNetworkIp('${esc(escJs(c.RemoteAddress||''))}')">${esc(c.RemoteAddress||'—')}</a></td>
       <td>${c.RemotePort!=null?c.RemotePort:'—'}</td><td>${esc(c.State||'—')}</td>
       <td>${esc(c.DnsMatch||'')}</td><td>${esc(c.ReverseDns||'')}</td>
       <td><span style="color:${iCol};font-weight:bold">${esc(ia)}</span></td>
@@ -1901,11 +1913,11 @@ function onProcRowClick(i, p, rowEl) {
   let childHTML = '';
   if (children.length) {
     childHTML = `<h4>Child Processes (${children.length})</h4>` +
-      children.map(c => `<a onclick="gotoProcessPid(${c.ProcessId})">${esc(c.Name)} [${c.ProcessId}]</a>`).join('  ');
+      children.map(c => `<a onclick="gotoProcessPid(${parseInt(c.ProcessId,10)||0})">${esc(c.Name)} [${c.ProcessId}]</a>`).join('  ');
   }
 
   const dllCountHTML = p.DLLCount != null
-    ? `<span class="detail-value"><a onclick="event.stopPropagation();gotoProcessDlls(${p.ProcessId})">${p.DLLCount} modules</a></span>`
+    ? `<span class="detail-value"><a onclick="event.stopPropagation();gotoProcessDlls(${parseInt(p.ProcessId,10)||0})">${p.DLLCount} modules</a></span>`
     : `<span class="detail-value">—</span>`;
 
   const expand = document.createElement('div');
@@ -1962,8 +1974,9 @@ function gotoProcessDlls(pid) {
 }
 
 function fmtBytes(b) {
-  if (!b) return '0 B';
+  if (b == null || b === '') return '\u2014';
   b = parseInt(b);
+  if (!b) return '0 B';
   if (b > 1073741824) return (b/1073741824).toFixed(1)+' GB';
   if (b > 1048576)    return (b/1048576).toFixed(1)+' MB';
   if (b > 1024)       return (b/1024).toFixed(0)+' KB';
@@ -1990,7 +2003,7 @@ function fmtBytes(b) {
 // ║    highlightNetworkPid                ║
 // ║  Depends  : 03_core.js (fmtUTC,      ║
 // ║             ifaceColor, createVS)     ║
-// ║  Version  : 4.1                       ║
+// ║  Version  : 4.2                       ║
 // ╚══════════════════════════════════════╝
 
 // ── NETWORK TAB ───────────────────────────────────────────────────────────────
@@ -2189,19 +2202,20 @@ function onNetRowClick(i, c, rowEl) {
   const d = activeData();
   const proc = (d.processes||[]).find(p => p.ProcessId == c.OwningProcess);
   // M-2: Use already-merged netData instead of re-merging
-  const sameProc = netData.filter(x => x.OwningProcess == c.OwningProcess).slice(0,20);
-  const sameIP   = c.RemoteAddress && c.RemoteAddress !== '0.0.0.0'
-    ? netData.filter(x => x.RemoteAddress === c.RemoteAddress && x.OwningProcess !== c.OwningProcess).slice(0,20)
-    : [];
+  const sameProcAll = netData.filter(x => x.OwningProcess == c.OwningProcess);
+  const sameProc    = sameProcAll.slice(0,20);
+  const sameIPAll   = c.RemoteAddress && c.RemoteAddress !== '0.0.0.0'
+    ? netData.filter(x => x.RemoteAddress === c.RemoteAddress && x.OwningProcess !== c.OwningProcess) : [];
+  const sameIP      = sameIPAll.slice(0,20);
 
   const sameProcHTML = sameProc.length > 1 ? `
-    <h4 style="margin-top:8px">All connections from this process (${sameProc.length})</h4>
+    <h4 style="margin-top:8px">All connections from this process (${sameProcAll.length})${sameProcAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Remote</th><th>Port</th><th>State</th><th>DNS</th></tr>` +
     sameProc.map(x=>`<tr><td>${x._proto||'TCP'}</td><td class="mono">${esc(x.RemoteAddress||'—')}</td><td>${x.RemotePort!=null?x.RemotePort:'—'}</td><td>${esc(x.State||'—')}</td><td>${esc(x.DnsMatch||'')}</td></tr>`).join('') +
     '</table>' : '';
 
   const sameIPHTML = sameIP.length ? `
-    <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIP.length})</h4>
+    <h4 style="margin-top:8px">Other connections to ${esc(c.RemoteAddress)} (${sameIPAll.length})${sameIPAll.length > 20 ? ' \u2014 showing first 20' : ''}</h4>
     <table class="expand-tbl"><tr><th>Proto</th><th>Process</th><th>PID</th><th>L.Port</th><th>State</th></tr>` +
     sameIP.map(x=>`<tr><td>${x._proto||'TCP'}</td><td>${esc(getProcName(x.OwningProcess,d))}</td><td>${x.OwningProcess}</td><td>${x.LocalPort}</td><td>${esc(x.State||'—')}</td></tr>`).join('') +
     '</table>' : '';
@@ -2324,7 +2338,7 @@ function highlightNetworkPid(pid) {
 // ║    applyDllFilters, renderDllRow,     ║
 // ║    onDllRowClick, dllGotoProcess      ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.50                      ║
+// ║  Version  : 3.51                      ║
 // ╚══════════════════════════════════════╝
 
 // ── DLLs TAB ──────────────────────────────────────────────────────────────────
@@ -2460,7 +2474,7 @@ function renderDllRow(e, i) {
     <div class="td dim">${esc(e.Company||'')}</div>
     <div class="${shaCls}" title="${esc(shaTitle)}">${esc(sha)}</div>
     <div class="td ${privCls}">${e.IsPrivatePath===true?'yes':''}</div>
-    <div class="td" title="${sig ? (sig.CatalogFile ? 'Catalog: '+sig.CatalogFile : (sig.Status||'')) : ''}">${renderSignedIcon(sig)}</div>
+    <div class="td" title="${sig ? (sig.CatalogFile ? 'Catalog: '+esc(sig.CatalogFile) : esc(sig.Status||'')) : ''}">${renderSignedIcon(sig)}</div>
     <div class="td dim">${esc(signerCo)}</div>`;
 }
 
@@ -2563,7 +2577,7 @@ function dllGotoProcess(pid) { navigateToRow('processes', 'ProcessId', pid); }
 // ║    applyDnsFilters, renderDnsRow,     ║
 // ║    onDnsRowClick                      ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── DNS TAB ───────────────────────────────────────────────────────────────────
@@ -2627,18 +2641,24 @@ function applyDnsFilters() {
   const d  = activeData(); if (!d) return;
   const lq = dnsFilters.search.toLowerCase();
 
-  // Build IP -> (process name, pid) map from network_tcp + network_udp
+  // Build IP -> [{name,pid},...] map from network_tcp + network_udp
   const ipToProcMap = {};
   (d.network_tcp||[]).concat(d.network_udp||[]).forEach(c => {
-    if (c.RemoteAddress && !ipToProcMap[c.RemoteAddress]) {
-      ipToProcMap[c.RemoteAddress] = { name: getProcName(c.OwningProcess,d), pid: c.OwningProcess };
+    if (c.RemoteAddress) {
+      if (!ipToProcMap[c.RemoteAddress]) ipToProcMap[c.RemoteAddress] = [];
+      const name = getProcName(c.OwningProcess,d);
+      if (!ipToProcMap[c.RemoteAddress].some(p => p.pid == c.OwningProcess)) {
+        ipToProcMap[c.RemoteAddress].push({ name: name, pid: c.OwningProcess });
+      }
     }
   });
 
   let rows = (d.dns_cache||[]).map(e => {
-    const match = e.Data ? ipToProcMap[e.Data] : null;
+    const matches = e.Data ? (ipToProcMap[e.Data]||[]) : [];
+    const match   = matches.length ? matches[0] : null;
+    const extra   = matches.length > 1 ? ' +' + (matches.length - 1) + ' more' : '';
     return Object.assign({}, e, {
-      _matchedProcess: match ? match.name : '',
+      _matchedProcess: match ? match.name + extra : '',
       _matchedPid:     match ? match.pid  : '',
       _isMatched:      !!match,
     });
@@ -2691,7 +2711,7 @@ function renderDnsRow(e, i) {
     <div class="td">${esc(e.Entry)}</div>
     <div class="td mono">${esc(e.Data||'')}</div>
     <div class="td dim">${esc(e.Type||'')}</div>
-    <div class="td dim">${esc(e.TTL||'')}</div>
+    <div class="td dim">${e.TTL != null ? esc(String(e.TTL)) : '\u2014'}</div>
     <div class="td accent">${matchLink}</div>
     <div class="td dim">${esc(e._matchedPid||'')}</div>`;
 }
@@ -2745,7 +2765,7 @@ function dnsSortBy(col) {
 // ║    Expand, usersSortRows, usersApply- ║
 // ║    Filters, confBadge, acctTypeBadge  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 4.00                      ║
+// ║  Version  : 4.01                      ║
 // ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
@@ -3034,7 +3054,7 @@ function buildUserExpand(u) {
     <h4 style="margin:0 0 6px">Identity</h4>
     <div class="kv-grid" style="margin-bottom:12px">
       <span class="k" title="${esc(USER_TIPS.SID)}">SID</span>
-        <span class="v mono" style="font-size:11px;cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(u.SID)}')" title="Click to copy">${esc(u.SID)}</span>
+        <span class="v mono" style="font-size:11px;cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(escJs(u.SID))}')" title="Click to copy">${esc(u.SID)}</span>
       <span class="k">Account Type</span>
         <span class="v">${acctTypeBadge(u.AccountType)}</span>
       <span class="k">Domain</span>
@@ -3091,9 +3111,9 @@ function buildUserExpand(u) {
         <span class="k" title="${esc(USER_TIPS.PasswordLastSet)}">Password Last Set</span>
           <span class="v" title="${esc(USER_TIPS.PasswordLastSet)}">${fmtUTC(di.PasswordLastSet)}</span>
         <span class="k">Enabled</span>
-          <span class="v" style="color:${di.Enabled?'var(--green)':'var(--red)'}">${di.Enabled ? '&#10003;' : '&#10007;'}</span>
+          <span class="v" style="color:${di.Enabled===true?'var(--green)':di.Enabled===false?'var(--red)':'var(--muted)'}">${di.Enabled===true ? '&#10003;' : di.Enabled===false ? '&#10007;' : '&#8212;'}</span>
         <span class="k">Locked Out</span>
-          <span class="v" style="color:${di.LockedOut?'var(--red)':'var(--muted)'}">${di.LockedOut ? 'YES' : '&#8212;'}</span>
+          <span class="v" style="color:${di.LockedOut===true?'var(--red)':di.LockedOut===false?'var(--muted)':'var(--muted)'}">${di.LockedOut===true ? 'YES' : di.LockedOut===false ? '&#8212;' : '&#8212;'}</span>
         <span class="k">Bad Logon Count</span>
           <span class="v" style="color:${(di.BadLogonCount>0)?'var(--amber)':'var(--muted)'}">${di.BadLogonCount || 0}</span>
       </div>`;
@@ -3175,7 +3195,7 @@ function buildUserExpand(u) {
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 4.00                      ║
+// ║  Version  : 4.01                      ║
 // ╚══════════════════════════════════════╝
 
 // ── EXECUTE TAB ─────────────────────────────────────────────── v1.2 (per-row)─
@@ -3778,8 +3798,14 @@ function _queueModalLaunch() {
       username:   sharedGetUsername(j.target)
     };
   });
-  var encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
+  var jsonStr = JSON.stringify(payload);
+  var encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
   var uri = 'quickair://batch?jobs=' + encoded;
+  if (uri.length > 2000) {
+    var errDiv = document.getElementById('load-errors');
+    if (errDiv) { var t = document.createElement('div'); t.style.cssText = 'background:#d32f2f;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;'; t.textContent = 'URI too long (' + uri.length + ' chars). Reduce batch size and try again.'; errDiv.appendChild(t); setTimeout(function(){ t.remove(); }, 10000); }
+    return;
+  }
   var ifr = document.createElement('iframe');
   ifr.style.display = 'none';
   ifr.src = uri;
@@ -3912,8 +3938,10 @@ function renderFleetExecBanners() {
 // ║    colClearTargets, colImportCSV,    ║
 // ║    colCollect, colToggleSection      ║
 // ║  Depends  : 03_core.js              ║
-// ║  Version  : 2.00                     ║
+// ║  Version  : 2.01                     ║
 // ╚══════════════════════════════════════╝
+
+var _colRemovedHosts = {};
 
 // ── COLLECT TAB ─────────────────────────────────────────────────────────────────
 (function injectCollectCSS() {
@@ -3981,7 +4009,7 @@ function renderCollect() {
     allTargets.push({ hostname: t.hostname, username: t.username || '', source: 'manual' });
   });
   Object.keys(state.hosts || {}).forEach(function(h) {
-    allTargets.push({ hostname: h, username: sharedGetUsername(h), source: 'json' });
+    if (!_colRemovedHosts[h]) allTargets.push({ hostname: h, username: sharedGetUsername(h), source: 'json' });
   });
 
   var targetRows = '';
@@ -4092,8 +4120,9 @@ function colAddTarget() {
 function colRemoveTarget(hostname, source) {
   if (source === 'manual') {
     sharedRemoveTarget(hostname);
+  } else {
+    _colRemovedHosts[hostname] = true;
   }
-  // JSON hosts: just re-render without them (they stay in state.hosts)
   renderCollect();
 }
 
@@ -4137,7 +4166,7 @@ function colCollect() {
   }
 
   if (selectedPlugins.length === 0) {
-    var msgEl = el('col-import-msg');
+    var msgEl = el('col-collect-msg');
     if (msgEl) msgEl.innerHTML = '<div class="col-msg col-msg-warn">Select at least one plugin before collecting.</div>';
     return;
   }
@@ -4160,7 +4189,8 @@ function colCollect() {
     };
   });
 
-  var encoded = encodeURIComponent(btoa(JSON.stringify(targets)));
+  var jsonStr = JSON.stringify(targets);
+  var encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
   var maxC = parseInt((el('col-max-concurrent') || {}).value, 10) || 5;
   if (maxC < 1) maxC = 1; if (maxC > 20) maxC = 20;
   var uri = 'quickair-collect://collect?targets=' + encoded + '&maxConcurrent=' + maxC;

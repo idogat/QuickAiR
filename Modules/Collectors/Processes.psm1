@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.7                         ║
+# ║  Version   : 3.8                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -538,7 +538,7 @@ public class IntegrityHelper {
         }
         try { $entry.CommandLine     = $p.CommandLine } catch {}
         try { $entry.ExecutablePath  = $p.ExecutablePath } catch {}
-        try { $entry.CreationDateUtc = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch {}
+        try { $entry.CreationDateUtc = if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } else { $null } } catch { $outerErrors += "CreationDate conversion failed for PID ${pid_}: $($_.Exception.Message)" }
         try { $entry.CreationDate    = $null } catch {}
         try { $entry.WorkingSetSize  = [long]$p.WorkingSetSize } catch {}
         try { $entry.VirtualSize     = [long]$p.VirtualSize }    catch {}
@@ -786,7 +786,7 @@ function Invoke-Collector {
                         if ($wp.CreationDate) {
                             $utcVal = [System.Management.ManagementDateTimeConverter]::ToDateTime($wp.CreationDate).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
                         }
-                    } catch {}
+                    } catch { $errors += @{ artifact='process_detail'; ProcessId=$pid_; message="CreationDate parse failed: $($_.Exception.Message)" } }
 
                     # Owner via GetOwner() -- WMI ManagementObject method
                     $owner = $null

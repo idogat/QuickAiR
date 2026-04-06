@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 2.9                      ║
+# ║  Version   : 3.0                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -316,6 +316,7 @@ $script:DNS_TYPE_MAP = @{ 1='A'; 2='NS'; 5='CNAME'; 6='SOA'; 12='PTR'; 15='MX'; 
 
 function ConvertTo-DnsTypeName {
     param($Type)
+    if ($Type -is [string]) { try { $Type = [int]$Type } catch {} }
     if ($Type -is [int] -and $script:DNS_TYPE_MAP.ContainsKey($Type)) { return $script:DNS_TYPE_MAP[$Type] }
     return "$Type"
 }
@@ -686,7 +687,7 @@ function Invoke-Collector {
                 }
             } elseif ($r.Lines) {
                 $parsed = & $script:DNS_PARSE_SB -Lines $r.Lines
-                foreach ($d in $parsed) { $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=$d.Type; TTL=$d.TTL } }
+                foreach ($d in $parsed) { $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=(ConvertTo-DnsTypeName $d.Type); TTL=$d.TTL } }
             }
         } else {
             # Local
@@ -700,12 +701,12 @@ function Invoke-Collector {
                 $dnsSource = 'ipconfig_fallback'
                 $lines  = & ipconfig /displaydns 2>&1
                 $parsed = & $script:DNS_PARSE_SB -Lines $lines
-                foreach ($d in $parsed) { $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=$d.Type; TTL=$d.TTL } }
+                foreach ($d in $parsed) { $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=(ConvertTo-DnsTypeName $d.Type); TTL=$d.TTL } }
             } else {
                 $dnsSource = 'ipconfig_legacy'
                 $lines  = cmd /c "ipconfig /displaydns" 2>&1
                 $parsed = & $script:DNS_PARSE_SB -Lines $lines
-                foreach ($d in $parsed) { $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=$d.Type; TTL=$d.TTL } }
+                foreach ($d in $parsed) { $dnsEntries += @{ Entry=$d.Entry; Name=$d.Name; Data=$d.Data; Type=(ConvertTo-DnsTypeName $d.Type); TTL=$d.TTL } }
             }
         }
     } catch {

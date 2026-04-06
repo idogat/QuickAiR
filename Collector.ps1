@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.6                    ║
+# ║  Version   : 3.7                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -235,6 +235,16 @@ foreach ($target in $Targets) {
         Write-Log 'ERROR' "All probe attempts failed for $target. Skipping."
         if ($ProgressFile) {
             try { [System.IO.File]::AppendAllText($ProgressFile, "HOSTFAILED:$failMsg`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }
+        }
+        # C-COLL-01 fix: restore TrustedHosts before continue (bypasses try/finally below)
+        if ($null -ne $originalTrustedHosts) {
+            try {
+                if ($thMutex) { try { [void]$thMutex.WaitOne(10000) } catch [System.Threading.AbandonedMutexException] {} }
+                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
+                Write-Log 'INFO' "Restored WinRM TrustedHosts (probe-failure path)"
+            } catch { Write-Log 'WARN' "Could not restore TrustedHosts: $($_.Exception.Message)" }
+            finally { if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {}; try { $thMutex.Dispose() } catch {} } }
+            $originalTrustedHosts = $null
         }
         continue
     }
@@ -543,6 +553,10 @@ foreach ($target in $Targets) {
 
     # Write JSON output
     $written = Write-JsonOutput -Data $jsonOutput -HostDir (Join-Path $OutputPath $outHost) -Hostname $outHost
+    if ($written.Error) {
+        $collErr += @{ artifact = 'json_output'; severity = 'critical'; message = "JSON write failed: $($written.Error)" }
+        Write-Log 'ERROR' "JSON output write FAILED for ${outHost}: $($written.Error)"
+    }
     Write-Log 'INFO' "Output: $($written.Path) | SHA256: $($written.Hash)"
     if ($ProgressFile) {
         try { [System.IO.File]::AppendAllText($ProgressFile, "OUTPUT:$($written.Path)`n") } catch { Write-Log 'WARN' "Progress write: $($_.Exception.Message)" }

@@ -15,7 +15,7 @@
 // ║    Expand, usersSortRows, usersApply- ║
 // ║    Filters, confBadge, acctTypeBadge  ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 4.00                      ║
+// ║  Version  : 4.01                      ║
 // ╚══════════════════════════════════════╝
 
 // ── USERS TAB ──────────────────────────────────────────────────────────────────
@@ -304,7 +304,7 @@ function buildUserExpand(u) {
     <h4 style="margin:0 0 6px">Identity</h4>
     <div class="kv-grid" style="margin-bottom:12px">
       <span class="k" title="${esc(USER_TIPS.SID)}">SID</span>
-        <span class="v mono" style="font-size:11px;cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(u.SID)}')" title="Click to copy">${esc(u.SID)}</span>
+        <span class="v mono" style="font-size:11px;cursor:pointer" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(escJs(u.SID))}')" title="Click to copy">${esc(u.SID)}</span>
       <span class="k">Account Type</span>
         <span class="v">${acctTypeBadge(u.AccountType)}</span>
       <span class="k">Domain</span>
@@ -361,9 +361,9 @@ function buildUserExpand(u) {
         <span class="k" title="${esc(USER_TIPS.PasswordLastSet)}">Password Last Set</span>
           <span class="v" title="${esc(USER_TIPS.PasswordLastSet)}">${fmtUTC(di.PasswordLastSet)}</span>
         <span class="k">Enabled</span>
-          <span class="v" style="color:${di.Enabled?'var(--green)':'var(--red)'}">${di.Enabled ? '&#10003;' : '&#10007;'}</span>
+          <span class="v" style="color:${di.Enabled===true?'var(--green)':di.Enabled===false?'var(--red)':'var(--muted)'}">${di.Enabled===true ? '&#10003;' : di.Enabled===false ? '&#10007;' : '&#8212;'}</span>
         <span class="k">Locked Out</span>
-          <span class="v" style="color:${di.LockedOut?'var(--red)':'var(--muted)'}">${di.LockedOut ? 'YES' : '&#8212;'}</span>
+          <span class="v" style="color:${di.LockedOut===true?'var(--red)':di.LockedOut===false?'var(--muted)':'var(--muted)'}">${di.LockedOut===true ? 'YES' : di.LockedOut===false ? '&#8212;' : '&#8212;'}</span>
         <span class="k">Bad Logon Count</span>
           <span class="v" style="color:${(di.BadLogonCount>0)?'var(--amber)':'var(--muted)'}">${di.BadLogonCount || 0}</span>
       </div>`;

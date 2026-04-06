@@ -16,7 +16,7 @@
 // ║    integrityRank, renderIntegrityBadge║
 // ║    fmtBytes                           ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.51                      ║
+// ║  Version  : 3.52                      ║
 // ╚══════════════════════════════════════╝
 
 // ── PROCESSES TAB ─────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ function renderProcRow(p, i) {
     <div class="${nameCls}">${esc(p.Name)}${fbBadge}</div>
     <div class="td dim">${esc(p.ExecutablePath||'')}</div>
     <div class="td dim">${esc(p.CommandLine||'')}</div>
-    <div class="td ${connCls}" onclick="if(${p._connCount}>0){event.stopPropagation();gotoNetworkPid(${p.ProcessId})}">${p._connCount||''}</div>
+    <div class="td ${connCls}" onclick="if(${parseInt(p._connCount,10)||0}>0){event.stopPropagation();gotoNetworkPid(${parseInt(p.ProcessId,10)||0})}">${p._connCount||''}</div>
     <div class="td dim">${p.DLLCount != null ? p.DLLCount : '—'}</div>
     <div class="td">${renderSignedIcon(p.Signature)}</div>
     <div class="td dim">${esc(p._signerCompany||'')}</div>
@@ -234,7 +234,7 @@ function onProcRowClick(i, p, rowEl) {
       const iCol = ifaceColor(ia, adAliases);
       return `<tr>
       <td>${c._proto}</td>
-      <td class="mono"><a onclick="gotoNetworkIp('${esc(c.RemoteAddress||'')}')">${esc(c.RemoteAddress||'—')}</a></td>
+      <td class="mono"><a onclick="gotoNetworkIp('${esc(escJs(c.RemoteAddress||''))}')">${esc(c.RemoteAddress||'—')}</a></td>
       <td>${c.RemotePort!=null?c.RemotePort:'—'}</td><td>${esc(c.State||'—')}</td>
       <td>${esc(c.DnsMatch||'')}</td><td>${esc(c.ReverseDns||'')}</td>
       <td><span style="color:${iCol};font-weight:bold">${esc(ia)}</span></td>
@@ -245,11 +245,11 @@ function onProcRowClick(i, p, rowEl) {
   let childHTML = '';
   if (children.length) {
     childHTML = `<h4>Child Processes (${children.length})</h4>` +
-      children.map(c => `<a onclick="gotoProcessPid(${c.ProcessId})">${esc(c.Name)} [${c.ProcessId}]</a>`).join('  ');
+      children.map(c => `<a onclick="gotoProcessPid(${parseInt(c.ProcessId,10)||0})">${esc(c.Name)} [${c.ProcessId}]</a>`).join('  ');
   }
 
   const dllCountHTML = p.DLLCount != null
-    ? `<span class="detail-value"><a onclick="event.stopPropagation();gotoProcessDlls(${p.ProcessId})">${p.DLLCount} modules</a></span>`
+    ? `<span class="detail-value"><a onclick="event.stopPropagation();gotoProcessDlls(${parseInt(p.ProcessId,10)||0})">${p.DLLCount} modules</a></span>`
     : `<span class="detail-value">—</span>`;
 
   const expand = document.createElement('div');
@@ -306,8 +306,9 @@ function gotoProcessDlls(pid) {
 }
 
 function fmtBytes(b) {
-  if (!b) return '0 B';
+  if (b == null || b === '') return '\u2014';
   b = parseInt(b);
+  if (!b) return '0 B';
   if (b > 1073741824) return (b/1073741824).toFixed(1)+' GB';
   if (b > 1048576)    return (b/1048576).toFixed(1)+' MB';
   if (b > 1024)       return (b/1024).toFixed(0)+' KB';

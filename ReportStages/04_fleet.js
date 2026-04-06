@@ -11,7 +11,7 @@
 // ║    fleetStartRemove, fleetConfirm-    ║
 // ║    Remove, fleetCancelRemove          ║
 // ║  Depends  : 03_core.js               ║
-// ║  Version  : 3.40                      ║
+// ║  Version  : 3.41                      ║
 // ╚══════════════════════════════════════╝
 
 // ── FLEET TAB ─────────────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ function fleetStartRemove(e, hostname) {
   e.stopPropagation();
   const cell = e.currentTarget;
   if (_fleetRemoveTimers[hostname]) clearTimeout(_fleetRemoveTimers[hostname]);
-  cell.innerHTML = `<button class="fleet-rm-confirm" onclick="fleetConfirmRemove(event,'${esc(hostname)}')">Confirm ×</button> <button class="fleet-rm-cancel" onclick="fleetCancelRemove(event,'${esc(hostname)}')">Cancel</button>`;
+  cell.innerHTML = `<button class="fleet-rm-confirm" onclick="fleetConfirmRemove(event,'${esc(escJs(hostname))}')">Confirm ×</button> <button class="fleet-rm-cancel" onclick="fleetCancelRemove(event,'${esc(escJs(hostname))}')">Cancel</button>`;
   _fleetRemoveTimers[hostname] = setTimeout(() => {
     if (cell.isConnected) cell.innerHTML = '×';
     delete _fleetRemoveTimers[hostname];
@@ -160,7 +160,7 @@ function renderFleet() {
       const nicTip = row._adapter_names.length ? row._adapter_names.join('\n') : '';
       const nicColor = row.nic_count >= 2 ? 'accent' : 'dim';
       return `
-      <div class="td fleet-rm-cell" onclick="fleetStartRemove(event,'${esc(row.hostname)}')">×</div>
+      <div class="td fleet-rm-cell" onclick="fleetStartRemove(event,'${esc(escJs(row.hostname))}')">×</div>
       <div class="td">${esc(row.hostname)}</div>
       <div class="td dim">${esc(row.target_os_caption||'')}</div>
       <div class="td">${esc(row.target_ps_version)}</div>
