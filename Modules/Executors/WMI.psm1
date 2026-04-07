@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -145,7 +145,9 @@ function Invoke-Executor {
             $inParams  = $classObj.GetMethodParameters("Create")
             $inParams["CommandLine"] = $commandLine
 
-            $outParams = $classObj.InvokeMethod("Create", $inParams, $null)
+            $invokeOpts = New-Object System.Management.InvokeMethodOptions
+            $invokeOpts.Timeout = [TimeSpan]::FromSeconds(120)
+            $outParams = $classObj.InvokeMethod("Create", $inParams, $invokeOpts)
             $rc        = [int]$outParams["ReturnValue"]
 
             if ($rc -ne 0) {
@@ -168,6 +170,7 @@ function Invoke-Executor {
             $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
             return [PSCustomObject]$result
         } finally {
+            if ($scope) { try { $scope.Options.Password = $null } catch {} }
             if ($classObj) { try { $classObj.Dispose() } catch {} }
             if ($scope)    { try { $scope.Dispose() }    catch {} }
         }

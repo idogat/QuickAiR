@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 4.0                         ║
+# ║  Version   : 4.1                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -349,6 +349,7 @@ public class IntegrityHelper {
             continue
         }
     }
+    if ($searcher) { try { $searcher.Dispose() } catch {} }
     # .NET cross-check
     $dotnet = @()
     try {
@@ -776,9 +777,15 @@ function Invoke-Collector {
                 $wmiSearcher.Options.ReturnImmediately = $false
                 $wmiProcs = @($wmiSearcher.Get())
             } finally {
+                if ($wmiSearcher) { try { $wmiSearcher.Dispose() } catch {} }
                 if ($wmiScope) { try { $wmiScope.Dispose() } catch {} }
             }
             $sourceStr = 'wmi_remote'
+
+            if ($wmiProcs.Count -gt $MAX_PROCESS_COUNT) {
+                $errors += @{ artifact = 'process_list'; severity = 'warning'; message = "Process count $($wmiProcs.Count) exceeds cap $MAX_PROCESS_COUNT -- truncating" }
+                $wmiProcs = $wmiProcs | Select-Object -First $MAX_PROCESS_COUNT
+            }
 
             foreach ($wp in $wmiProcs) {
                 try {
@@ -1106,6 +1113,7 @@ function Invoke-Collector {
                 $searcher.Options.Rewindable = $false
                 $searcher.Options.Timeout = [TimeSpan]::FromSeconds(60)
                 $raw2 = @($searcher.Get())
+                try { $searcher.Dispose() } catch {}
                 # W3-PROC-02: guard against uncapped enumeration (matches remote scriptblock pattern)
                 if ($raw2.Count -gt $MAX_PROCESS_COUNT) {
                     $errors += @{ artifact='process_list'; severity='warning'; message="Process count $($raw2.Count) exceeds cap $MAX_PROCESS_COUNT -- truncating" }

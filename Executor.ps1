@@ -47,7 +47,7 @@ Set-StrictMode -Version 2
 # -ErrorAction Stop where failure matters.
 $ErrorActionPreference = 'Continue'
 
-$EXECUTOR_VERSION = "2.0"
+$EXECUTOR_VERSION = "2.3"
 
 #region --- Help ---
 if ($Help) {
@@ -181,7 +181,10 @@ if (-not $isLocal) {
 if (-not $isLocal -and -not $Credential) {
     Write-Host "Enter credentials for $Target" -ForegroundColor Cyan
     try { $Credential = Get-Credential -Message "Credentials for $Target" -ErrorAction Stop }
-    catch { $Credential = $null }
+    catch {
+        $Credential = $null
+        Write-Ts "No credentials supplied -- remote connection will likely fail." "Yellow"
+    }
 }
 #endregion
 
@@ -365,5 +368,10 @@ if ($result.FinalState -eq 'ALIVE') {
     # but if any code path still produces CLEANUP as FinalState, warn the analyst.
     Write-Host ""
     Write-Host "  [x] Process failed but binary was cleaned from target." -ForegroundColor Red
+} else {
+    Write-Host ""
+    if ($result.Error) {
+        Write-Ts $result.Error "Red"
+    }
 }
 #endregion

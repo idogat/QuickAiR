@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.4                    ║
+# ║  Version   : 3.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -450,7 +450,7 @@ function Invoke-Executor {
                         $wmiResult = Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList $cmdLine -ErrorAction Stop
                         if ($wmiResult.ReturnValue -ne 0) {
                             $rc = [int]$wmiResult.ReturnValue
-                            $msg = if ($returnCodes -and $returnCodes.ContainsKey($rc)) {
+                            $msg = if ($returnCodes -and $null -ne $returnCodes[$rc]) {
                                 $returnCodes[$rc]
                             } else {
                                 "WMI return code $rc"
@@ -565,10 +565,14 @@ function Invoke-Executor {
             $thMutex = $null
             try {
                 $thMutex = [System.Threading.Mutex]::new($false, 'QuickAiR_TrustedHosts')
-                $thMutex.WaitOne(10000) | Out-Null
-                $cur = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
-                $newList = ($cur -split ',' | Where-Object { $_ -ne $ComputerName }) -join ','
-                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
+                $gotMutex = $thMutex.WaitOne(10000)
+                if ($gotMutex) {
+                    $cur = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
+                    $newList = ($cur -split ',' | Where-Object { $_ -ne $ComputerName }) -join ','
+                    Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
+                } else {
+                    Add-State "WARNING" "TrustedHosts restore skipped (mutex timeout) -- entry for $ComputerName may remain"
+                }
             } catch {
                 Add-State "WARNING" "TrustedHosts restore failed: $($_.Exception.Message). Verify WSMan:\localhost\Client\TrustedHosts manually."
             } finally {

@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 3.1                      ║
+# ║  Version   : 3.2                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -455,6 +455,8 @@ function Invoke-Collector {
                 # TCP connections
                 $tcpQuery = New-Object System.Management.ObjectQuery("SELECT * FROM MSFT_NetTCPConnection")
                 $tcpSearcher = New-Object System.Management.ManagementObjectSearcher($scope, $tcpQuery)
+                $tcpSearcher.Options.Timeout = [TimeSpan]::FromSeconds($OP_TIMEOUT_SEC)
+                $tcpSearcher.Options.ReturnImmediately = $false
                 $tcpResults = $tcpSearcher.Get()
                 $networkSource = 'wmi_remote_cimv2'
                 foreach ($c in $tcpResults) {
@@ -489,6 +491,8 @@ function Invoke-Collector {
                 try {
                     $udpQuery = New-Object System.Management.ObjectQuery("SELECT * FROM MSFT_NetUDPEndpoint")
                     $udpSearcher = New-Object System.Management.ManagementObjectSearcher($scope, $udpQuery)
+                    $udpSearcher.Options.Timeout = [TimeSpan]::FromSeconds($OP_TIMEOUT_SEC)
+                    $udpSearcher.Options.ReturnImmediately = $false
                     $udpResults = $udpSearcher.Get()
                     $udpSource = 'wmi_remote_cimv2'
                     foreach ($u in $udpResults) {
@@ -499,7 +503,7 @@ function Invoke-Collector {
                             LocalPort      = [int]$u['LocalPort']
                             RemoteAddress  = $null
                             RemotePort     = $null
-                            State          = 'LISTENING'
+                            State          = 'LISTEN'
                             OwningProcess  = [int]$u['OwningProcess']
                             InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
                             CreationTime   = $null
@@ -564,7 +568,7 @@ function Invoke-Collector {
                         LocalPort      = [int]$u.LocalPort
                         RemoteAddress  = $null
                         RemotePort     = $null
-                        State          = 'LISTENING'
+                        State          = 'LISTEN'
                         OwningProcess  = [int]$u.OwningProcess
                         InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
                         CreationTime   = $null
@@ -622,7 +626,7 @@ function Invoke-Collector {
                             LocalPort      = [int]$u.LocalPort
                             RemoteAddress  = $null
                             RemotePort     = $null
-                            State          = 'LISTENING'
+                            State          = 'LISTEN'
                             OwningProcess  = [int]$u.OwningProcess
                             InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
                             CreationTime   = $null
@@ -732,7 +736,9 @@ function Invoke-Collector {
                         $ncidMap[[int]$a.InterfaceIndex] = $a.NetConnectionID
                     }
                 }
-            } catch {}
+            } catch {
+                $errors += @{ artifact = 'adapter_ncid'; severity = 'warning'; message = "Win32_NetworkAdapter query failed -- adapter aliases may be degraded: $($_.Exception.Message)" }
+            }
             $cfgs = Get-WmiObject Win32_NetworkAdapterConfiguration -Filter "IPEnabled=true" @wmiP
             $raw = @()
             foreach ($cfg in $cfgs) {

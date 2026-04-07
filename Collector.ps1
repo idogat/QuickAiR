@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.8                    ║
+# ║  Version   : 3.9                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -440,6 +440,7 @@ foreach ($target in $Targets) {
         Write-Log 'ERROR' "No collector modules found in Modules\Collectors\"
     }
     if ($collectorModules.Count -eq 0 -and $Plugins) {
+        $collErr += @{ artifact = 'discovery'; severity = 'warning'; message = "Plugin filter matched no collectors: $($Plugins -join ', '). Check -Plugins spelling." }
         Write-Log 'WARN' "No collectors matched -Plugins filter: $($Plugins -join ', ')"
     }
 

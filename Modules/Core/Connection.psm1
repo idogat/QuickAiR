@@ -19,7 +19,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : Core\Output.psm1       ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.9                    ║
+# ║  Version   : 3.0                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -35,7 +35,7 @@ function Test-PrivateIP {
 
 function Resolve-TargetHostname {
     param([string]$Target)
-    if ($Target -eq 'localhost' -or $Target -eq '127.0.0.1') { return $env:COMPUTERNAME }
+    if ($Target -eq 'localhost' -or $Target -eq '127.0.0.1' -or $Target -eq '::1') { return $env:COMPUTERNAME }
     if ($Target -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
         $ar = $null
         try {
@@ -225,6 +225,7 @@ function Get-TargetCapsWMI {
             # Registry unavailable -- infer PS version from OS build
             $build = [int]$c.OSBuild
             if     ($build -ge 10240) { $c.PSVersion = 5 }
+            elseif ($build -ge 9600)  { $c.PSVersion = 4 }
             elseif ($build -ge 9200)  { $c.PSVersion = 3 }
             else                      { $c.PSVersion = 2 }
         } finally {
@@ -235,6 +236,7 @@ function Get-TargetCapsWMI {
         if ($c.PSVersion -eq 0) {
             $build = [int]$c.OSBuild
             if     ($build -ge 10240) { $c.PSVersion = 5 }
+            elseif ($build -ge 9600)  { $c.PSVersion = 4 }
             elseif ($build -ge 9200)  { $c.PSVersion = 3 }
             else                      { $c.PSVersion = 2 }
         }

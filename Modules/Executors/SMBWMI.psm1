@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.4                    ║
+# ║  Version   : 2.5                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -89,20 +89,6 @@ function Invoke-Executor {
 
     $uncPath = $null
 
-    # Convert local path to UNC: C:\Windows\Temp\x.exe → \\host\C$\Windows\Temp\x.exe
-    function ConvertTo-UNCPath {
-        param([string]$Host_, [string]$LocalPath)
-        if ($LocalPath -match '^([A-Za-z]):\\(.*)$') {
-            $drive = $Matches[1]
-            $rest  = $Matches[2]
-            if ($rest -match '[\[\]`]') {
-                Add-State "WARN" "UNC path contains special characters that may cause SMB issues: $LocalPath"
-            }
-            return "\\$Host_\$drive`$\$rest"
-        }
-        return $null
-    }
-
     # Enumerate admin shares on target via WMI; find one matching the drive letter
     function Find-AdminShare {
         param([string]$Host_, [System.Management.Automation.PSCredential]$Cred, [string]$DriveLetter)
@@ -132,6 +118,7 @@ function Invoke-Executor {
         } catch {
             return @{ Name = $null; Path = $null; AllShares = @(); Error = $_.Exception.Message }
         } finally {
+            if ($wmiScope) { try { $wmiScope.Options.Password = $null } catch {} }
             if ($searcher) { try { $searcher.Dispose() } catch {} }
             if ($wmiScope) { try { $wmiScope.Dispose() } catch {} }
         }
@@ -235,11 +222,12 @@ function Invoke-Executor {
             $localSha = [System.Security.Cryptography.SHA256]::Create()
             $localBytes = [System.IO.File]::ReadAllBytes($LocalBinaryPath)
             $localHashBytes = $localSha.ComputeHash($localBytes)
+            $localSize = $localBytes.Length
+            $localBytes = $null
         } finally {
             if ($localSha) { try { $localSha.Dispose() } catch {} }
         }
         $localHash = ([System.BitConverter]::ToString($localHashBytes) -replace '-','')
-        $localSize = $localBytes.Length
 
         # Step 4 -- Transfer binary via SMB (use UNC path -- PSDrive caches credentials)
         try {
@@ -260,11 +248,16 @@ function Invoke-Executor {
                 throw "Post-copy verification failed: size mismatch (local=${localSize} remote=${remoteSize}) UNC=$uncPath"
             }
 
-            # Verify 3: SHA256 by reading back through UNC
-            $sha   = [System.Security.Cryptography.SHA256]::Create()
-            $bytes = [System.IO.File]::ReadAllBytes($uncPath)
-            $hash  = $sha.ComputeHash($bytes)
-            try { $sha.Dispose() } catch { }
+            # Verify 3: SHA256 by reading back through UNC (streaming to avoid double memory)
+            $sha = [System.Security.Cryptography.SHA256]::Create()
+            $fs  = $null
+            try {
+                $fs   = [System.IO.File]::OpenRead($uncPath)
+                $hash = $sha.ComputeHash($fs)
+            } finally {
+                if ($fs)  { try { $fs.Dispose() }  catch {} }
+                if ($sha) { try { $sha.Dispose() } catch {} }
+            }
             $remoteHash = ([System.BitConverter]::ToString($hash) -replace '-','')
             if ($remoteHash -ne $localHash) {
                 throw "SHA256 mismatch: local=$localHash remote=$remoteHash"
@@ -305,7 +298,9 @@ function Invoke-Executor {
             $inParams  = $classObj.GetMethodParameters("Create")
             $inParams["CommandLine"] = $commandLine
 
-            $outParams = $classObj.InvokeMethod("Create", $inParams, $null)
+            $invokeOpts = New-Object System.Management.InvokeMethodOptions
+            $invokeOpts.Timeout = [TimeSpan]::FromSeconds(120)
+            $outParams = $classObj.InvokeMethod("Create", $inParams, $invokeOpts)
             $rc        = [int]$outParams["ReturnValue"]
 
             if ($rc -ne 0) {
@@ -324,6 +319,7 @@ function Invoke-Executor {
             $result.EndTimeUTC = [System.DateTime]::UtcNow.ToString("o")
             return [PSCustomObject]$result
         } finally {
+            if ($launchScope) { try { $launchScope.Options.Password = $null } catch {} }
             if ($classObj)    { try { $classObj.Dispose() }    catch {} }
             if ($launchScope) { try { $launchScope.Dispose() } catch {} }
         }
