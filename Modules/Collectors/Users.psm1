@@ -28,7 +28,7 @@
 # ║    GetSidAccountType, GetSidDomain,║
 # ║    GetSidMetadata                  ║
 # ║  PS compat: 2.0+ (target-side)     ║
-# ║  Version  : 3.1                    ║
+# ║  Version  : 3.2                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -133,7 +133,7 @@ public class RegLwt {
                             $lastUseRaw = [DateTime]::FromFileTimeUtc($ft).ToString('yyyy-MM-ddTHH:mm:ssZ')
                         }
                     }
-                } catch {}
+                } catch { $r.errors += "LastUse($sidStr): $($_.Exception.Message)" }
 
                 $sk.Close()
 
@@ -178,6 +178,10 @@ public class RegLwt {
                             $rkAvail = $true
                         }
                     } catch {}
+                }
+                # W3-USR-03: log when registry key timestamp is unavailable (PS 2.0 without CSC)
+                if (-not $rkAvail -and -not $_rkHelper) {
+                    $r.errors += "RegistryKeyTimestamp($sidStr): unavailable (PS 2.0 without CSC compiler)"
                 }
 
                 $r.profiles_raw += @{
@@ -525,12 +529,36 @@ function script:Invoke-UsersWMIRemote {
             $outS = $reg.InvokeMethod('GetDWORDValue', $inS, $null)
             $state = $(if ($outS['ReturnValue'] -eq 0) { $outS['uValue'] } else { $null })
 
+            # W3-USR-01: Read LocalProfileLoadTimeHigh/Low via StdRegProv (recovers LastUseRaw for WMI targets)
+            $lastUseRaw = $null
+            try {
+                $inH = $reg.GetMethodParameters('GetDWORDValue')
+                $inH['hDefKey']     = $HKLM
+                $inH['sSubKeyName'] = "$plRoot\$sidStr"
+                $inH['sValueName']  = 'LocalProfileLoadTimeHigh'
+                $outH = $reg.InvokeMethod('GetDWORDValue', $inH, $null)
+                $inL = $reg.GetMethodParameters('GetDWORDValue')
+                $inL['hDefKey']     = $HKLM
+                $inL['sSubKeyName'] = "$plRoot\$sidStr"
+                $inL['sValueName']  = 'LocalProfileLoadTimeLow'
+                $outL = $reg.InvokeMethod('GetDWORDValue', $inL, $null)
+                if ($outH['ReturnValue'] -eq 0 -and $outL['ReturnValue'] -eq 0) {
+                    $lh = $outH['uValue']; $ll = $outL['uValue']
+                    if ($lh -ne $null -and $ll -ne $null) {
+                        $ft = [Int64]$lh * 4294967296 + [Int64]([uint32]$ll)
+                        if ($ft -gt 0) {
+                            $lastUseRaw = [DateTime]::FromFileTimeUtc($ft).ToString('yyyy-MM-ddTHH:mm:ssZ')
+                        }
+                    }
+                }
+            } catch { $r.errors += "LastUse-WMI($sidStr): $($_.Exception.Message)" }
+
             $r.profiles_raw += @{
                 SID         = $sidStr
                 Username    = $username
                 ProfilePath = $profilePath
                 State       = $state
-                LastUseRaw  = $null
+                LastUseRaw  = $lastUseRaw
                 PFRaw = $null; PFAvail = $false
                 NTRaw = $null; NTAvail = $false
                 RKRaw = $null; RKAvail = $false
@@ -541,7 +569,7 @@ function script:Invoke-UsersWMIRemote {
     }
 
     if ($r.profiles_raw.Count -gt 0) {
-        $r.errors += @{ artifact = 'users_firstlogon_degraded'; severity = 'info'; message = "WMI remote: profile timestamps (LastUse, ProfileFolder, NTUSER.DAT, RegistryKey) unavailable -- FirstLogon confidence degraded to N/A for all users" }
+        $r.errors += @{ artifact = 'users_firstlogon_degraded'; severity = 'info'; message = "WMI remote: profile timestamps (ProfileFolder, NTUSER.DAT, RegistryKey) unavailable -- FirstLogon confidence degraded for most sources" }
     }
 
     # ── Local accounts ───────────────────────────────────────────────────
@@ -679,7 +707,8 @@ function Invoke-Collector {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
             $raw = script:Invoke-UsersWMIRemote -ComputerName $Session.ComputerName -Credential $Session.Credential
         } elseif ($Session) {
-            $raw = Invoke-Command -Session $Session -ScriptBlock $script:USERS_SB
+            $raw = Invoke-Command -Session $Session -ScriptBlock $script:USERS_SB -ErrorAction Stop
+            if ($null -eq $raw) { throw "Remote users scriptblock returned no data -- session may be broken" }
         } else {
             $raw = & $script:USERS_SB
         }

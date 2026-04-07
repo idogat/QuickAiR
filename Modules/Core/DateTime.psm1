@@ -9,7 +9,7 @@
 # ║  Output    : UTC ISO 8601 string    ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.5                    ║
+# ║  Version   : 2.6                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -20,6 +20,12 @@ $ErrorActionPreference = 'Continue'
 function ConvertTo-UtcIso {
     param([object]$Value, $FallbackOffsetMin = $null)
     if ($null -eq $Value -or $Value -eq '') { return $null }
+
+    # W3-DT-01: reject unexpected types (e.g., integers that produce plausible but wrong dates)
+    if ($Value -isnot [string] -and $Value -isnot [datetime]) {
+        Write-Warning "ConvertTo-UtcIso: unexpected type $($Value.GetType().Name) for value '$Value'"
+        return $null
+    }
 
     # Already a [DateTime]
     if ($Value -is [datetime]) {

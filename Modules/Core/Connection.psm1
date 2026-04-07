@@ -3,6 +3,9 @@
 # ║  QuickAiR -- Connection.psm1          ║
 # ║  WinRM sessions, WMI fallback,     ║
 # ║  capability probe, hostname res.   ║
+# ║  NOTE: WMI "session" = param bag,  ║
+# ║  not a persistent connection.      ║
+# ║  Each collector re-authenticates.  ║
 # ╠══════════════════════════════════════╣
 # ║  Exports   : Test-PrivateIP         ║
 # ║              Resolve-TargetHostname ║
@@ -16,7 +19,7 @@
 # ║              PSSession | hashtable  ║
 # ║  Depends   : Core\Output.psm1       ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.8                    ║
+# ║  Version   : 2.9                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off

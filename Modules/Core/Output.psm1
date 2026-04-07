@@ -16,7 +16,7 @@
 # ║              manifest ordered hash  ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.8                    ║
+# ║  Version   : 2.9                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -83,10 +83,10 @@ function Write-JsonOutput {
     $jsonForHash = $Data | ConvertTo-Json -Depth 20 -Compress:$false
     $sha = $null
     try {
-        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $sha = New-Object System.Security.Cryptography.SHA256CryptoServiceProvider
         $sha256bytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($jsonForHash))
         $sha256 = ($sha256bytes | ForEach-Object { $_.ToString('X2') }) -join ''
-    } finally { if ($sha) { $sha.Dispose() } }
+    } finally { if ($sha) { try { $sha.Dispose() } catch {} } }
 
     # Phase 2: embed computed hash and re-serialize
     $Data['manifest']['sha256'] = $sha256
@@ -161,14 +161,14 @@ function Get-QuickAiRSha256 {
     $sha = $null
     try {
         $bytes = [System.IO.File]::ReadAllBytes($Path)
-        $sha = [Security.Cryptography.SHA256]::Create()
+        $sha = New-Object Security.Cryptography.SHA256CryptoServiceProvider
         $hash = $sha.ComputeHash($bytes)
         return ([BitConverter]::ToString($hash) -replace '-','').ToUpper()
     } catch {
         Write-Log 'WARN' "QuickAiR SHA256 failed for '$Path': $($_.Exception.Message)"
         return $null
     } finally {
-        if ($sha) { $sha.Dispose() }
+        if ($sha) { try { $sha.Dispose() } catch {} }
     }
 }
 
@@ -221,8 +221,8 @@ function Get-SidMetadata {
         '^S-1-5-21-\d+-\d+-\d+-\d+$' {
             $rid = $SID.Split('-')[-1]
             switch ($rid) {
-                '500' { 'LocalAdministrator' }
-                '501' { 'LocalGuest' }
+                '500' { 'Administrator' }
+                '501' { 'Guest' }
                 '512' { 'DomainAdmins' }
                 '513' { 'DomainUsers' }
                 '514' { 'DomainGuests' }
@@ -303,7 +303,7 @@ function Get-BinaryType {
             if (($secOff + 40) -gt $fileSize) { break }
             $rawOffset = [BitConverter]::ToUInt32($bytes, $secOff + 20)
             $rawSize   = [BitConverter]::ToUInt32($bytes, $secOff + 16)
-            $secEnd    = [int]$rawOffset + [int]$rawSize
+            $secEnd    = [long]$rawOffset + [long]$rawSize
             if ($secEnd -gt $peEnd) { $peEnd = $secEnd }
         }
 

@@ -22,7 +22,7 @@
 # ║              Executors\SMBWMI.psm1║
 # ║              Executors\WMI.psm1    ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 2.2                    ║
+# ║  Version   : 2.3                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -360,5 +360,10 @@ if ($result.FinalState -eq 'ALIVE') {
     Write-Host "  [x] Process exited before alive check." -ForegroundColor Red
     if ($lastDetail) { Write-Ts $lastDetail "Red" }
     Write-Ts "Check tool arguments and permissions." "Red"
+} elseif ($result.FinalState -eq 'CLEANUP' -or $result.FinalState -eq 'CLEANUP_FAILED') {
+    # EXR-C-01 defense-in-depth: should not reach here after FinalState restore fix,
+    # but if any code path still produces CLEANUP as FinalState, warn the analyst.
+    Write-Host ""
+    Write-Host "  [x] Process failed but binary was cleaned from target." -ForegroundColor Red
 }
 #endregion

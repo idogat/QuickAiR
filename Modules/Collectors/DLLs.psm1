@@ -14,7 +14,7 @@
 # ║  Depends   : Core\DateTime.psm1     ║
 # ║  PS compat : 5.1 (module/orch);     ║
 # ║              2.0+ (scriptblock)     ║
-# ║  Version   : 3.8                    ║
+# ║  Version   : 3.9                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -30,7 +30,7 @@ $script:DLL_SB = {
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
             $fs = New-Object System.IO.FileStream($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
-            $s  = [Security.Cryptography.SHA256]::Create()
+            $s  = New-Object Security.Cryptography.SHA256CryptoServiceProvider
             $h  = $s.ComputeHash($fs)
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
@@ -40,7 +40,7 @@ $script:DLL_SB = {
             else { return @($null, "COMPUTE_ERROR: $m") }
         } finally {
             if ($fs) { try { $fs.Close() } catch {} }
-            if ($s)  { try { $s.Dispose() } catch {} }
+            if ($s)  { try { $s.Clear() } catch {} ; try { $s.Dispose() } catch {} }
         }
     }
     # Only skip processes that have no modules (PID 0, PID 4). lsass/csrss/smss/wininit
@@ -197,6 +197,7 @@ public class CatalogChecker
         } catch {
             $reason = $_.Exception.Message
             if ($_.Exception.Message -match 'Access') { $reason = 'ACCESS_DENIED' }
+            elseif ($_.Exception.Message -match 'ReadProcessMemory|WriteProcessMemory') { $reason = 'ARCH_MISMATCH_32_64' }
             [void]$out.Add((New-Object PSObject -Property @{
                 ProcessId     = $procId
                 ProcessName   = $pName

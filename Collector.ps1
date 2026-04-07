@@ -11,7 +11,7 @@
 # ║  Output    : <hostname>_<ts>.json   ║
 # ║  Depends   : Core\* Collectors\*   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.7                    ║
+# ║  Version   : 3.8                    ║
 # ╚══════════════════════════════════════╝
 
 [CmdletBinding()]
@@ -434,6 +434,14 @@ foreach ($target in $Targets) {
     if ($Plugins -and $Plugins.Count -gt 0) {
         $collectorModules = @($collectorModules | Where-Object { $_.BaseName -in $Plugins })
     }
+    # W3-COLL-01: guard against zero collectors (incomplete deployment or plugin filter typo)
+    if ($allModules.Count -eq 0) {
+        $collErr += @{ artifact = 'discovery'; severity = 'critical'; message = 'No collector modules found in Modules\Collectors\' }
+        Write-Log 'ERROR' "No collector modules found in Modules\Collectors\"
+    }
+    if ($collectorModules.Count -eq 0 -and $Plugins) {
+        Write-Log 'WARN' "No collectors matched -Plugins filter: $($Plugins -join ', ')"
+    }
 
     $output             = [ordered]@{}
     $sources            = @{}
@@ -508,8 +516,13 @@ foreach ($target in $Targets) {
         }
     }
 
-    # Resolve hostname for output
-    $outHost = Resolve-TargetHostname -Target $target
+    # Resolve hostname for output (W3-COLL-02: wrapped in try/catch to prevent data loss)
+    try {
+        $outHost = Resolve-TargetHostname -Target $target
+    } catch {
+        $outHost = $target
+        Write-Log 'WARN' "Hostname resolution failed, using target as-is: $($_.Exception.Message)"
+    }
     Write-Log 'INFO' "Output hostname: $outHost"
 
     # Print adapter summary

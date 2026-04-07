@@ -18,7 +18,7 @@
 # ║              ConvertTo-DnsTypeName     ║
 # ║  Depends   : Core\Connection.psm1     ║
 # ║  PS compat : 2.0+ (target-side)       ║
-# ║  Version   : 3.0                      ║
+# ║  Version   : 3.1                      ║
 # ╚══════════════════════════════════════════╝
 
 $ErrorActionPreference = 'Continue'
@@ -46,7 +46,7 @@ $script:NET_SB_CIM = {
                 RemotePort     = [int]$c.RemotePort
                 OwningProcess  = [int]$c.OwningProcess
                 StateInt       = [int]$c.State
-                InterfaceAlias = $c.InterfaceAlias
+                InterfaceAlias = $null  # W3-NET-02: MSFT_NetTCPConnection has no InterfaceAlias; resolved downstream
                 CreationTime   = $ct
             }))
         }
@@ -198,6 +198,8 @@ function ConvertFrom-NetstatOutput {
             $la = $Matches[1] -replace '[\[\]]',''
             $ra = $Matches[3] -replace '[\[\]]',''
             $st = $Matches[5]
+            # W3-NET-01: normalize netstat LISTENING to LISTEN (matches CIM/ConvertFrom-TcpStateInt vocabulary)
+            if ($st -eq 'LISTENING') { $st = 'LISTEN' }
             $tcp += @{
                 Protocol       = 'TCP'
                 LocalAddress   = $la
@@ -208,7 +210,7 @@ function ConvertFrom-NetstatOutput {
                 OwningProcess  = [int]$Matches[6]
                 InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
                 CreationTime   = $null
-                IsListener     = ($st -eq 'LISTENING')
+                IsListener     = ($st -eq 'LISTEN')
                 ReverseDns     = $null
                 DnsMatch       = $null
                 IsPrivateIP    = $false
@@ -223,7 +225,7 @@ function ConvertFrom-NetstatOutput {
                 LocalPort      = [int]$Matches[2]
                 RemoteAddress  = $null
                 RemotePort     = $null
-                State          = 'LISTENING'
+                State          = 'LISTEN'
                 OwningProcess  = [int]$Matches[3]
                 InterfaceAlias = if ($la -eq '0.0.0.0' -or $la -eq '::') { 'ALL_INTERFACES' } else { $la }
                 CreationTime   = $null
@@ -527,7 +529,8 @@ function Invoke-Collector {
             elseif ($TargetPSVersion -ge 3)      { $sb = $script:NET_SB_FALLBACK }
             else                                 { $sb = $script:NET_SB_LEGACY }
 
-            $r = Invoke-Command -Session $Session -ScriptBlock $sb
+            $r = Invoke-Command -Session $Session -ScriptBlock $sb -ErrorAction Stop
+            if ($null -eq $r) { throw "Remote network scriptblock returned no data -- session may be broken" }
             $networkSource = $r.Source
 
             if ($r.Source -eq 'cim' -and $r.Connections) {
@@ -678,7 +681,8 @@ function Invoke-Collector {
                 $sb = { $lines = cmd /c "ipconfig /displaydns" 2>&1; New-Object PSObject -Property @{ Source='ipconfig_legacy'; Lines=$lines } }
             }
 
-            $r = Invoke-Command -Session $Session -ScriptBlock $sb
+            $r = Invoke-Command -Session $Session -ScriptBlock $sb -ErrorAction Stop
+            if ($null -eq $r) { throw "Remote DNS scriptblock returned no data -- session may be broken" }
             $dnsSource = $r.Source
 
             if ($r.Source -eq 'cim' -and $r.Entries) {
@@ -751,7 +755,7 @@ function Invoke-Collector {
             }
         } elseif ($Session -ne $null) {
             $sb = if ($TargetPSVersion -ge 3) { $script:ADAPTER_SB_CIM } else { $script:ADAPTER_SB_WMI }
-            $raw = Invoke-Command -Session $Session -ScriptBlock $sb
+            $raw = Invoke-Command -Session $Session -ScriptBlock $sb -ErrorAction Stop
         } else {
             $sb = if ($TargetPSVersion -ge 3) { $script:ADAPTER_SB_CIM } else { $script:ADAPTER_SB_WMI }
             $raw = & $sb
@@ -787,7 +791,7 @@ function Invoke-Collector {
             foreach ($p in $wmiProcs) { $n = $p.Name; if ($n -and $n.EndsWith('.exe')) { $n = $n.Substring(0, $n.Length - 4) }; $pidMap[[int]$p.ProcessId] = $n }
         } elseif ($Session -ne $null) {
             $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
-            $pidMap = Invoke-Command -Session $Session -ScriptBlock $sb
+            $pidMap = Invoke-Command -Session $Session -ScriptBlock $sb -ErrorAction Stop
         } else {
             $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_PS3 } else { $script:PROC_SB_PS2 }
             $pidMap = & $sb

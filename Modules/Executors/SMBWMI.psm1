@@ -16,7 +16,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 2.0+ (analyst machine) ║
-# ║  Version   : 2.3                    ║
+# ║  Version   : 2.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -429,6 +429,10 @@ function Invoke-Executor {
             $result.Error = $_.Exception.Message
         }
     } finally {
+        # EXR-C-01: Save FinalState before cleanup — Add-State overwrites FinalState,
+        # but cleanup is informational and must not change the outcome signal.
+        $precleanupFinalState = $result.FinalState
+
         # EX14: Clean up transferred binary on failure (before removing PSDrive)
         if ($result.FinalState -match 'FAILED' -and $uncPath -and $smbDriveName) {
             try {
@@ -440,6 +444,10 @@ function Invoke-Executor {
                 Add-State "CLEANUP_FAILED" "Could not remove transferred binary: $($_.Exception.Message)"
             }
         }
+
+        # EXR-C-01: Restore FinalState — cleanup is logged in States array but must not change outcome
+        $result.FinalState = $precleanupFinalState
+
         # Always clean up PSDrive mapping
         if ($smbDriveName) {
             try { Remove-PSDrive -Name $smbDriveName -Force -ErrorAction SilentlyContinue } catch { }

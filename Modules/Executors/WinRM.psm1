@@ -15,7 +15,7 @@
 # ║  Output    : result object          ║
 # ║  Depends   : none                   ║
 # ║  PS compat : 5.1 (analyst machine)  ║
-# ║  Version   : 3.3                    ║
+# ║  Version   : 3.4                    ║
 # ╚══════════════════════════════════════╝
 
 Set-StrictMode -Version 2
@@ -305,6 +305,10 @@ function Invoke-Executor {
                 # Fallback: SMB Copy-Item via PSDrive (passes credential properly -- EX2)
                 $smbFallbackDrive = $null
                 try {
+                    # EXR-W-01: validate drive-letter format before UNC conversion (matches SMBWMI.psm1 guard)
+                    if ($RemoteDestPath -notmatch '^([A-Za-z]):\\') {
+                        throw "Cannot convert to UNC: path does not start with drive letter: $RemoteDestPath"
+                    }
                     $uncPath = "\\$ComputerName\" + ($RemoteDestPath -replace '^([A-Za-z]):\\', '$1$\')
                     $uncRoot = "\\$ComputerName\" + ($RemoteDestPath -replace '^([A-Za-z]):\\.*', '$1$')
                     $smbFallbackDrive = "QuickAiRFB_$(Get-Random)"
@@ -513,6 +517,10 @@ function Invoke-Executor {
             $result.Error = $_.Exception.Message
         }
     } finally {
+        # EXR-C-01: Save FinalState before cleanup — Add-State overwrites FinalState,
+        # but cleanup is informational and must not change the outcome signal.
+        $precleanupFinalState = $result.FinalState
+
         # EX1: Clean up transferred binary on failure (before closing session)
         if ($result.FinalState -match 'FAILED' -and $RemoteDestPath) {
             try {
@@ -541,20 +549,27 @@ function Invoke-Executor {
                         }
                     } -ArgumentList $RemoteDestPath -ErrorAction Stop
                     Add-State "CLEANUP" "Removed transferred binary and MUI files from target"
+                } else {
+                    # EXR-W-02: session dead — cannot clean up remotely, warn analyst
+                    Add-State "CLEANUP_FAILED" "Session unavailable -- binary may remain on target at: $RemoteDestPath"
                 }
             } catch {
                 Add-State "CLEANUP_FAILED" "Could not remove transferred binary: $($_.Exception.Message)"
             }
         }
-        # B1: Restore TrustedHosts to original value if we modified it
+
+        # EXR-C-01: Restore FinalState — cleanup is logged in States array but must not change outcome
+        $result.FinalState = $precleanupFinalState
+        # EXR-W-03: Remove only our entry from TrustedHosts (parallel-safe add/remove pattern)
         if ($trustedHostsModified) {
             $thMutex = $null
             try {
                 $thMutex = [System.Threading.Mutex]::new($false, 'QuickAiR_TrustedHosts')
                 $thMutex.WaitOne(10000) | Out-Null
-                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $originalTrustedHosts -Force -ErrorAction Stop
+                $cur = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value
+                $newList = ($cur -split ',' | Where-Object { $_ -ne $ComputerName }) -join ','
+                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $newList -Force -ErrorAction Stop
             } catch {
-                # EX5: Log warning instead of silently swallowing
                 Add-State "WARNING" "TrustedHosts restore failed: $($_.Exception.Message). Verify WSMan:\localhost\Client\TrustedHosts manually."
             } finally {
                 if ($thMutex) { try { $thMutex.ReleaseMutex() } catch {} }

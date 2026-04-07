@@ -24,7 +24,7 @@
 # ║    SHA256Error, Signature, source         ║
 # ║  Depends   : Core\DateTime.psm1          ║
 # ║  PS compat : 2.0+ (target-side)          ║
-# ║  Version   : 3.9                         ║
+# ║  Version   : 4.0                         ║
 # ╚══════════════════════════════════════════╝
 
 Set-StrictMode -Off
@@ -39,9 +39,9 @@ $script:PROC_SB_WMI = {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $s = [Security.Cryptography.SHA256]::Create()
+            $s = New-Object Security.Cryptography.SHA256CryptoServiceProvider
             $st = [System.IO.File]::OpenRead($p)
-            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); try { $s.Clear() } catch {}; try { $s.Dispose() } catch {} }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -401,9 +401,9 @@ $script:PROC_SB_CIM = {
         if (-not $p) { return @($null, 'PATH_NULL') }
         try {
             if (-not [System.IO.File]::Exists($p)) { return @($null, 'FILE_NOT_FOUND') }
-            $s = [Security.Cryptography.SHA256]::Create()
+            $s = New-Object Security.Cryptography.SHA256CryptoServiceProvider
             $st = [System.IO.File]::OpenRead($p)
-            try { $h = $s.ComputeHash($st) } finally { $st.Close(); $s.Dispose() }
+            try { $h = $s.ComputeHash($st) } finally { $st.Close(); try { $s.Clear() } catch {}; try { $s.Dispose() } catch {} }
             return @(([BitConverter]::ToString($h) -replace '-','').ToLower(), $null)
         } catch {
             $m = $_.Exception.Message
@@ -753,6 +753,7 @@ function Invoke-Collector {
     $procs        = @()
     $fallbackNote = $null
     $sourceStr    = 'unknown'
+    $MAX_PROCESS_COUNT = 5000
 
     try {
         if ($Session -ne $null -and $Session -is [hashtable] -and $Session.Method -eq 'WMI') {
@@ -760,9 +761,23 @@ function Invoke-Collector {
             if (-not $Session.ComputerName) {
                 throw "WMI session has no ComputerName - cannot query remote processes"
             }
-            $wmiP = @{ Class = 'Win32_Process'; ComputerName = $Session.ComputerName; ErrorAction = 'Stop' }
-            if ($Session.Credential) { $wmiP.Credential = $Session.Credential }
-            $wmiProcs = Get-WmiObject @wmiP
+            # W3-PROC-03: use ManagementObjectSearcher with explicit timeout (Get-WmiObject has no timeout)
+            $wmiScope = $null
+            try {
+                $wmiScope = New-Object System.Management.ManagementScope("\\$($Session.ComputerName)\root\cimv2")
+                $wmiScope.Options.Timeout = [TimeSpan]::FromSeconds(60)
+                if ($Session.Credential) {
+                    $wmiScope.Options.Username = $Session.Credential.UserName
+                    $wmiScope.Options.Password = $Session.Credential.GetNetworkCredential().Password
+                }
+                $wmiScope.Connect()
+                $wmiSearcher = New-Object System.Management.ManagementObjectSearcher($wmiScope, (New-Object System.Management.ObjectQuery("SELECT * FROM Win32_Process")))
+                $wmiSearcher.Options.Timeout = [TimeSpan]::FromSeconds(60)
+                $wmiSearcher.Options.ReturnImmediately = $false
+                $wmiProcs = @($wmiSearcher.Get())
+            } finally {
+                if ($wmiScope) { try { $wmiScope.Dispose() } catch {} }
+            }
             $sourceStr = 'wmi_remote'
 
             foreach ($wp in $wmiProcs) {
@@ -844,7 +859,10 @@ function Invoke-Collector {
         } elseif ($Session -ne $null) {
             # Remote path (WinRM)
             $sb = if ($TargetPSVersion -ge 3) { $script:PROC_SB_CIM } else { $script:PROC_SB_WMI }
-            $r   = Invoke-Command -Session $Session -ScriptBlock $sb
+            $r   = Invoke-Command -Session $Session -ScriptBlock $sb -ErrorAction Stop
+            if ($null -eq $r -or $null -eq $r.Procs) {
+                throw "Remote scriptblock returned no data -- session may be broken"
+            }
             $raw = $r.Procs
             if ($r.FallbackCount -gt 0) {
                 $fallbackNote = "$($r.FallbackCount) process(es) added via .NET fallback on remote (absent from WMI/CIM)"
@@ -944,6 +962,11 @@ function Invoke-Collector {
                 $raw = Get-CimInstance Win32_Process -OperationTimeoutSec 60
                 $sourceStr = 'cim'
                 $fallbackCount = 0
+                # W3-PROC-02: guard against uncapped enumeration (matches remote scriptblock pattern)
+                if ($raw.Count -gt $MAX_PROCESS_COUNT) {
+                    $errors += @{ artifact='process_list'; severity='warning'; message="Process count $($raw.Count) exceeds cap $MAX_PROCESS_COUNT -- truncating" }
+                    $raw = $raw | Select-Object -First $MAX_PROCESS_COUNT
+                }
                 foreach ($p in $raw) {
                     try {
                     $pid_ = $null; $ppid = $null; $name_ = $null
@@ -1082,7 +1105,12 @@ function Invoke-Collector {
                 $searcher.Options.ReturnImmediately = $false
                 $searcher.Options.Rewindable = $false
                 $searcher.Options.Timeout = [TimeSpan]::FromSeconds(60)
-                $raw2 = $searcher.Get()
+                $raw2 = @($searcher.Get())
+                # W3-PROC-02: guard against uncapped enumeration (matches remote scriptblock pattern)
+                if ($raw2.Count -gt $MAX_PROCESS_COUNT) {
+                    $errors += @{ artifact='process_list'; severity='warning'; message="Process count $($raw2.Count) exceeds cap $MAX_PROCESS_COUNT -- truncating" }
+                    $raw2 = $raw2 | Select-Object -First $MAX_PROCESS_COUNT
+                }
                 foreach ($p in $raw2) {
                     try {
                     $pid_ = $null; $ppid = $null; $name_ = $null
