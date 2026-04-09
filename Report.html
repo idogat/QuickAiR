@@ -3367,10 +3367,10 @@ function renderExecute() {
   var addSectionHTML =
     '<div class="exec-add-section">' +
       '<div class="exec-add-hdr" onclick="execToggleSection(\'exec-add-body\',\'exec-add-arrow\')">' +
-        '<span class="exec-sec-arrow" id="exec-add-arrow">&#9654;</span>' +
+        '<span class="exec-sec-arrow" id="exec-add-arrow">&#9660;</span>' +
         '<span>&#10133; Add Targets Manually</span>' +
       '</div>' +
-      '<div class="exec-add-body collapsed" id="exec-add-body">' +
+      '<div class="exec-add-body" id="exec-add-body">' +
         '<div class="exec-input-row">' +
           '<input type="text" id="exec-manual-input" placeholder="Hostname or IP" onkeydown="if(event.key===\'Enter\')execAddManualTarget()">' +
           '<button class="exec-add-btn" onclick="execAddManualTarget()">+ Add</button>' +
