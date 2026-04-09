@@ -3440,8 +3440,8 @@ function renderExecute() {
       '<table class="exec-host-tbl">' +
       '<thead><tr>' +
         '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th><th>Username</th>' +
-        '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleMem()" title="Toggle Memory on selected rows">Memory</th>' +
-        '<th class="exec-type-col exec-th-toggle" onclick="execBulkToggleDisk()" title="Toggle Disk on selected rows">Disk</th>' +
+        '<th class="exec-type-col"><label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="exc-mem-all" onchange="execSelectAllMem(this)"> Memory</label></th>' +
+        '<th class="exec-type-col"><label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="exc-dsk-all" onchange="execSelectAllDisk(this)"> Disk</label></th>' +
         '<th></th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
@@ -3513,9 +3513,31 @@ function execBulkToggleDisk() {
   _execUpdateSelCounter();
 }
 
+function execSelectAllMem(headerCb) {
+  var hosts = Object.keys(_bulkSel);
+  hosts.forEach(function(h) {
+    _bulkSel[h].mem = headerCb.checked;
+    var cb = el('exc-mem-' + cssId(h));
+    if (cb) cb.checked = headerCb.checked;
+  });
+  _execUpdateSelCounter();
+}
+
+function execSelectAllDisk(headerCb) {
+  var hosts = Object.keys(_bulkSel);
+  hosts.forEach(function(h) {
+    _bulkSel[h].disk = headerCb.checked;
+    var cb = el('exc-dsk-' + cssId(h));
+    if (cb) cb.checked = headerCb.checked;
+  });
+  _execUpdateSelCounter();
+}
+
 function _execUpdateSelCounter() {
   var memJobs = 0, diskJobs = 0;
-  Object.keys(_bulkSel).forEach(function(h) {
+  var hosts = Object.keys(_bulkSel);
+  var total = hosts.length;
+  hosts.forEach(function(h) {
     var bs = _bulkSel[h];
     if (bs.mem)  memJobs++;
     if (bs.disk) diskJobs++;
@@ -3532,6 +3554,17 @@ function _execUpdateSelCounter() {
   }
   var qBtn = el('exec-add-queue-btn');
   if (qBtn) qBtn.disabled = (memJobs + diskJobs === 0);
+  // Sync header checkbox states
+  var memAll = el('exc-mem-all');
+  if (memAll) {
+    memAll.checked       = total > 0 && memJobs === total;
+    memAll.indeterminate = memJobs > 0 && memJobs < total;
+  }
+  var dskAll = el('exc-dsk-all');
+  if (dskAll) {
+    dskAll.checked       = total > 0 && diskJobs === total;
+    dskAll.indeterminate = diskJobs > 0 && diskJobs < total;
+  }
 }
 
 // ── QUEUE PREVIEW MODAL ───────────────────────────────────────────────────────
