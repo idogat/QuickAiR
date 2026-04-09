@@ -709,28 +709,36 @@ function Build-UI {
     $script:BtnClose  = $btnClose
 
     $btnCancelSel.Add_Click({
-        foreach ($row in @($script:Grid.SelectedRows)) {
-            $jid = $row.Tag
-            $j   = @($script:Queue.Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
-            if ($null -ne $j -and -not $j.IsDone) {
-                $j.IsCancelled = $true
-                if ($null -ne $j.PS_) { try { $j.PS_.BeginStop($null, $null) } catch { } }
-                $j.Status = 'CANCELLED'; $j.Detail = 'Cancelled by user'; $j.IsDone = $true
+        try {
+            $jids = @($script:Grid.SelectedRows | ForEach-Object { $_.Tag })
+            $locked = [System.Threading.Monitor]::TryEnter($script:Queue.Lock, 0)
+            try { $snap = @($script:Queue.Jobs) } catch { $snap = @() }
+            if ($locked) { [System.Threading.Monitor]::Exit($script:Queue.Lock) }
+            foreach ($j in $snap) {
+                if ($jids -contains $j.JobId -and -not $j.IsDone) {
+                    $j.IsCancelled = $true
+                    if ($null -ne $j.PS_) { try { $j.PS_.BeginStop($null, $null) } catch { } }
+                    $j.Status = 'CANCELLED'; $j.Detail = 'Cancelled by user'; $j.IsDone = $true
+                }
             }
-        }
+        } catch { }
+        $script:Form.Activate()
     })
 
     $btnCancelAll.Add_Click({
-        [System.Threading.Monitor]::Enter($script:Queue.Lock)
-        $snap = @($script:Queue.Jobs)
-        [System.Threading.Monitor]::Exit($script:Queue.Lock)
-        foreach ($j in $snap) {
-            if (-not $j.IsDone) {
-                $j.IsCancelled = $true
-                if ($null -ne $j.PS_) { try { $j.PS_.BeginStop($null, $null) } catch { } }
-                $j.Status = 'CANCELLED'; $j.Detail = 'Cancelled by user'; $j.IsDone = $true
+        try {
+            $locked = [System.Threading.Monitor]::TryEnter($script:Queue.Lock, 0)
+            try { $snap = @($script:Queue.Jobs) } catch { $snap = @() }
+            if ($locked) { [System.Threading.Monitor]::Exit($script:Queue.Lock) }
+            foreach ($j in $snap) {
+                if (-not $j.IsDone) {
+                    $j.IsCancelled = $true
+                    if ($null -ne $j.PS_) { try { $j.PS_.BeginStop($null, $null) } catch { } }
+                    $j.Status = 'CANCELLED'; $j.Detail = 'Cancelled by user'; $j.IsDone = $true
+                }
             }
-        }
+        } catch { }
+        $script:Form.Activate()
     })
 
     $btnClearDone.Add_Click({
