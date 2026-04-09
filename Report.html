@@ -3410,7 +3410,7 @@ function renderExecute() {
         '<td><strong>' + esc(h) + '</strong></td>' +
         '<td><span class="exec-src-badge exec-src-json">JSON</span></td>' +
         '<td class="dim">' + esc(m.target_os_caption || '') + '</td>' +
-        '<td><span class="' + cs.cls + '">' + esc(cs.label) + '</span></td>' +
+        '<td><span class="' + cs.cls + '">' + (cs.status === 'complete' || cs.status === 'partial' ? 'Yes' : 'No') + '</span></td>' +
         '<td><span class="' + ws.cls + '">' + esc(ws.label) + '</span>' + winrmNotice + '</td>' +
         '<td><span class="' + wmis.cls + '">' + esc(wmis.label) + '</span></td>' +
         '<td><span class="' + smbs.cls + '">' + esc(smbs.label) + '</span></td>' +
