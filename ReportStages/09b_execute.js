@@ -626,9 +626,9 @@ function _queueModalLaunch() {
   var jsonStr = JSON.stringify(payload);
   var encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(jsonStr))));
   var uri = 'quickair://batch?jobs=' + encoded;
-  if (uri.length > 2000) {
-    var errDiv = document.getElementById('load-errors');
-    if (errDiv) { var t = document.createElement('div'); t.style.cssText = 'background:#d32f2f;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;'; t.textContent = 'URI too long (' + uri.length + ' chars). Reduce batch size and try again.'; errDiv.appendChild(t); setTimeout(function(){ t.remove(); }, 10000); }
+  if (uri.length > 8000) {
+    var body = el('qm-body');
+    if (body) { var t = document.createElement('div'); t.style.cssText = 'background:#d32f2f;color:#fff;padding:8px 16px;margin:8px 0;border-radius:4px;font-size:13px;'; t.textContent = 'URI too long (' + uri.length + ' chars). Reduce batch size and try again.'; body.insertBefore(t, body.firstChild); }
     return;
   }
   var ifr = document.createElement('iframe');
