@@ -36,7 +36,9 @@
     '.exec-section-body.collapsed{max-height:0;padding-top:0}',
     '.exec-host-tbl{width:100%;border-collapse:collapse;font-size:12px}',
     '.exec-host-tbl th{text-align:left;padding:4px 10px;color:var(--muted);font-weight:normal;border-bottom:1px solid var(--border)}',
+    '.exec-host-tbl th.exec-type-col{text-align:center;vertical-align:bottom;padding:4px 6px}',
     '.exec-host-tbl td{padding:5px 10px;border-bottom:1px solid var(--border);vertical-align:top}',
+    '.exec-host-tbl td.exec-type-col{text-align:center;vertical-align:middle;padding:5px 6px}',
     '.exec-host-tbl tr:hover td{background:var(--row-hov)}',
     '.exec-status-complete{color:var(--green);font-weight:bold}',
     '.exec-status-partial{color:var(--amber);font-weight:bold}',
@@ -265,8 +267,8 @@ function renderExecute() {
       '<table class="exec-host-tbl">' +
       '<thead><tr>' +
         '<th>Hostname</th><th>Source</th><th>OS</th><th>Collection</th><th>WinRM</th><th>WMI</th><th>SMB Share</th><th>Username</th>' +
-        '<th class="exec-type-col"><label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="exc-mem-all" onchange="execSelectAllMem(this)"> Memory</label></th>' +
-        '<th class="exec-type-col"><label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox" id="exc-dsk-all" onchange="execSelectAllDisk(this)"> Disk</label></th>' +
+        '<th class="exec-type-col"><div>Memory</div><input type="checkbox" id="exc-mem-all" onchange="execSelectAllMem(this)" title="Select all / deselect all" style="cursor:pointer;margin-top:3px"></th>' +
+        '<th class="exec-type-col"><div>Disk</div><input type="checkbox" id="exc-dsk-all" onchange="execSelectAllDisk(this)" title="Select all / deselect all" style="cursor:pointer;margin-top:3px"></th>' +
         '<th></th>' +
       '</tr></thead>' +
       '<tbody>' + rows + '</tbody>' +
