@@ -194,7 +194,7 @@ function Invoke-Executor {
                 $dstDir  = Split-Path -Parent $RemoteDestPath
                 $dstName = Split-Path -Leaf  $RemoteDestPath
                 try {
-                    Get-ChildItem $srcDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    Get-ChildItem $srcDir -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer } | ForEach-Object {
                         $muiSrc = Join-Path $_.FullName "$srcName.mui"
                         if (Test-Path $muiSrc) {
                             $muiDestDir = Join-Path $dstDir $_.Name
@@ -282,7 +282,7 @@ function Invoke-Executor {
                 $dstDir2  = Split-Path -Parent $dest
                 $dstName2 = Split-Path -Leaf  $dest
                 try {
-                    Get-ChildItem $srcDir2 -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                    Get-ChildItem $srcDir2 -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer } | ForEach-Object {
                         $muiSrc2 = Join-Path $_.FullName "$srcName2.mui"
                         if (Test-Path $muiSrc2) {
                             $muiB64 = [System.Convert]::ToBase64String(
@@ -538,7 +538,7 @@ function Invoke-Executor {
                         # Clean up MUI subdirectories
                         $dir = Split-Path -Parent $p
                         $name = [System.IO.Path]::GetFileName($p)
-                        Get-ChildItem -Path $dir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        Get-ChildItem -Path $dir -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer } | ForEach-Object {
                             $muiFile = Join-Path $_.FullName "$name.mui"
                             if (Test-Path -LiteralPath $muiFile) {
                                 Remove-Item -LiteralPath $muiFile -Force -ErrorAction SilentlyContinue
