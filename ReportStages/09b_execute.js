@@ -631,11 +631,7 @@ function _queueModalLaunch() {
     if (body) { var t = document.createElement('div'); t.style.cssText = 'background:#d32f2f;color:#fff;padding:8px 16px;margin:8px 0;border-radius:4px;font-size:13px;'; t.textContent = 'URI too long (' + uri.length + ' chars). Reduce batch size and try again.'; body.insertBefore(t, body.firstChild); }
     return;
   }
-  var ifr = document.createElement('iframe');
-  ifr.style.display = 'none';
-  ifr.src = uri;
-  document.body.appendChild(ifr);
-  setTimeout(function(){ document.body.removeChild(ifr); }, 2000);
+  window.location.href = uri;
   // Show success
   var body = el('qm-body');
   if (body) {
