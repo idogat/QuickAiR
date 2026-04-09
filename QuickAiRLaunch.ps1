@@ -714,7 +714,7 @@ function Build-UI {
             $j   = @($script:Queue.Jobs | Where-Object { $_.JobId -eq $jid }) | Select-Object -First 1
             if ($null -ne $j -and -not $j.IsDone) {
                 $j.IsCancelled = $true
-                if ($null -ne $j.PS_) { try { $j.PS_.Stop() } catch { } }
+                if ($null -ne $j.PS_) { try { $j.PS_.BeginStop($null, $null) } catch { } }
                 $j.Status = 'CANCELLED'; $j.Detail = 'Cancelled by user'; $j.IsDone = $true
             }
         }
@@ -727,7 +727,7 @@ function Build-UI {
         foreach ($j in $snap) {
             if (-not $j.IsDone) {
                 $j.IsCancelled = $true
-                if ($null -ne $j.PS_) { try { $j.PS_.Stop() } catch { } }
+                if ($null -ne $j.PS_) { try { $j.PS_.BeginStop($null, $null) } catch { } }
                 $j.Status = 'CANCELLED'; $j.Detail = 'Cancelled by user'; $j.IsDone = $true
             }
         }
