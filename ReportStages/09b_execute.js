@@ -201,7 +201,7 @@ function renderExecute() {
           '<button class="exec-add-btn" onclick="execAddManualTarget()">+ Add</button>' +
           '<span style="margin-left:12px">' +
             '<div class="exec-tooltip-wrap">' +
-              '<button class="exec-add-btn" onclick="document.getElementById(\'exec-csv-input\').click()">Import CSV</button>' +
+              '<label class="exec-add-btn" for="exec-csv-input" style="cursor:pointer">Import CSV</label>' +
               '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
             '</div>' +
           '</span>' +
