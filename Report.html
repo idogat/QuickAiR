@@ -1471,23 +1471,10 @@ function renderFleet() {
   if (hosts.length === 1) {
     const h0 = hosts[0];
     const m  = state.hosts[h0].manifest || {};
-    const allErrs = m.collection_errors || [];
-    const realErrors = allErrs.filter(e => !e || e.severity !== 'warning');
-    const warnings   = allErrs.filter(e => e && e.severity === 'warning');
-    const tipLines = allErrs.map(e => {
-      const prefix = (e && e.severity === 'warning') ? '[warn] ' : '[error] ';
-      return prefix + (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : '');
-    }).join('&#10;');
-    const tipAttr = tipLines ? ` title="${esc(tipLines)}" style="cursor:help"` : '';
-    const errBadge = realErrors.length > 0
-      ? ` <span style="color:var(--amber)"${tipAttr}>${realErrors.length} errors</span>`
-      : warnings.length > 0
-        ? ` <span style="color:var(--green)"${tipAttr}>${warnings.length} warnings</span>`
-        : ' <span style="color:var(--green)">0 errors</span>';
     panel.innerHTML = `<div class="solo-notice">
       Single host loaded: <strong>${esc(h0)}</strong> &nbsp;|&nbsp;
       ${esc(m.target_os_caption||'')} &nbsp;|&nbsp; PS ${esc(m.target_ps_version||'?')} &nbsp;|&nbsp;
-      ${esc(m.collection_time_utc||'')} &nbsp;|&nbsp;${errBadge}
+      ${esc(m.collection_time_utc||'')}
       <br><br>Switch to <a onclick="switchTab('processes')">PROCESSES</a>, <a onclick="switchTab('network')">NETWORK</a>, or <a onclick="switchTab('dns')">DNS</a> to investigate.
     </div>
     <div id="manifest-panel"></div>`;
@@ -1495,7 +1482,7 @@ function renderFleet() {
     return;
   }
 
-  const COLS = '36px 180px 200px 60px 50px 110px 80px 100px 100px 80px 60px 120px';
+  const COLS = '36px 180px 200px 60px 50px 110px 80px 100px 100px 80px 120px';
   const headers = [
     { key:'_remove',            label:''                 },
     { key:'hostname',           label:'Hostname'         },
@@ -1507,7 +1494,6 @@ function renderFleet() {
     { key:'active_count',       label:'Active Conns'     },
     { key:'unique_ips',         label:'Remote IPs'       },
     { key:'dns_count',          label:'DNS'              },
-    { key:'errors_count',       label:'Errors'           },
     { key:'collection_time_utc',label:'Collected (UTC)'  },
   ];
 
@@ -1518,7 +1504,6 @@ function renderFleet() {
       const allConns = (d.network_tcp||[]).concat(d.network_udp||[]);
       const ac = allConns.filter(c=>c.State==='ESTABLISHED').length;
       const ips = new Set(allConns.filter(c=>c.RemoteAddress&&c.RemoteAddress!=='0.0.0.0'&&c.RemoteAddress!=='::').map(c=>c.RemoteAddress));
-      const collection_errors = m.collection_errors || [];
       const adapters = m.network_adapters || [];
       return {
         hostname:            h,
@@ -1531,12 +1516,11 @@ function renderFleet() {
         active_count:        ac,
         unique_ips:          ips.size,
         dns_count:           (d.dns_cache||[]).length,
-        errors_count:        collection_errors.filter(e => !e || e.severity !== 'warning').length,
         collection_time_utc: m.collection_time_utc || '',
       };
     });
     if (sortState.tab === 'fleet' && sortState.column && sortState.dir !== 'none') {
-      const numericFleetCols = new Set(['nic_count','proc_count','active_count','unique_ips','dns_count','errors_count']);
+      const numericFleetCols = new Set(['nic_count','proc_count','active_count','unique_ips','dns_count']);
       rows = applySortToRows(rows, sortState.column, numericFleetCols.has(sortState.column));
     } else {
       rows.sort((a,b) => {
@@ -1587,7 +1571,6 @@ function renderFleet() {
       <div class="td green">${row.active_count}</div>
       <div class="td">${row.unique_ips}</div>
       <div class="td">${row.dns_count}</div>
-      <div class="td ${row.errors_count > 0 ? 'amber' : 'dim'}">${row.errors_count}</div>
       <div class="td dim">${esc(row.collection_time_utc)}</div>`;
     },
     (i, row) => {
@@ -1605,14 +1588,6 @@ function renderManifestPanel(hostname) {
   const d = state.hosts[hostname];
   if (!d) { mp.innerHTML = ''; return; }
   const m = d.manifest || {};
-  const collection_errors = m.collection_errors || [];
-  const errHTML = collection_errors.length === 0
-    ? '<span style="color:var(--green)">None</span>'
-    : collection_errors.map(e => {
-        const sev = (e.severity === 'warning') ? '<span style="color:var(--amber)">[warn]</span>' : '<span style="color:var(--red)">[error]</span>';
-        return `<div class="mp-err-item">${sev} [${esc(e.artifact||'?')}] ${esc(e.message||'')}</div>`;
-      }).join('');
-
   const adapters = m.network_adapters || [];
   let adapterTableHTML = '';
   if (adapters.length > 0) {
@@ -1655,10 +1630,6 @@ function renderManifestPanel(hostname) {
         <span class="k">dns_source</span>              <span class="v">${esc(m.Network_source ? (m.Network_source.dns || '') : (m.dns_source || ''))}</span>
         <span class="k">collection_time_utc</span>     <span class="v">${esc(m.collection_time_utc||'')}</span>
         <span class="k">sha256</span>                  <span class="v" style="font-size:10px;color:var(--muted)">${esc(m.sha256||'')}</span>
-      </div>
-      <div class="mp-errors" style="margin-top:8px">
-        <span class="k">collection_errors (${collection_errors.length})</span>
-        <div style="margin-top:4px">${errHTML}</div>
       </div>
     </div>
   </div>
