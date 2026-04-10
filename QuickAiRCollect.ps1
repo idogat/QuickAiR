@@ -108,10 +108,11 @@ $script:Grid           = $null
 $script:StatusLabel    = $null
 $script:SpinLabel      = $null
 $script:BtnClose       = $null
-$script:RefreshTimer   = $null
-$script:BridgeTimer    = $null
-$script:ScheduleRunning = $false
-$script:MaxConcurrent  = [Math]::Max(1, [Math]::Min(20, $MaxConcurrent))
+$script:RefreshTimer        = $null
+$script:BridgeTimer         = $null
+$script:ScheduleRunning     = $false
+$script:ResolvingCredentials = $false
+$script:MaxConcurrent       = [Math]::Max(1, [Math]::Min(20, $MaxConcurrent))
 #endregion
 
 #region ── URI parsing ──────────────────────────────────────────
@@ -411,6 +412,9 @@ function Resolve-Credential {
 
 function Resolve-AllCredentials {
     # Prompt for all unique non-local hosts upfront before scheduling starts.
+    # Guard flag prevents the scheduler from launching jobs while dialogs are open.
+    $script:ResolvingCredentials = $true
+    try {
     [System.Threading.Monitor]::Enter($script:Lock)
     $snap = @($script:HostRows)
     [System.Threading.Monitor]::Exit($script:Lock)
@@ -442,6 +446,7 @@ function Resolve-AllCredentials {
         $script:CredCache[$domKey] = $cred
         $script:CredCache[$key]    = $cred
     }
+    } finally { $script:ResolvingCredentials = $false }
 }
 #endregion
 
@@ -579,6 +584,9 @@ function Invoke-Schedule {
     }
     $script:StatusLabel.Text = "Running: $running  |  Queued: $queued  |  Done: $done  |  Failed: $failed  |  Max Concurrent:"
 
+    # Hold scheduling until upfront credential prompting is complete
+    if ($script:ResolvingCredentials) { return }
+
     # Start queued hosts up to MaxConcurrent (one runspace per host)
     $activeHosts = 0
     foreach ($pr in $prSnap) {
@@ -595,7 +603,7 @@ function Invoke-Schedule {
         }
         if ($null -eq $nextRow) { break }
 
-        # Resolve credential (cached per host)
+        # Resolve credential (cached per host by Resolve-AllCredentials upfront)
         $isLocal = ($nextRow.Hostname -eq 'localhost' -or
                     $nextRow.Hostname -eq '127.0.0.1' -or
                     $nextRow.Hostname -ieq $env:COMPUTERNAME)
@@ -605,16 +613,10 @@ function Invoke-Schedule {
             if ($script:CredCache.ContainsKey($key)) {
                 $cred = $script:CredCache[$key]
             } else {
-                $pfUser = if ($nextRow.Username) { $nextRow.Username } else { '' }
-                $cred = Show-CredentialDialog $nextRow.Hostname $pfUser
-                if ($null -eq $cred) {
-                    $nextRow.Status = 'Failed'; $nextRow.Detail = 'Credential cancelled by analyst. Re-run collection to retry.'
-                    $nextRow.IsDone = $true; $nextRow.EndTime = [DateTime]::UtcNow
-                    continue
-                }
-                $script:CredCache[$key] = $cred
-                $domKey = if ($cred.UserName -match '^([^\\]+)\\') { $Matches[1].ToLower() } else { $key }
-                $script:CredCache[$domKey] = $cred
+                # No cached credential — was cancelled during upfront prompting; skip host
+                $nextRow.Status = 'Failed'; $nextRow.Detail = 'Credential cancelled by analyst. Re-run collection to retry.'
+                $nextRow.IsDone = $true; $nextRow.EndTime = [DateTime]::UtcNow
+                continue
             }
         }
         $nextRow.Credential = $cred
@@ -1124,7 +1126,14 @@ try {
     try {
         if ($rawTargets -and $rawTargets.Count -gt 0) {
             Add-Targets $rawTargets
-            Resolve-AllCredentials
+            # Resolve credentials after the form is shown so the dialog has a visible owner
+            $form.Add_Shown({
+                try { Resolve-AllCredentials }
+                catch {
+                    $msg = "RESOLVE-CREDS $(([DateTime]::UtcNow.ToString('o'))): $($_.Exception.GetType()): $($_.Exception.Message)`n$($_.ScriptStackTrace)`n`n"
+                    [System.IO.File]::AppendAllText($logPath, $msg)
+                }
+            })
         }
     }
     catch {
