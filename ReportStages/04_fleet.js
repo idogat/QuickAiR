@@ -132,7 +132,6 @@ function renderFleet() {
       <div class="tbl-header" style="grid-template-columns:${COLS}" id="fleet-header"></div>
       <div id="fleet-vs"></div>
     </div>
-    <div id="fleet-exec-banners" style="margin-top:8px"></div>
     <div id="manifest-panel" style="margin-top:12px"></div>`;
 
   el('fleet-header').innerHTML = headerHTML();
@@ -162,7 +161,6 @@ function renderFleet() {
     },
     'fleet'
   );
-  if (typeof renderFleetExecBanners === 'function') renderFleetExecBanners();
 }
 
 function renderManifestPanel(hostname) {

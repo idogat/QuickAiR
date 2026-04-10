@@ -1549,7 +1549,6 @@ function renderFleet() {
       <div class="tbl-header" style="grid-template-columns:${COLS}" id="fleet-header"></div>
       <div id="fleet-vs"></div>
     </div>
-    <div id="fleet-exec-banners" style="margin-top:8px"></div>
     <div id="manifest-panel" style="margin-top:12px"></div>`;
 
   el('fleet-header').innerHTML = headerHTML();
@@ -1579,7 +1578,6 @@ function renderFleet() {
     },
     'fleet'
   );
-  if (typeof renderFleetExecBanners === 'function') renderFleetExecBanners();
 }
 
 function renderManifestPanel(hostname) {
@@ -3166,7 +3164,6 @@ function buildUserExpand(u) {
 // ║    execAddManualTarget,               ║
 // ║    execImportManualCSV,               ║
 // ║    execRemoveHost,                    ║
-// ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
 // ║  Version  : 4.01                      ║
@@ -3880,29 +3877,6 @@ function execToggleSection(bodyId, arrowId) {
   if (arrow) arrow.innerHTML = nowCollapsed ? '&#9654;' : '&#9660;';
 }
 
-function renderFleetExecBanners() {
-  var wrap = el('fleet-exec-banners');
-  if (!wrap) return;
-  var hosts = Object.keys(state.hosts);
-  var banners = hosts.filter(function(h) {
-    var cs = _getCollectionStatus(h);
-    return cs.status === 'partial' || cs.status === 'failed';
-  }).map(function(h) {
-    var cs  = _getCollectionStatus(h);
-    var errCount = (cs.errors || []).length;
-    var tooltip = (cs.errors || []).map(function(e) {
-      return (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : String(e));
-    }).join('\n');
-    var tipAttr = tooltip ? ' title="' + esc(tooltip) + '" style="cursor:help"' : '';
-    return '<div class="fleet-err-banner">' +
-      '&#9888; <strong>' + esc(h) + '</strong> &mdash; collection ' + (cs.status === 'failed' ? 'failed' : 'incomplete') + '.' +
-      (errCount > 0 ? ' <span' + tipAttr + '>' + errCount + ' error' + (errCount === 1 ? '' : 's') + ' recorded.</span>' : '') +
-      ' Use the EXECUTE tab to run memory or disk collection directly.' +
-      ' &nbsp;<a onclick="switchTab(\'execute\')">Go to Execute tab</a>' +
-      '</div>';
-  }).join('');
-  wrap.innerHTML = banners;
-}
 // ╔══════════════════════════════════════╗
 // ║  QuickAiR — 09c_collect.js           ║
 // ║  Collect tab — shared target list,  ║

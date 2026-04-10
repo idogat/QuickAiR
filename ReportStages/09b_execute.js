@@ -16,7 +16,6 @@
 // ║    execAddManualTarget,               ║
 // ║    execImportManualCSV,               ║
 // ║    execRemoveHost,                    ║
-// ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
 // ║  Version  : 4.01                      ║
@@ -730,26 +729,3 @@ function execToggleSection(bodyId, arrowId) {
   if (arrow) arrow.innerHTML = nowCollapsed ? '&#9654;' : '&#9660;';
 }
 
-function renderFleetExecBanners() {
-  var wrap = el('fleet-exec-banners');
-  if (!wrap) return;
-  var hosts = Object.keys(state.hosts);
-  var banners = hosts.filter(function(h) {
-    var cs = _getCollectionStatus(h);
-    return cs.status === 'partial' || cs.status === 'failed';
-  }).map(function(h) {
-    var cs  = _getCollectionStatus(h);
-    var errCount = (cs.errors || []).length;
-    var tooltip = (cs.errors || []).map(function(e) {
-      return (e && e.artifact ? e.artifact + ': ' : '') + (e && e.message ? e.message : String(e));
-    }).join('\n');
-    var tipAttr = tooltip ? ' title="' + esc(tooltip) + '" style="cursor:help"' : '';
-    return '<div class="fleet-err-banner">' +
-      '&#9888; <strong>' + esc(h) + '</strong> &mdash; collection ' + (cs.status === 'failed' ? 'failed' : 'incomplete') + '.' +
-      (errCount > 0 ? ' <span' + tipAttr + '>' + errCount + ' error' + (errCount === 1 ? '' : 's') + ' recorded.</span>' : '') +
-      ' Use the EXECUTE tab to run memory or disk collection directly.' +
-      ' &nbsp;<a onclick="switchTab(\'execute\')">Go to Execute tab</a>' +
-      '</div>';
-  }).join('');
-  wrap.innerHTML = banners;
-}
