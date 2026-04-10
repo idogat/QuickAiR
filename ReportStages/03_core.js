@@ -542,7 +542,6 @@ function updateBadges() {
   el('b-ips').textContent   = ips.size;
   const matches = allConns.filter(c => c.DnsMatch).length;
   el('b-dns').textContent   = matches;
-  if (typeof updateExecuteBadge === 'function') updateExecuteBadge();
 }
 
 function updateMeta() {

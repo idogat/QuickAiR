@@ -16,7 +16,6 @@
 // ║    execAddManualTarget,               ║
 // ║    execImportManualCSV,               ║
 // ║    execRemoveHost,                    ║
-// ║    updateExecuteBadge,                ║
 // ║    renderFleetExecBanners,            ║
 // ║    execToggleSection                  ║
 // ║  Depends  : 03_core.js               ║
@@ -52,8 +51,6 @@
     '.exec-no-hosts{color:var(--muted);font-style:italic;padding:8px 0}',
     '.fleet-err-banner{background:rgba(210,140,0,.1);border:1px solid var(--amber);border-radius:4px;padding:7px 12px;margin-bottom:6px;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:10px}',
     '.fleet-err-banner a{color:var(--accent);cursor:pointer;text-decoration:underline;white-space:nowrap}',
-    '.tab-badge{display:inline-block;background:var(--amber);color:#0d1117;font-size:10px;font-weight:bold;border-radius:8px;padding:1px 5px;margin-left:4px;vertical-align:middle;line-height:14px}',
-    '.tab-badge.red{background:var(--red);color:#fff}',
     '.qm-bin-wrap{display:flex;flex-direction:column;gap:4px}',
     '.exec-setup-banner{background:rgba(100,120,150,.08);border:1px solid var(--border);border-radius:4px;padding:7px 14px;margin-bottom:10px;font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px}',
     '.exec-src-badge{display:inline-block;font-size:10px;font-weight:bold;padding:1px 6px;border-radius:3px;letter-spacing:.3px}',
@@ -143,30 +140,6 @@ function _getSmbStatus(hostname) {
   return { status: 'unknown', label: 'Unknown', cls: 'exec-winrm-unknown' };
 }
 
-function _getExecuteBadgeInfo() {
-  var hosts = Object.keys(state.hosts);
-  var partial = 0, failed = 0;
-  hosts.forEach(function(h) {
-    var cs = _getCollectionStatus(h);
-    if (cs.status === 'failed')       failed++;
-    else if (cs.status === 'partial') partial++;
-  });
-  return { count: partial + failed, failed: failed, partial: partial };
-}
-
-function updateExecuteBadge() {
-  var btn = el('tab-execute');
-  if (!btn) return;
-  var existing = btn.querySelector('.tab-badge');
-  if (existing) existing.remove();
-  var info = _getExecuteBadgeInfo();
-  if (info.count > 0) {
-    var badge = document.createElement('span');
-    badge.className = 'tab-badge' + (info.failed > 0 ? ' red' : '');
-    badge.textContent = info.count;
-    btn.appendChild(badge);
-  }
-}
 
 function renderExecute() {
   var panel = el('panel-execute');
