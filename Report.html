@@ -1627,7 +1627,7 @@ function renderManifestPanel(hostname) {
         <span class="k">Network_source</span>          <span class="v">${esc(m.Network_source ? (m.Network_source.network || JSON.stringify(m.Network_source)) : (m.network_source || ''))}</span>
         <span class="k">dns_source</span>              <span class="v">${esc(m.Network_source ? (m.Network_source.dns || '') : (m.dns_source || ''))}</span>
         <span class="k">collection_time_utc</span>     <span class="v">${esc(m.collection_time_utc||'')}</span>
-        <span class="k">sha256</span>                  <span class="v" style="font-size:10px;color:var(--muted)">${esc(m.sha256||'')}</span>
+        <span class="k">sha256</span>                  <span class="v">${esc(m.sha256||'')}</span>
       </div>
     </div>
   </div>
