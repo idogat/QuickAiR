@@ -59,7 +59,7 @@ var _colRemovedHosts = {};
     '.col-method{color:var(--muted);font-style:italic}',
     '.col-count{font-size:11px;color:var(--muted);margin-left:8px}',
     '.col-tooltip-wrap{position:relative;display:inline-block}',
-    '.col-tooltip{display:none;position:absolute;bottom:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.3)}',
+    '.col-tooltip{display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.3)}',
     '.col-tooltip-wrap:hover .col-tooltip{display:block}',
     '.col-empty{color:var(--muted);font-style:italic;padding:8px 0;font-size:12px}',
     '.col-user-input{width:120px;padding:2px 6px;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;box-sizing:border-box}'
