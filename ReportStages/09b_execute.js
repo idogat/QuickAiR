@@ -245,9 +245,10 @@ function renderExecute() {
         '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + escJs(h) + '\',false)" title="Remove">&times;</button></td>' +
         '</tr>';
     });
-    // Manual host rows
+    // Manual host rows (skip any host already rendered as a JSON-collected row)
     _sharedTargets.forEach(function(t) {
       var h = t.hostname;
+      if (collectedHosts.some(function(c) { return c.toLowerCase() === h.toLowerCase(); })) return;
       var bs = _bulkSel[h];
       rows += '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +

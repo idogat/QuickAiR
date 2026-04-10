@@ -332,7 +332,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-04-09T18:59:49.5475072Z",
+    "generated":  "2026-04-10T07:23:03.3292766Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -757,6 +757,10 @@ function loadJsonFile(file, onDone) {
       }
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
+      // Promote: if this host was manually added, remove it from _sharedTargets
+      // so it doesn't appear as a duplicate row alongside the JSON-sourced row
+      sharedLoadTargets();
+      if (sharedIsHostInList(host)) { sharedRemoveTarget(host); sharedSaveTargets(); }
     } catch(ex) {
       console.error('Parse error in ' + file.name + ': ' + ex.message);
       var errDiv = document.getElementById('load-errors');
@@ -3420,9 +3424,10 @@ function renderExecute() {
         '<td><button class="exec-remove-btn" onclick="execRemoveHost(\'' + escJs(h) + '\',false)" title="Remove">&times;</button></td>' +
         '</tr>';
     });
-    // Manual host rows
+    // Manual host rows (skip any host already rendered as a JSON-collected row)
     _sharedTargets.forEach(function(t) {
       var h = t.hostname;
+      if (collectedHosts.some(function(c) { return c.toLowerCase() === h.toLowerCase(); })) return;
       var bs = _bulkSel[h];
       rows += '<tr id="exec-row-' + cssId(h) + '">' +
         '<td><strong>' + esc(h) + '</strong></td>' +

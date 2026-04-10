@@ -359,6 +359,10 @@ function loadJsonFile(file, onDone) {
       }
       state.hosts[host] = data;
       if (!state.activeHost) state.activeHost = host;
+      // Promote: if this host was manually added, remove it from _sharedTargets
+      // so it doesn't appear as a duplicate row alongside the JSON-sourced row
+      sharedLoadTargets();
+      if (sharedIsHostInList(host)) { sharedRemoveTarget(host); sharedSaveTargets(); }
     } catch(ex) {
       console.error('Parse error in ' + file.name + ': ' + ex.message);
       var errDiv = document.getElementById('load-errors');
