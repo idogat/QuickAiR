@@ -19,7 +19,6 @@
   <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
 </div>
 
-<div id="gsearch-panel"></div>
 
 <div id="topbar">
   <h1>QuickAiR</h1>
@@ -30,8 +29,6 @@
     <div id="hostSelectorCurrent" class="host-selector-current" onclick="toggleHostDropdown(event)">-- No files loaded --</div>
     <div id="hostSelectorDropdown" class="host-dropdown" style="display:none"></div>
   </div>
-  <input type="text" id="globalSearch" placeholder="Global search&hellip;" oninput="onGlobalSearch(this.value)" onkeydown="if(event.key==='Escape'){closeGSearch()}">
-  <span class="sep">|</span>
   <span class="badge">Procs <span id="b-procs">0</span></span>
   <span class="badge">Active <span id="b-active">0</span></span>
   <span class="badge">Remote IPs <span id="b-ips">0</span></span>

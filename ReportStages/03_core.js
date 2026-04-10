@@ -3,7 +3,7 @@
 // ║  Global state, file loader, chunked  ║
 // ║  FileReader, tab router, virtual     ║
 // ║  scroll engine, sort engine, resize  ║
-// ║  handles, global search, drag-drop,  ║
+// ║  handles, drag-drop,                 ║
 // ║  host management                     ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : JSON files via FileReader ║
@@ -16,7 +16,7 @@
 // ║    switchTab, renderActiveTab,        ║
 // ║    createVS, sortTable, applySortTo-  ║
 // ║    Rows, addResizeHandles, updateBad- ║
-// ║    ges, updateMeta, onGlobalSearch,   ║
+// ║    ges, updateMeta,                   ║
 // ║    buildUserIndex, rebuildUserIndex,  ║
 // ║    navigateToRow, gotoProcess,        ║
 // ║    gotoNetwork, getAdapterAliases,    ║
@@ -702,80 +702,7 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick, tabName) 
   };
 }
 
-// ── GLOBAL SEARCH ─────────────────────────────────────────────────────────────
-function onGlobalSearch(q) {
-  const panel = el('gsearch-panel');
-  if (!q || q.length < 2) { panel.classList.remove('show'); panel.innerHTML = ''; return; }
-  const d = activeData();
-  if (!d) { panel.classList.remove('show'); return; }
-  const lq = q.toLowerCase();
-
-  const pMatches = (d.processes || []).filter(p =>
-    str(p.Name).includes(lq) || str(p.ProcessId).includes(lq) ||
-    str(p.ExecutablePath).includes(lq) || str(p.CommandLine).includes(lq)
-  ).slice(0, 20);
-
-  const nMatches = (d.network_tcp || []).concat(d.network_udp || []).filter(c =>
-    str(c.RemoteAddress).includes(lq) || str(c.RemotePort).includes(lq) ||
-    str(c.LocalAddress).includes(lq)  || str(c.LocalPort).includes(lq) ||
-    str(c.State).includes(lq)         || str(c.DnsMatch).includes(lq) ||
-    str(c.ReverseDns).includes(lq)    || str(c.InterfaceAlias).includes(lq)
-  ).slice(0, 20);
-
-  const dMatches = (d.dns_cache || []).filter(e =>
-    str(e.Entry).includes(lq) || str(e.Data).includes(lq)
-  ).slice(0, 20);
-
-  if (!pMatches.length && !nMatches.length && !dMatches.length) {
-    panel.innerHTML = '<div class="gs-empty">No results</div>';
-    panel.classList.add('show');
-    return;
-  }
-
-  let html = '';
-  if (pMatches.length) {
-    html += '<div class="gs-section">Processes (' + pMatches.length + ')</div>';
-    pMatches.forEach((p, i) => {
-      html += `<div class="gs-row" onclick="gotoProcess(${p.ProcessId})">
-        <div class="gs-main">${esc(p.Name)} [PID ${p.ProcessId}]</div>
-        <div class="gs-sub">${esc(p.ExecutablePath || p.CommandLine || '')}</div>
-      </div>`;
-    });
-  }
-  if (nMatches.length) {
-    html += '<div class="gs-section">Network (' + nMatches.length + ')</div>';
-    nMatches.forEach(c => {
-      const pname = getProcName(c.OwningProcess, d);
-      html += `<div class="gs-row" onclick="gotoNetwork('${esc(escJs(c.RemoteAddress))}')">
-        <div class="gs-main">${esc(c.RemoteAddress)}:${c.RemotePort} ← ${esc(pname)}</div>
-        <div class="gs-sub">${esc(c.State)} ${esc(c.DnsMatch || c.ReverseDns || '')}</div>
-      </div>`;
-    });
-  }
-  if (dMatches.length) {
-    html += '<div class="gs-section">DNS (' + dMatches.length + ')</div>';
-    dMatches.forEach(e => {
-      html += `<div class="gs-row" onclick="switchTab('dns')">
-        <div class="gs-main">${esc(e.Entry)}</div>
-        <div class="gs-sub">${esc(e.Data || '')}</div>
-      </div>`;
-    });
-  }
-
-  panel.innerHTML = html;
-  panel.classList.add('show');
-}
-
-function closeGSearch() {
-  el('gsearch-panel').classList.remove('show');
-  el('globalSearch').value = '';
-}
-
 document.addEventListener('click', e => {
-  const gs = el('gsearch-panel');
-  if (gs && !gs.contains(e.target) && e.target.id !== 'globalSearch') {
-    gs.classList.remove('show');
-  }
   const hwrap = el('hostSelectorWrap');
   const hdd   = el('hostSelectorDropdown');
   if (hdd && hwrap && !hwrap.contains(e.target)) hdd.style.display = 'none';

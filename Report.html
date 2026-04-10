@@ -48,7 +48,6 @@ input::placeholder{color:var(--muted)}
 #topbar h1{font-size:14px;color:var(--accent);white-space:nowrap}
 #topbar .sep{color:var(--border);user-select:none}
 #hostSelectorWrap{min-width:160px}
-#globalSearch{width:200px}
 .badge{background:var(--bg);border:1px solid var(--border);padding:3px 8px;border-radius:3px;font-size:11px;white-space:nowrap}
 .badge span{color:var(--accent);font-weight:bold}
 .badge.src-badge{color:var(--muted);font-size:10px}
@@ -143,16 +142,6 @@ input::placeholder{color:var(--muted)}
 #progress-bar{height:100%;background:var(--accent);width:0%;transition:width .15s}
 #progress-label{color:var(--text);font-size:13px}
 
-/* GLOBAL SEARCH RESULTS */
-#gsearch-panel{display:none;position:fixed;top:48px;right:16px;width:520px;max-height:60vh;background:var(--surface);border:1px solid var(--border);border-radius:4px;overflow-y:auto;z-index:150;box-shadow:0 8px 24px rgba(0,0,0,.6)}
-#gsearch-panel.show{display:block}
-#gsearch-panel .gs-section{padding:6px 12px 2px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;border-top:1px solid var(--border)}
-#gsearch-panel .gs-section:first-child{border-top:none}
-#gsearch-panel .gs-row{padding:5px 12px;cursor:pointer;border-bottom:1px solid #1c2128;font-size:12px}
-#gsearch-panel .gs-row:hover{background:var(--row-hov)}
-#gsearch-panel .gs-row .gs-main{color:var(--text)}
-#gsearch-panel .gs-row .gs-sub{color:var(--muted);font-size:11px}
-#gsearch-panel .gs-empty{padding:12px;color:var(--muted);text-align:center}
 
 /* DROP ZONE */
 #drop-zone{display:none;position:fixed;inset:0;background:rgba(88,166,255,.08);border:3px dashed var(--accent);z-index:300;align-items:center;justify-content:center;font-size:18px;color:var(--accent)}
@@ -284,7 +273,6 @@ input::placeholder{color:var(--muted)}
   <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
 </div>
 
-<div id="gsearch-panel"></div>
 
 <div id="topbar">
   <h1>QuickAiR</h1>
@@ -295,8 +283,6 @@ input::placeholder{color:var(--muted)}
     <div id="hostSelectorCurrent" class="host-selector-current" onclick="toggleHostDropdown(event)">-- No files loaded --</div>
     <div id="hostSelectorDropdown" class="host-dropdown" style="display:none"></div>
   </div>
-  <input type="text" id="globalSearch" placeholder="Global search&hellip;" oninput="onGlobalSearch(this.value)" onkeydown="if(event.key==='Escape'){closeGSearch()}">
-  <span class="sep">|</span>
   <span class="badge">Procs <span id="b-procs">0</span></span>
   <span class="badge">Active <span id="b-active">0</span></span>
   <span class="badge">Remote IPs <span id="b-ips">0</span></span>
@@ -401,7 +387,7 @@ var _toolDefaults = {
 // ║  Global state, file loader, chunked  ║
 // ║  FileReader, tab router, virtual     ║
 // ║  scroll engine, sort engine, resize  ║
-// ║  handles, global search, drag-drop,  ║
+// ║  handles, drag-drop,                 ║
 // ║  host management                     ║
 // ╠══════════════════════════════════════╣
 // ║  Reads    : JSON files via FileReader ║
@@ -414,7 +400,7 @@ var _toolDefaults = {
 // ║    switchTab, renderActiveTab,        ║
 // ║    createVS, sortTable, applySortTo-  ║
 // ║    Rows, addResizeHandles, updateBad- ║
-// ║    ges, updateMeta, onGlobalSearch,   ║
+// ║    ges, updateMeta,                   ║
 // ║    buildUserIndex, rebuildUserIndex,  ║
 // ║    navigateToRow, gotoProcess,        ║
 // ║    gotoNetwork, getAdapterAliases,    ║
@@ -1100,80 +1086,7 @@ function createVS(containerId, columns, data, rowRenderer, onRowClick, tabName) 
   };
 }
 
-// ── GLOBAL SEARCH ─────────────────────────────────────────────────────────────
-function onGlobalSearch(q) {
-  const panel = el('gsearch-panel');
-  if (!q || q.length < 2) { panel.classList.remove('show'); panel.innerHTML = ''; return; }
-  const d = activeData();
-  if (!d) { panel.classList.remove('show'); return; }
-  const lq = q.toLowerCase();
-
-  const pMatches = (d.processes || []).filter(p =>
-    str(p.Name).includes(lq) || str(p.ProcessId).includes(lq) ||
-    str(p.ExecutablePath).includes(lq) || str(p.CommandLine).includes(lq)
-  ).slice(0, 20);
-
-  const nMatches = (d.network_tcp || []).concat(d.network_udp || []).filter(c =>
-    str(c.RemoteAddress).includes(lq) || str(c.RemotePort).includes(lq) ||
-    str(c.LocalAddress).includes(lq)  || str(c.LocalPort).includes(lq) ||
-    str(c.State).includes(lq)         || str(c.DnsMatch).includes(lq) ||
-    str(c.ReverseDns).includes(lq)    || str(c.InterfaceAlias).includes(lq)
-  ).slice(0, 20);
-
-  const dMatches = (d.dns_cache || []).filter(e =>
-    str(e.Entry).includes(lq) || str(e.Data).includes(lq)
-  ).slice(0, 20);
-
-  if (!pMatches.length && !nMatches.length && !dMatches.length) {
-    panel.innerHTML = '<div class="gs-empty">No results</div>';
-    panel.classList.add('show');
-    return;
-  }
-
-  let html = '';
-  if (pMatches.length) {
-    html += '<div class="gs-section">Processes (' + pMatches.length + ')</div>';
-    pMatches.forEach((p, i) => {
-      html += `<div class="gs-row" onclick="gotoProcess(${p.ProcessId})">
-        <div class="gs-main">${esc(p.Name)} [PID ${p.ProcessId}]</div>
-        <div class="gs-sub">${esc(p.ExecutablePath || p.CommandLine || '')}</div>
-      </div>`;
-    });
-  }
-  if (nMatches.length) {
-    html += '<div class="gs-section">Network (' + nMatches.length + ')</div>';
-    nMatches.forEach(c => {
-      const pname = getProcName(c.OwningProcess, d);
-      html += `<div class="gs-row" onclick="gotoNetwork('${esc(escJs(c.RemoteAddress))}')">
-        <div class="gs-main">${esc(c.RemoteAddress)}:${c.RemotePort} ← ${esc(pname)}</div>
-        <div class="gs-sub">${esc(c.State)} ${esc(c.DnsMatch || c.ReverseDns || '')}</div>
-      </div>`;
-    });
-  }
-  if (dMatches.length) {
-    html += '<div class="gs-section">DNS (' + dMatches.length + ')</div>';
-    dMatches.forEach(e => {
-      html += `<div class="gs-row" onclick="switchTab('dns')">
-        <div class="gs-main">${esc(e.Entry)}</div>
-        <div class="gs-sub">${esc(e.Data || '')}</div>
-      </div>`;
-    });
-  }
-
-  panel.innerHTML = html;
-  panel.classList.add('show');
-}
-
-function closeGSearch() {
-  el('gsearch-panel').classList.remove('show');
-  el('globalSearch').value = '';
-}
-
 document.addEventListener('click', e => {
-  const gs = el('gsearch-panel');
-  if (gs && !gs.contains(e.target) && e.target.id !== 'globalSearch') {
-    gs.classList.remove('show');
-  }
   const hwrap = el('hostSelectorWrap');
   const hdd   = el('hostSelectorDropdown');
   if (hdd && hwrap && !hwrap.contains(e.target)) hdd.style.display = 'none';
