@@ -531,18 +531,7 @@ function switchHost(h) {
 
 function activeData() { return state.activeHost ? state.hosts[state.activeHost] : null; }
 
-function updateBadges() {
-  const d = activeData();
-  if (!d) { ['b-procs','b-active','b-ips','b-dns'].forEach(id => el(id).textContent = '0'); return; }
-  el('b-procs').textContent  = d.processes ? d.processes.length : 0;
-  const allConns = (d.network_tcp || []).concat(d.network_udp || []);
-  const active = allConns.filter(c => c.State === 'ESTABLISHED').length;
-  el('b-active').textContent = active;
-  const ips = new Set(allConns.filter(c => c.RemoteAddress && c.RemoteAddress !== '0.0.0.0' && c.RemoteAddress !== '::').map(c => c.RemoteAddress));
-  el('b-ips').textContent   = ips.size;
-  const matches = allConns.filter(c => c.DnsMatch).length;
-  el('b-dns').textContent   = matches;
-}
+function updateBadges() {}
 
 function updateMeta() {
   const d = activeData();

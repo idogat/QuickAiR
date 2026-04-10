@@ -48,9 +48,6 @@ input::placeholder{color:var(--muted)}
 #topbar h1{font-size:14px;color:var(--accent);white-space:nowrap}
 #topbar .sep{color:var(--border);user-select:none}
 #hostSelectorWrap{min-width:160px}
-.badge{background:var(--bg);border:1px solid var(--border);padding:3px 8px;border-radius:3px;font-size:11px;white-space:nowrap}
-.badge span{color:var(--accent);font-weight:bold}
-.badge.src-badge{color:var(--muted);font-size:10px}
 #collectionMeta{color:var(--muted);font-size:11px;white-space:nowrap}
 
 /* TABS */
@@ -283,11 +280,6 @@ input::placeholder{color:var(--muted)}
     <div id="hostSelectorCurrent" class="host-selector-current" onclick="toggleHostDropdown(event)">-- No files loaded --</div>
     <div id="hostSelectorDropdown" class="host-dropdown" style="display:none"></div>
   </div>
-  <span class="badge">Procs <span id="b-procs">0</span></span>
-  <span class="badge">Active <span id="b-active">0</span></span>
-  <span class="badge">Remote IPs <span id="b-ips">0</span></span>
-  <span class="badge">DNS Matches <span id="b-dns">0</span></span>
-  <span class="sep">|</span>
   <span id="collectionMeta"></span>
 </div>
 
@@ -318,7 +310,7 @@ input::placeholder{color:var(--muted)}
 
 <script>
 var _embeddedToolsManifest = {
-    "generated":  "2026-04-10T07:23:03.3292766Z",
+    "generated":  "2026-04-10T12:22:16.0159137Z",
     "tools":  [
                   {
                       "filename":  "Autoruns64.exe",
@@ -915,18 +907,7 @@ function switchHost(h) {
 
 function activeData() { return state.activeHost ? state.hosts[state.activeHost] : null; }
 
-function updateBadges() {
-  const d = activeData();
-  if (!d) { ['b-procs','b-active','b-ips','b-dns'].forEach(id => el(id).textContent = '0'); return; }
-  el('b-procs').textContent  = d.processes ? d.processes.length : 0;
-  const allConns = (d.network_tcp || []).concat(d.network_udp || []);
-  const active = allConns.filter(c => c.State === 'ESTABLISHED').length;
-  el('b-active').textContent = active;
-  const ips = new Set(allConns.filter(c => c.RemoteAddress && c.RemoteAddress !== '0.0.0.0' && c.RemoteAddress !== '::').map(c => c.RemoteAddress));
-  el('b-ips').textContent   = ips.size;
-  const matches = allConns.filter(c => c.DnsMatch).length;
-  el('b-dns').textContent   = matches;
-}
+function updateBadges() {}
 
 function updateMeta() {
   const d = activeData();
