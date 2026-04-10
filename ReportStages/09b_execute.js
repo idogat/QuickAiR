@@ -70,9 +70,6 @@
     '.exec-msg-success{color:var(--green);background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2)}',
     '.exec-remove-btn{cursor:pointer;color:var(--red);font-size:14px;border:none;background:none;padding:2px 6px}',
     '.exec-remove-btn:hover{color:#fff;background:var(--red);border-radius:3px}',
-    '.exec-tooltip-wrap{position:relative;display:inline-block}',
-    '.exec-tooltip{display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:11px;white-space:pre-line;width:260px;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.3)}',
-    '.exec-tooltip-wrap:hover .exec-tooltip{display:block}',
     '.exec-status-notcollected{color:var(--muted);font-style:italic}',
     '.exec-user-input{width:120px;padding:2px 6px;font-size:11px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;box-sizing:border-box}'
   ].join('');
@@ -172,12 +169,7 @@ function renderExecute() {
         '<div class="exec-input-row">' +
           '<input type="text" id="exec-manual-input" placeholder="Hostname or IP" onkeydown="if(event.key===\'Enter\')execAddManualTarget()">' +
           '<button class="exec-add-btn" onclick="execAddManualTarget()">+ Add</button>' +
-          '<span style="margin-left:12px">' +
-            '<div class="exec-tooltip-wrap">' +
-              '<label class="exec-add-btn" for="exec-csv-input" style="cursor:pointer">Import CSV</label>' +
-              '<div class="exec-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
-            '</div>' +
-          '</span>' +
+          '<label class="exec-add-btn" for="exec-csv-input" style="cursor:pointer;margin-left:12px">Import CSV</label>' +
           '<input type="file" id="exec-csv-input" accept=".csv,.txt" style="display:none" onchange="execImportManualCSV(this.files)">' +
         '</div>' +
         '<div id="exec-manual-msg"></div>' +
