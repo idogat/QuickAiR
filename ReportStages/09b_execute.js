@@ -749,6 +749,14 @@ function execRemoveHost(hostname, isManual) {
   renderExecute();
 }
 
+function execRestoreHost(hostname) {
+  // Called when a JSON file is reloaded for a host that was previously removed
+  var lc = hostname.toLowerCase();
+  Object.keys(_execRemovedHosts).forEach(function(k) {
+    if (k.toLowerCase() === lc) delete _execRemovedHosts[k];
+  });
+}
+
 function execToggleSection(bodyId, arrowId) {
   var body = el(bodyId);
   if (!body) return;

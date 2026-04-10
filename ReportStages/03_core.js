@@ -350,15 +350,16 @@ function loadJsonFile(file, onDone) {
       data.processes.forEach(p => {
         p.DLLCount = hasDlls ? parseInt(dllCountMap[p.ProcessId] || 0, 10) : null;
       });
-      // Duplicate detection by hostname — skip if already loaded
-      if (state.hosts[host]) {
-        console.warn('Skipped duplicate host: ' + host + ' (already loaded)');
-        var errDiv = document.getElementById('load-errors');
-        if (errDiv) { var t = document.createElement('div'); t.style.cssText = 'background:#ed6c02;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;'; t.textContent = 'Skipped duplicate: ' + host + ' (already loaded)'; errDiv.appendChild(t); setTimeout(function(){ t.remove(); }, 8000); }
-        onDone(); return;
-      }
+      // Replace existing entry if host already loaded; otherwise add fresh
+      var wasReplaced = !!state.hosts[host];
       state.hosts[host] = data;
-      if (!state.activeHost) state.activeHost = host;
+      state.activeHost = host;
+      if (wasReplaced) {
+        // Clear removed-host flag so it reappears in Execute tab
+        if (typeof execRestoreHost === 'function') execRestoreHost(host);
+        var errDiv = document.getElementById('load-errors');
+        if (errDiv) { var t = document.createElement('div'); t.style.cssText = 'background:#2e7d32;color:#fff;padding:8px 16px;margin:4px;border-radius:4px;font-size:13px;'; t.textContent = 'Replaced: ' + host; errDiv.appendChild(t); setTimeout(function(){ t.remove(); }, 4000); }
+      }
       // Promote: if this host was manually added, remove it from _sharedTargets
       // so it doesn't appear as a duplicate row alongside the JSON-sourced row
       sharedLoadTargets();
