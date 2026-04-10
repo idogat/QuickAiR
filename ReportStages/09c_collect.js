@@ -125,7 +125,7 @@ function renderCollect() {
           '<button class="col-btn" onclick="colAddTarget()">+ Add</button>' +
           '<span style="margin-left:12px">' +
             '<div class="col-tooltip-wrap">' +
-              '<button class="col-btn" onclick="document.getElementById(\'col-csv-input\').click()">Import CSV</button>' +
+              '<label class="col-btn" for="col-csv-input" style="cursor:pointer">Import CSV</label>' +
               '<div class="col-tooltip">Supported formats:\nSimple: one hostname or IP per line\nAdvanced: Hostname,OS,Notes,Username\nLines starting with # are ignored</div>' +
             '</div>' +
           '</span>' +
